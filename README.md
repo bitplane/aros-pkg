@@ -121,7 +121,9 @@ reason: hello is signed by a different key than the one pinned ...
 refusals, on macOS and then from the AmigaDOS startup of hosted AROS against
 the same channel. It checks each code both ways, `$RC` on AROS, and finds the
 outputs identical line for line once the root and channel paths are
-normalised: 85 checks. A deliberately altered line shows the comparison can
+normalised. In the same boot Pkg installs Regina from a second channel and
+the sequence runs a third time through the `PKG` port: the same RC and the
+same records. 152 checks. A deliberately altered line shows the comparison can
 fail.
 
 ## The goal sequence
@@ -240,7 +242,7 @@ with its path. A package installed as a dependency is marked in `.pkg/auto`;
 it leaves orphaned, and `REMOVE ORPHANS` takes those out, repeating until none
 is left. `tests/deps.sh`, 44 checks.
 
-## Windows
+## Windows, macOS and Linux
 
 `make build/pkg.exe` cross-builds Pkg for x86_64 Windows with mingw-w64;
 `src/pkg_fs_win32.c` is the host layer. Paths stay UTF-8 inside Pkg and go
@@ -249,16 +251,21 @@ command line is read back as UTF-16 for the same reason. Replacement is
 `MoveFileExW` with write-through, a signing key is created with a DACL for
 its owner alone from the first instant, randomness comes from
 `BCryptGenRandom`, and output is in binary mode so a newline stays one byte.
+`make build/pkg-macos` builds a universal binary, and
+`make build/pkg-linux-x86_64` or `-aarch64` a static Linux one with zig.
 
-`sh tools/make-windows-kit.sh` writes `build/pkg-windows-kit.zip`: `pkg.exe`,
-the contract channel, `tests/contract-steps.txt` (the sequence hosted AROS
-runs too), what macOS answered to each step, and `run.ps1`, which compares
-every exit code and machine output byte for byte, then checks the key's ACL,
-a root named outside the ANSI code page, and an image written on Windows
-against the macOS bytes. It writes `report.txt`.
+`sh tools/make-test-kit.sh` writes `build/pkg-test-kit.zip`: Pkg for the
+four targets, the contract channel, `tests/contract-steps.txt` (the sequence
+hosted AROS runs too), the reference answers, and `run.ps1` for PowerShell
+5.1 on Windows or PowerShell 7 anywhere. It compares every exit code and
+machine output byte for byte, then checks the key's permissions (ACL on
+Windows, mode 0600 elsewhere), a root named outside ASCII, and an image
+written on the host against the reference bytes, and writes `report.txt`.
+Run here with PowerShell 7 on macOS: 87 checks, 0 failures, and one altered
+expectation is caught.
 
-The Windows run itself has not happened yet: no Windows machine here, and
-Wine's Homebrew casks were withdrawn on 2026-09-01. The owner runs the kit.
+Not run yet: Windows and Linux. No machine of either here, and Wine's
+Homebrew casks were withdrawn on 2026-09-01. The owner runs the kit.
 
 ## AROS defects found along the way
 
@@ -274,6 +281,7 @@ owner's call, and nothing here is posted anywhere public.
 | posixc `errno` | No `EEXIST` for an existing directory, no `ENOENT` from `opendir` on an absent one | first AROS runs | Existence is tested, never inferred from errno |
 | Regina, aros-contrib | For an ARexx port, RC is set to the RESULT string instead of the numeric `rm_Result1` | goal 1 | `tools/aros/regina-arexx-rc.patch`, kept to offer upstream |
 | The darwin hosted build | Ships no FFS handler at all, so no FFS volume can mount | goal 2 | `tools/build-aros-extras.sh` builds `rom/filesys/afs` |
+| The shell, `$RC` | A command that cannot be loaded (file not found, volume not mounted) leaves `$RC` at its previous value, 0 or 10 alike, so a script reads success after it; not yet compared with AmigaOS | goal 2, then a four-case check | Scripts check each step's output, not only `$RC` |
 
 ## Use, on macOS
 
