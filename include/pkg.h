@@ -1,0 +1,113 @@
+/* SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 John Knipper
+ *
+ * libpkg: Pkg as a library, for any program that wants to publish, install
+ * or inspect packages without running the command line: a graphical front
+ * end, an installer, an IDE plug-in, an agent's tool adapter. The `pkg`
+ * command is one client of it among others, and adds nothing but argument
+ * parsing, help text and the ARexx port.
+ *
+ * Each operation takes its options and a sink, and returns a code:
+ *
+ *   0        done;
+ *   10..18   refused, the number naming the class (PKG_RC_*);
+ *   20       the request itself is wrong (a missing option, say).
+ *
+ * The sink receives the answer in one of two forms, chosen by `structured`:
+ *
+ *   structured = 1   `record` is called once per field, in order, with the
+ *                    same keys and values as the command line's MACHINE
+ *                    output: a `result` field in every answer, and for a
+ *                    refusal `result: refused`, `class`, `code`, `reason`,
+ *                    and `next`, what to do now (stop, ask-person,
+ *                    fix-command, check-name, use-upgrade, use-install,
+ *                    report). This is the form for programs.
+ *   structured = 0   `text` is called with lines written for a person,
+ *                    `is_error` set for refusals and warnings.
+ *
+ * Nothing is written to stdout or stderr, and no environment variable is
+ * read: PKG_SIGNKEY and PKG_OUTPUT belong to the command line.
+ *
+ * A decision that belongs to a person is never taken here. A refusal whose
+ * `next` is ask-person (a new signing key, a downgrade, a file the person
+ * edited) is shown to the person; if they agree, the caller repeats the
+ * operation with the option that expresses it (acceptkey, downgrade).
+ *
+ * One operation runs at a time in a process: the library keeps the state of
+ * the running operation in static storage, as the AmigaDOS tools it sits
+ * beside do. A front end that runs operations in the background serialises
+ * them.
+ */
+
+#ifndef PKG_H
+#define PKG_H
+
+#define PKG_API_VERSION 1
+
+enum {
+    PKG_RC_OK         = 0,
+    PKG_RC_REFUSED    = 10,  /* a refusal with no better class */
+    PKG_RC_NOTFOUND   = 11,  /* package, version, installed entry or channel object absent */
+    PKG_RC_INTEGRITY  = 12,  /* a digest, container, manifest or database disagrees */
+    PKG_RC_SIGNATURE  = 13,  /* unsigned, malformed or invalid signature */
+    PKG_RC_KEY        = 14,  /* signed by a key other than the one pinned */
+    PKG_RC_CONFLICT   = 15,  /* something is already there */
+    PKG_RC_DEPENDENCY = 16,  /* a dependency cannot be satisfied, or is still needed */
+    PKG_RC_IO         = 17,  /* the filesystem refused */
+    PKG_RC_POLICY     = 18,  /* allowed only with an explicit option, such as downgrade */
+    PKG_RC_USAGE      = 20   /* the request is wrong */
+};
+
+struct pkg_sink {
+    void (*record)(void *user, const char *key, const char *value);
+    void (*text)(void *user, int is_error, const char *text);
+    void *user;
+    int   structured;
+};
+
+/* Every option any operation takes; each operation reads the ones it needs
+ * and ignores the rest. Strings are borrowed for the length of the call. */
+struct pkg_options {
+    const char *target;     /* the package, drawer, file or image operated on */
+    const char *root;       /* the directory packages are installed into */
+    const char *channel;    /* the directory packages are published into */
+    const char *name, *version, *arch, *kind;  /* publish: identity, else from the drawer */
+    const char *depends;    /* publish: "a >= 1.0, b" */
+    const char *sign;       /* publish: the signing key file */
+    const char *file;       /* keygen: the key file to create */
+    const char *key;        /* sign: the key file */
+    const char *out;        /* sign, image, mountlist: the file to write */
+    const char *acceptkey;  /* the new publisher key, in full, once the person confirmed it */
+    const char *unit;       /* mountlist: the fdsk.device unit, default 20 */
+    const char *handler;    /* mountlist: the FFS handler's path, default found in the root */
+    int downgrade;          /* upgrade: moving to an older version was asked for */
+    int orphans;            /* remove: remove what nothing needs, instead of target */
+    int dryrun;             /* every check, no write; results read would-... */
+};
+
+int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_manifest (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_publish  (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_install  (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_upgrade  (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_rollback (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_list     (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_verify   (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_remove   (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_show     (const struct pkg_sink *s, const struct pkg_options *o);
+
+/* A refusal of the request itself, answered in the same form as the
+ * operations' own: for a front end that validates its input first. Returns
+ * PKG_RC_USAGE. `verb` names the operation, as in "install". */
+int pkg_usage_error(const struct pkg_sink *s, const char *verb, const char *reason);
+
+/* "not-found" for 11, and so on; "ok" for 0. */
+const char *pkg_class_name(int code);
+
+/* The sentence a person reads for a `next` value. */
+const char *pkg_next_words(const char *next);
+
+#endif

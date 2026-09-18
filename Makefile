@@ -6,6 +6,7 @@ CFLAGS   ?= -std=c99 -Wall -Wextra -Werror -O2
 CPPFLAGS  = -Iinclude
 
 # Portable C99: everything except the host filesystem layer.
+LIB  = src/pkg_lib.c
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
        src/pkg_manifest.c src/pkg_image.c
 # The host layer. POSIX covers macOS and Linux; AROS gets its own.
@@ -21,30 +22,44 @@ all: build/pkg
 # Every check this tree knows how to run.
 check: check-portability test test-ubsan check-m68k check-image
 
-build/pkg: src/pkg_main.c $(CORE) $(HOST) $(HDR)
+build/pkg: src/pkg_main.c $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(CORE) $(HOST)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(LIB) $(CORE) $(HOST)
+
+# libpkg for other programs: a static library and pkg.h. The host layer is
+# part of it, since every operation touches files.
+build/libpkg.a: $(LIB) $(CORE) $(HOST) $(HDR)
+	@mkdir -p build/lib-obj
+	@for f in $(LIB) $(CORE) $(HOST); do \
+		$(CC) $(CFLAGS) $(CPPFLAGS) -c $$f -o build/lib-obj/$$(basename $$f .c).o || exit 1; \
+	done
+	ar rcs $@ build/lib-obj/*.o
 
 # Windows, cross-built with mingw-w64. tools/make-windows-kit.sh wraps it in a
 # test kit to run on a Windows machine.
 WINCC ?= x86_64-w64-mingw32-gcc
 WINHOST = src/pkg_fs_win32.c src/pkg_out.c src/pkg_port.c
 
-build/pkg.exe: src/pkg_main.c $(CORE) $(WINHOST) $(HDR)
+build/pkg.exe: src/pkg_main.c $(LIB) $(CORE) $(WINHOST) $(HDR)
 	@mkdir -p build
-	$(WINCC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(CORE) $(WINHOST) \
+	$(WINCC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(LIB) $(CORE) $(WINHOST) \
 		-lbcrypt -ladvapi32 -lshell32
 
 # macOS, one universal binary for Apple silicon and Intel.
-build/pkg-macos: src/pkg_main.c $(CORE) $(HOST) $(HDR)
+build/pkg-macos: src/pkg_main.c $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
-	cc $(CFLAGS) $(CPPFLAGS) -arch arm64 -arch x86_64 -o $@ src/pkg_main.c $(CORE) $(HOST)
+	cc $(CFLAGS) $(CPPFLAGS) -arch arm64 -arch x86_64 -o $@ src/pkg_main.c $(LIB) $(CORE) $(HOST)
 
 # Linux, static against musl, cross-built with zig so no Linux toolchain is
 # needed here.
-build/pkg-linux-%: src/pkg_main.c $(CORE) $(HOST) $(HDR)
+build/pkg-linux-%: src/pkg_main.c $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
-	zig cc -target $*-linux-musl $(CFLAGS) $(CPPFLAGS) -static -o $@ src/pkg_main.c $(CORE) $(HOST)
+	zig cc -target $*-linux-musl $(CFLAGS) $(CPPFLAGS) -static -o $@ src/pkg_main.c $(LIB) $(CORE) $(HOST)
+
+# The library through pkg.h alone, as another program would use it.
+build/test_api: tests/test_api.c $(LIB) $(CORE) $(HOST) $(HDR)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_api.c $(LIB) $(CORE) $(HOST)
 
 build/test_%: tests/test_%.c $(CORE) $(HDR)
 	@mkdir -p build
@@ -56,9 +71,9 @@ build/test_%: tests/test_%.c $(CORE) $(HDR)
 # by being incremental, and a test that can report the wrong state is worse
 # than a slow one.
 test:
-	@rm -f build/pkg $(UNITS:%=build/%)
-	@$(MAKE) --no-print-directory build/pkg $(UNITS:%=build/%)
-	@for t in $(UNITS); do echo "== $$t"; ./build/$$t || exit 1; done
+	@rm -f build/pkg build/test_api $(UNITS:%=build/%)
+	@$(MAKE) --no-print-directory build/pkg build/test_api $(UNITS:%=build/%)
+	@for t in $(UNITS) test_api; do echo "== $$t"; ./build/$$t || exit 1; done
 	@echo "== e2e"
 	@PKG=./build/pkg sh tests/e2e.sh
 	@echo "== deps"
@@ -97,7 +112,10 @@ test-ubsan:
 		./build/san/$$t > /dev/null || { echo "test-ubsan: $$t FAILED"; exit 1; }; \
 	done
 	@$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \
-		-o build/san/pkg src/pkg_main.c $(CORE) $(HOST)
+		-o build/san/test_api tests/test_api.c $(LIB) $(CORE) $(HOST)
+	@./build/san/test_api > /dev/null || { echo "test-ubsan: test_api FAILED"; exit 1; }
+	@$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \
+		-o build/san/pkg src/pkg_main.c $(LIB) $(CORE) $(HOST)
 	@PKG=./build/san/pkg sh tests/e2e.sh > build/san/e2e.log 2>&1 \
 		|| { tail -20 build/san/e2e.log; echo "test-ubsan: e2e FAILED"; exit 1; }
 	@PKG=./build/san/pkg sh tests/deps.sh > build/san/deps.log 2>&1 \
