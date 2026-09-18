@@ -11,8 +11,9 @@
                 || p.Latest.Manifest.Files.Any(f => f.Path.Contains(q, StringComparison.OrdinalIgnoreCase)))
             && (kind.Length == 0 || p.Kind == kind)
             && (arch.Length == 0 || p.Archs.Contains(arch)))
-        // Names first, then packages that only hold a file of that name.
-        .OrderBy(p => q.Length > 0 && p.Name.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0
+        // Pinned first, then names, then packages that only hold a file of that name.
+        .OrderBy(p => Catalogue.IsPinned(p) ? 0 : 1)
+        .ThenBy(p => q.Length > 0 && p.Name.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0
                     : q.Length > 0 && p.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 1
                     : q.Length == 0 || p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ? 2 : 3)
         .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)

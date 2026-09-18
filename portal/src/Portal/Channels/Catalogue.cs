@@ -119,6 +119,17 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
 
     public void Invalidate(string channel) => cache.TryRemove(channel, out _);
 
+    /// The pinned packages that exist, in the order the setting gives.
+    public List<PackageInfo> Pinned() =>
+        o.Pinned.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(e => e.Split('/', 2))
+            .Select(p => p.Length == 2 ? Package(p[0], p[1]) : null)
+            .OfType<PackageInfo>().ToList();
+
+    public bool IsPinned(PackageInfo p) =>
+        o.Pinned.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Contains($"{p.Channel}/{p.Name}", StringComparer.OrdinalIgnoreCase);
+
     public PackageInfo? Package(string channel, string name) =>
         Get(channel)?.Packages.GetValueOrDefault(name);
 

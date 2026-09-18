@@ -18,7 +18,8 @@
 }
 @{
     var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
-    var packages = ch.Packages.Values.Where(p => kind.Length == 0 || p.Kind == kind).ToList();
+    var packages = ch.Packages.Values.Where(p => kind.Length == 0 || p.Kind == kind)
+        .OrderBy(p => Catalogue.IsPinned(p) ? 0 : 1).ToList();
     var builds = ch.Builds().Take(10).ToList();
     var bytes = ch.Packages.Values.Sum(p => p.Latest.Manifest.InstalledSize);
     var archs = ch.Packages.Values.SelectMany(p => p.Archs).Distinct().Order().ToList();
@@ -76,7 +77,13 @@
     @foreach (var p in packages)
     {
         <tr class="@(p.Latest.Withdrawn ? "withdrawn" : "")">
-            <td><a href="/packages/@ch.Name/@p.Name">@p.Name</a></td>
+            <td>
+                <a href="/packages/@ch.Name/@p.Name">@p.Name</a>
+                @if (Catalogue.IsPinned(p))
+                {
+                    <span class="pin">pinned</span>
+                }
+            </td>
             <td><code>@p.Latest.Version</code></td>
             <td class="hide-s">@Site.KindLabel(p.Kind)</td>
             <td class="hide-s">@string.Join(", ", p.Archs.Select(Site.ArchLabel))</td>

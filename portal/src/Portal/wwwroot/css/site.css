@@ -8,6 +8,7 @@
   --line: #e3e3e0;
   --card: #ffffff;
   --accent: #1f5fbf;
+  --brand: #8547b3;
   --accent-soft: #e8f0fb;
   --warn: #9a5b00;
   --warn-soft: #fbf1e1;
@@ -23,6 +24,7 @@
     --line: #2a2c30;
     --card: #1b1c1f;
     --accent: #7fb0ff;
+    --brand: #a672d4;
     --accent-soft: #1d2a3d;
     --warn: #f0b35a;
     --warn-soft: #33270f;
@@ -49,7 +51,7 @@ h2 { font-size: 1.15rem; margin: 2rem 0 0.6rem; }
 .top-row { display: flex; align-items: center; gap: 16px; min-height: 56px; }
 .brand { font-weight: 650; color: var(--fg); white-space: nowrap; }
 .brand:hover { text-decoration: none; }
-.mark { color: var(--accent); }
+.mark { display: inline-block; width: 0.8em; height: 0.8em; border-radius: 50%; background: var(--brand); margin-right: 0.45em; vertical-align: -0.05em; }
 .search { flex: 1; display: flex; justify-content: flex-end; }
 .search input {
   width: 100%; max-width: 360px; padding: 8px 12px; border-radius: var(--radius);
@@ -68,6 +70,9 @@ main { padding-top: 16px; padding-bottom: 48px; min-height: 70vh; }
 }
 .card:hover { border-color: var(--accent); text-decoration: none; }
 .card-title { font-weight: 600; }
+.card .cmd-line { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.pinned { border-color: var(--brand); }
+.pin { color: var(--brand); font-size: 0.78rem; font-weight: 600; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 8px 0; }
 .stats div { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }

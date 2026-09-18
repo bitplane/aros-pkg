@@ -1,15 +1,34 @@
 @page
+@using Microsoft.Extensions.Options
 @using Portal.Channels
 @inject Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
 @{
     var channels = Catalogue.Channels().ToList();
+    var pinned = Catalogue.Pinned();
     var recent = channels.SelectMany(c => c.Packages.Values).OrderByDescending(p => p.Updated).Take(12).ToList();
     var total = channels.Sum(c => c.Packages.Count);
 }
 <section class="hero">
-    <h1>Packages for AROS</h1>
-    <p class="lead">@total package@(total == 1 ? "" : "s") in @channels.Count channel@(channels.Count == 1 ? "" : "s"), installed and kept up to date with <a href="/packages/pkg/pkg">Pkg</a>.</p>
+    <h1>Install and update AROS software</h1>
+    <p class="lead">@total package@(total == 1 ? "" : "s") in @channels.Count channel@(channels.Count == 1 ? "" : "s").
+        Pkg checks every file against its signed manifest before it installs it.</p>
 </section>
+
+@if (pinned.Count > 0)
+{
+    <h2>Start here</h2>
+    <div class="cards">
+    @foreach (var p in pinned)
+    {
+        <a class="card pinned" href="/packages/@p.Channel/@p.Name">
+            <span class="card-title">@p.Name <span class="muted">@p.Latest.Version</span></span>
+            <span class="muted small">@Site.KindLabel(p.Kind) · @string.Join(", ", p.Archs.Select(Site.ArchLabel))</span>
+            <span class="cmd-line">Pkg INSTALL @p.Name CHANNEL @Site.ChannelUrl(Request, Options.Value, p.Channel)</span>
+        </a>
+    }
+    </div>
+}
 
 <h2>Channels</h2>
 @if (channels.Count == 0)

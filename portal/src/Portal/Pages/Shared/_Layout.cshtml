@@ -7,12 +7,13 @@
     <meta name="color-scheme" content="light dark" />
     <title>@(ViewData["Title"] is string t ? t + " · " : "")AROS Packages</title>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
-    <link rel="icon" href="~/favicon.ico" />
+    <link rel="icon" href="~/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="~/favicon.ico" sizes="16x16 32x32 48x48" />
 </head>
 <body>
 <header class="top">
     <div class="wrap top-row">
-        <a class="brand" href="/"><span class="mark" aria-hidden="true">▲</span> AROS Packages</a>
+        <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>AROS Packages</a>
         <form class="search" action="/search" method="get" role="search">
             <input type="search" name="q" value="@Context.Request.Query["q"]" placeholder="Search packages" aria-label="Search packages" />
         </form>

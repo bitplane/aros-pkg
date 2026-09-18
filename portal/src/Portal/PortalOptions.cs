@@ -21,6 +21,11 @@ public sealed class PortalOptions
     /// and a local instance. Never over the network.
     public bool AllowLoopbackHttpPush { get; set; }
 
+    /// Packages shown first, as "channel/name" separated by commas, e.g.
+    /// "pkg/pkg,contrib-nightly/regina". Pkg itself belongs here: people
+    /// need it before anything else.
+    public string Pinned { get; set; } = "pkg/pkg";
+
     /// The public base URL shown in commands, e.g. https://aros-pkg.azurewebsites.net.
     /// Empty: taken from the request.
     public string PublicUrl { get; set; } = "";
