@@ -17,6 +17,7 @@ Details in the README table "AROS defects found along the way".
 | posixc `stdout` reaches no shell redirection | first AROS runs | Fix in posixc, or document that CLI tools must write through `Output()` |
 | posixc reports no `EEXIST` or `ENOENT` where POSIX does | first AROS runs | Fix the errno mapping in posixc |
 | A command that cannot load leaves `$RC` unchanged | goal 2, four-case check | Compare with AmigaOS 3.x first; if AmigaOS sets a failure code, set it in the AROS shell too |
+| The AROS Installer cannot install most scripts, nor run unattended, nor report what it wrote or whether it failed | 2026-09-18, the Installer modes | Implement the missing commands, a real unattended mode, exit codes and icon start; details in the README's defects table |
 | collect-aros writes ELF ABI version 1 whatever the ABI, and the loader never checks it | 2026-09-18, the ABI field | Write the real ABI version per target in collect-aros, and have the loader refuse a mismatch; Pkg will not rely on it either way |
 | The darwin hosted build ships no FFS handler | goal 2 | Add `kernel-fs-afs` to the hosted build, or say why it is left out |
 
