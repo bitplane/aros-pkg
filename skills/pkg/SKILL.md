@@ -194,6 +194,28 @@ and only what other programs share goes into `DEPENDS`, by package name.
 The dry run lists the files that go into the image as `content:` lines.
 On macOS the filesystem ignores case: never create `GURU` beside `Guru`.
 
+**Protection bits and comments.** On AROS, Pkg publishes each file's own.
+On a Mac, Linux or Windows, the files have none, so they come from a text
+file named `.ameta` in each drawer directory (one per directory, the format
+of the planning repository's `docs/features/file-metadata/ameta.md`):
+
+```
+ameta 1
+file Go
+prot 0x00000040
+comment Starts%20the%20tool
+```
+
+`prot` is the AROS protection word (0x40 Script, 0x01 Delete forbidden, ...),
+the comment is percent-escaped UTF-8. Owner Execute comes from the host mode
+instead: `chmod +x` the programs, and a file without it installs with Execute
+forbidden. Everything else is allowed unless `.ameta` says so. Pkg refuses a
+malformed or stale `.ameta` line, a comment over 79 characters or outside
+Latin-1, naming it; it never packages `.ameta` itself. The attributes go in
+the signed manifest (`Protect:`, `Comment:`), into an image's file headers,
+onto the files on AROS, and into `.ameta` again when installing into a
+folder on a host.
+
 **The wrong program in the drawer** is the commonest slip: an old build, or
 another program copied under the new one's name. Pkg warns when a file's
 `$VER` names another program than its file name says, and refuses a name

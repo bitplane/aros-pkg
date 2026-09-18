@@ -57,4 +57,41 @@ int pkg_fs_random(void *buf, size_t len);
  * creation and a chmod. */
 int pkg_fs_write_private(const char *path, const void *buf, size_t len);
 
+/* ---- Amiga attributes -------------------------------------------------- */
+
+/* 1 when the host mode sets owner execute, 0 when it clears it, -1 when the
+ * host has no mode (Windows) or the file cannot be read. */
+int pkg_fs_owner_exec(const char *path);
+/* Set or clear owner execute in the host mode; 0, or -1. No-op where the
+ * host has no mode. */
+int pkg_fs_set_owner_exec(const char *path, int exec);
+
+/* On AROS, the file's own protection word and comment (Latin-1): 1. On a
+ * host that holds none of them: 0, and .ameta is where they live. -1 on
+ * error. */
+int pkg_fs_amiga_get(const char *path, unsigned long long *prot, char *comment, size_t cl);
+/* On AROS, SetProtection and SetComment: 1. Elsewhere 0, nothing done. */
+int pkg_fs_amiga_set(const char *path, unsigned long long prot, const char *comment_latin1);
+
+/* On AROS, clear the protection word, so a file Pkg installed with Delete or
+ * Write forbidden can be replaced or removed by it. Elsewhere nothing. */
+void pkg_fs_unprotect(const char *path);
+
+/* What .ameta writers compare before replacing it (see ameta.md, Writing). */
+struct pkg_fs_id {
+    int                exists;
+    unsigned long long dev, ino, size;
+    long long          mtime_s, mtime_ns;
+};
+int pkg_fs_identity(const char *path, struct pkg_fs_id *id);
+/* Write buf to a temporary file beside path, then, if path still has the
+ * identity `before`, rename it over path (buf NULL: delete path). 0 done,
+ * 1 path changed meanwhile and nothing was replaced, -1 error. */
+int pkg_fs_replace_if_same(const char *path, const struct pkg_fs_id *before,
+                           const void *buf, size_t len);
+/* An exclusive lock on a directory, where the host has flock; NULL
+ * otherwise, and the identity check alone guards the write. */
+void *pkg_fs_lock_dir(const char *dir);
+void  pkg_fs_unlock_dir(void *lock);
+
 #endif

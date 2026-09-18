@@ -3,6 +3,7 @@
  */
 
 #include "pkg_manifest.h"
+#include "pkg_ameta.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -28,11 +29,15 @@ void pkg_manifest_free(struct pkg_manifest *m)
     size_t i;
     free(m->name); free(m->version); free(m->architecture);
     free(m->kind); free(m->payload);
-    for (i = 0; i < m->nfiles; i++)
+    for (i = 0; i < m->nfiles; i++) {
         free(m->files[i].path);
+        free(m->files[i].comment);
+    }
     free(m->files);
-    for (i = 0; i < m->ncontent; i++)
+    for (i = 0; i < m->ncontent; i++) {
         free(m->content[i].path);
+        free(m->content[i].comment);
+    }
     free(m->content);
     for (i = 0; i < m->ndeps; i++) {
         free(m->deps[i].name);
@@ -71,8 +76,43 @@ static int add_to(struct pkg_file **v, size_t *n, size_t *cap, const char *path,
     memcpy(f->digest, digest_hex, PKG_SHA256_HEXLEN);
     f->digest[PKG_SHA256_HEXLEN] = '\0';
     f->size = size;
+    f->prot = 0;
+    f->comment = NULL;
     (*n)++;
     return 0;
+}
+
+long pkg_comment_latin1(const char *utf8, char *out, size_t outsz)
+{
+    const unsigned char *p = (const unsigned char *)utf8;
+    size_t o = 0;
+    while (*p) {
+        unsigned c;
+        if (p[0] < 0x80) { c = p[0]; p++; }
+        else if ((p[0] == 0xC2 || p[0] == 0xC3) && (p[1] & 0xC0) == 0x80) {
+            c = (unsigned)((p[0] & 0x1F) << 6 | (p[1] & 0x3F));
+            p += 2;
+        } else {
+            return -1;                  /* outside Latin-1, or not UTF-8 */
+        }
+        if (c < 0x20 || (c >= 0x7F && c < 0xA0) || o + 1 >= outsz)
+            return -1;
+        out[o++] = (char)c;
+    }
+    out[o] = '\0';
+    return (long)o;
+}
+
+struct pkg_file *pkg_manifest_attr_target(struct pkg_manifest *m, const char *path)
+{
+    size_t i;
+    for (i = 0; i < m->nfiles; i++)
+        if (strcmp(m->files[i].path, path) == 0)
+            return &m->files[i];
+    for (i = 0; i < m->ncontent; i++)
+        if (strcmp(m->content[i].path, path) == 0)
+            return &m->content[i];
+    return NULL;
 }
 
 int pkg_manifest_add_file(struct pkg_manifest *m, const char *path,
@@ -338,6 +378,31 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
     for (i = 0; i < m->ncontent; i++)
         sb_printf(&b, "Content: %s %llu %s\n", m->content[i].digest,
                   m->content[i].size, m->content[i].path);
+    /* Amiga attributes, only where they differ from the default: the files
+     * of the package, then the files inside its image. */
+    {
+        int pass;
+        for (pass = 0; pass < 2; pass++) {
+            const struct pkg_file *v = pass ? m->content : m->files;
+            size_t k, n = pass ? m->ncontent : m->nfiles;
+            for (k = 0; k < n; k++)
+                if (v[k].prot != 0)
+                    sb_printf(&b, v[k].prot <= 0xFFFFFFFFull ? "Protect: 0x%08llX %s\n"
+                              : "Protect: 0x%016llX %s\n", v[k].prot, v[k].path);
+        }
+        for (pass = 0; pass < 2; pass++) {
+            const struct pkg_file *v = pass ? m->content : m->files;
+            size_t k, n = pass ? m->ncontent : m->nfiles;
+            for (k = 0; k < n; k++)
+                if (v[k].comment != NULL && v[k].comment[0]) {
+                    char *esc = (char *)malloc(3 * strlen(v[k].comment) + 1);
+                    if (esc == NULL) { b.bad = 1; break; }
+                    pkg_ameta_escape((const unsigned char *)v[k].comment, strlen(v[k].comment), esc);
+                    sb_printf(&b, "Comment: %s %s\n", esc, v[k].path);
+                    free(esc);
+                }
+        }
+    }
     if (b.bad) {
         free(b.p);
         return -1;
@@ -509,6 +574,43 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
                       : pkg_manifest_add_file(m, sp2 + 1, val, size)) != 0) {
                 seterr(err, errlen, line, "out of memory");
                 free(val); goto fail;
+            }
+            free(val);
+        } else if (strcmp(key, "Protect") == 0 || strcmp(key, "Comment") == 0) {
+            /* "<value> <path>": an Amiga attribute of a file listed above. */
+            char *sp = strchr(val, ' ');
+            struct pkg_file *t;
+            if (sp == NULL || sp == val) {
+                seterr(err, errlen, line, "%s must be \"<value> <path>\"", key);
+                free(val); goto fail;
+            }
+            *sp = '\0';
+            t = pkg_manifest_attr_target(m, sp + 1);
+            if (t == NULL) {
+                seterr(err, errlen, line, "%s names \"%s\", which no File or Content line lists", key, sp + 1);
+                free(val); goto fail;
+            }
+            if (key[0] == 'P') {
+                unsigned long long w;
+                if (pkg_ameta_parse_prot(val, strlen(val), &w) != NULL || w == 0 || t->prot != 0) {
+                    seterr(err, errlen, line, "Protect must be a nonzero 0x word, once per path: \"%s\"", val);
+                    free(val); goto fail;
+                }
+                t->prot = w;
+            } else {
+                size_t vl = strlen(val);
+                long cl;
+                char *c = (char *)malloc(vl + 1), latin[PKG_COMMENT_MAX + 1];
+                if (c == NULL) { seterr(err, errlen, line, "out of memory"); free(val); goto fail; }
+                cl = pkg_ameta_unescape(val, vl, (unsigned char *)c);
+                if (cl >= 0) c[cl] = '\0';
+                if (cl <= 0 || t->comment != NULL || memchr(c, '\0', (size_t)cl) != NULL
+                    || pkg_comment_latin1(c, latin, sizeof latin) < 0) {
+                    seterr(err, errlen, line, "Comment must be escaped, at most %d characters of "
+                           "Latin-1, once per path", PKG_COMMENT_MAX);
+                    free(c); free(val); goto fail;
+                }
+                t->comment = c;
             }
             free(val);
         } else {

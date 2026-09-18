@@ -589,6 +589,57 @@ $PKG PUBLISH "$IH/b" CHANNEL "$IH/ch" NAME tool KIND application DRYRUN MACHINE 
 has "$T/ih3" '^kind: application$' && has "$T/ih3" '^warning: tool 1.0 was published as kind image' \
     && ! has "$T/ih3" '^kind-from:';                  ok $? "KIND given wins, with the change warned about"
 
+echo "amiga_attributes"
+# Protection and comment travel from a drawer's .ameta (and, for owner
+# Execute, the host mode) into the signed manifest, and out again at install.
+AT="$T/at"; mkdir -p "$AT/d/C" "$AT/d/S"
+printf 'x\000$VER: tool 1.0 (1.1.2026)\000' > "$AT/d/C/Tool"; chmod 755 "$AT/d/C/Tool"
+printf 'Echo hi\n' > "$AT/d/S/Go"; chmod 644 "$AT/d/S/Go"
+printf 'doc' > "$AT/d/ReadMe"; chmod 644 "$AT/d/ReadMe"
+printf 'ameta 1\nfile Go\nprot 0x00000041\ncomment Starts%%20the%%20tool%%20%%C3%%A9\n' > "$AT/d/S/.ameta"
+$PKG PUBLISH "$AT/d" CHANNEL "$AT/ch" KIND application MACHINE > "$T/at1" 2>&1
+AM=$(ls "$AT/ch/objects/"*.manifest)
+[ $? -eq 0 ] && grep -q '^Protect: 0x00000043 S/Go$' $AM && grep -q '^Comment: Starts%20the%20tool%20%C3%A9 S/Go$' $AM \
+    && grep -q '^Protect: 0x00000002 ReadMe$' $AM && ! grep -q 'Protect: .* C/Tool' $AM && ! has "$T/at1" 'left-out: S/.ameta'
+                                                      ok $? "the manifest carries .ameta's bits and comment, owner Execute from the host mode"
+$PKG INSTALL tool ROOT "$AT/r" CHANNEL "$AT/ch" > /dev/null 2>&1
+printf 'ameta 1\nfile Go\nprot 0x00000043\ncomment Starts%%20the%%20tool%%20%%C3%%A9\n' > "$T/at.want"
+cmp -s "$AT/r/S/.ameta" "$T/at.want" && [ -x "$AT/r/C/Tool" ] && [ ! -x "$AT/r/ReadMe" ] && [ ! -e "$AT/r/.ameta" ]
+                                                      ok $? "INSTALL into a host root writes .ameta and the host mode, nothing where all is default"
+$PKG REMOVE tool ROOT "$AT/r" > /dev/null 2>&1
+[ ! -e "$AT/r/S" ];                                   ok $? "REMOVE takes the entries out, and the empty drawer with them"
+$PKG PUBLISH "$AT/d" CHANNEL "$AT/chi" NAME timg VERSION 1 KIND image > /dev/null 2>&1
+$PKG INSTALL timg ROOT "$AT/ri" CHANNEL "$AT/chi" > /dev/null 2>&1
+python3 - "$AT/ri/timg.hdf" <<'PYEOF'
+import struct, sys
+img = open(sys.argv[1], 'rb').read()
+for off in range(0, len(img), 512):
+    b = img[off:off + 512]
+    L = lambda i: struct.unpack('>I', b[4 * i:4 * i + 4])[0]
+    n = b[432]; name = b[433:433 + n]
+    if L(0) == 2 and L(127) == 0xFFFFFFFD and name == b'Go':
+        c = b[328]; comment = b[329:329 + c]
+        sys.exit(0 if L(80) == 0x43 and comment == 'Starts the tool \u00e9'.encode('latin-1') else 1)
+sys.exit(2)
+PYEOF
+                                                      ok $? "an image's file headers carry the word and the comment, in Latin-1"
+cp -R "$AT/d" "$AT/bad"
+printf 'ameta 1\nfile Go\nprot 0xZZ\n' > "$AT/bad/S/.ameta"
+$PKG PUBLISH "$AT/bad" CHANNEL "$AT/chb" KIND application MACHINE > "$T/at2" 2>&1
+[ $? -eq 20 ] && has "$T/at2" 'S/.ameta, line 3: bad-number';  ok $? "a malformed .ameta line refuses the publish, naming it"
+printf 'ameta 1\nfile Gone\ncomment x\n' > "$AT/bad/S/.ameta"
+$PKG PUBLISH "$AT/bad" CHANNEL "$AT/chb" KIND application MACHINE > "$T/at3" 2>&1
+[ $? -eq 20 ] && has "$T/at3" 'names Gone, which is not in the drawer'; ok $? "so does a stale entry"
+printf 'ameta 1\nfile Go\ncomment %s\n' "$(printf 'x%.0s' $(seq 1 80))" > "$AT/bad/S/.ameta"
+$PKG PUBLISH "$AT/bad" CHANNEL "$AT/chb" KIND application MACHINE > "$T/at4" 2>&1
+[ $? -eq 20 ] && has "$T/at4" 'longer than 79 characters';   ok $? "a comment AROS would cut is refused"
+printf 'ameta 1\nfile Go\ncomment %%E2%%82%%AC\n' > "$AT/bad/S/.ameta"
+$PKG PUBLISH "$AT/bad" CHANNEL "$AT/chb" KIND application MACHINE > "$T/at5" 2>&1
+[ $? -eq 20 ] && has "$T/at5" 'outside Latin-1';               ok $? "and one with a character outside Latin-1"
+printf 'ameta 1\nfile Go\nuid 501\n' > "$AT/bad/S/.ameta"
+$PKG PUBLISH "$AT/bad" CHANNEL "$AT/chb" KIND application DRYRUN MACHINE > "$T/at6" 2>&1
+[ $? -eq 0 ] && has "$T/at6" '^warning: S/.ameta gives an owner'; ok $? "an owner is warned about, not carried"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]

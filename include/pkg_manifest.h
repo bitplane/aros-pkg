@@ -36,6 +36,8 @@ struct pkg_file {
     char               *path;
     char                digest[PKG_SHA256_HEXLEN + 1];
     unsigned long long  size;
+    unsigned long long  prot;       /* the AROS protection word; 0 is the default, rwed */
+    char               *comment;    /* the AROS file comment, UTF-8; NULL for none */
 };
 
 struct pkg_dep {
@@ -68,6 +70,16 @@ int pkg_manifest_add_file(struct pkg_manifest *m, const char *path,
                           const char *digest_hex, unsigned long long size);
 int pkg_manifest_add_content(struct pkg_manifest *m, const char *path,
                              const char *digest_hex, unsigned long long size);
+/* An AROS file comment: at most 79 characters, all of them Latin-1, since
+ * the comment an AROS file system stores is 79 bytes of it. */
+#define PKG_COMMENT_MAX 79
+/* The comment in Latin-1 bytes, NUL-terminated in out; its length, or -1
+ * when it is not UTF-8, holds a control character or a character outside
+ * Latin-1, or does not fit outsz. */
+long pkg_comment_latin1(const char *utf8, char *out, size_t outsz);
+
+/* The file or image content entry named path; NULL when there is none. */
+struct pkg_file *pkg_manifest_attr_target(struct pkg_manifest *m, const char *path);
 void pkg_manifest_sort(struct pkg_manifest *m);   /* files by path, deps by name */
 
 /* Add a dependency; min may be NULL. Both are copied. 0, or -1 on allocation

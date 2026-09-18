@@ -59,6 +59,10 @@ has() { grep -q -- "$2" "$1"; }
 mkdir -p "$share" "$work/drawer/C" "$work/drawer/Libs"
 printf 'binary\000$VER: Hello 1.2 (18.9.2026)\000tail' > "$work/drawer/C/Hello"
 printf 'library data\n' > "$work/drawer/Libs/data.txt"
+# Script and Delete-forbidden from .ameta, Execute forbidden from the host
+# mode (0644), and a Latin-1 comment: AROS must end up with exactly these.
+chmod 644 "$work/drawer/C/Hello"
+printf 'ameta 1\nfile Hello\nprot 0x00000041\ncomment Says%%20hello%%20%%C3%%A9\n' > "$work/drawer/C/.ameta"
 "$host_pkg" KEYGEN FILE "$work/dev.key" > /dev/null
 PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/drawer" CHANNEL "$share/channel" KIND application > /dev/null
 digest=$(awk '$1=="hello"{print $4}' "$share/channel/index")
@@ -83,6 +87,7 @@ Else
     C:Echo pass >MacRW:install.rc
 EndIf
 C:Pkg VERIFY hello ROOT RAM:root >MacRW:verify.out
+C:List RAM:root/C >MacRW:attrs.out
 C:Pkg LIST ROOT RAM:root >MacRW:list.out
 C:Copy RAM:root/C/Hello MacRW:hello.copy
 C:Pkg INSTALL hello ROOT RAM:other CHANNEL MacRW:tampered >MacRW:tamper.out
@@ -108,6 +113,10 @@ has "$share/list0.out" 'nothing installed';           ok $? "an empty root lists
 has "$share/install.out" 'installed hello 1.2';       ok $? "install reports what it did"
 has "$share/install.out" 'signed by';                 ok $? "the Ed25519 signature was verified on AROS"
 has "$share/verify.out" 'all intact';                 ok $? "verify passes on AROS"
+LC_ALL=C grep -a -q -- ' s--rw-- ' "$share/attrs.out"; ok $? "AROS holds the protection word from .ameta and the host mode: s--rw--"
+printf ': Says hello \351\n' > "$work/comment.want"
+LC_ALL=C grep -a -q -F -f "$work/comment.want" "$share/attrs.out"
+                                                      ok $? "and the comment, in Latin-1"
 has "$share/list.out" '^hello';                       ok $? "list shows the package"
 cmp -s "$work/drawer/C/Hello" "$share/hello.copy";    ok $? "the installed bytes equal the drawer's, compared on the host"
 [ "$(cat "$share/tamper.rc" 2>/dev/null)" = refused ]; ok $? "a tampered payload is refused, and AmigaDOS sees the error"

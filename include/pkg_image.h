@@ -29,6 +29,8 @@ struct pkg_image_entry {
     const char          *path;      /* '/'-separated, relative, checked by the caller */
     const unsigned char *data;
     size_t               len;
+    unsigned long        protect;   /* the file header's protection long; 0 is rwed */
+    const char          *comment;   /* Latin-1, at most 79 bytes; NULL or "" for none */
 };
 
 /* Build an image holding the files, their directories implied by the paths.

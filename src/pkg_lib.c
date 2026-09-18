@@ -33,6 +33,7 @@
 #include "pkg_fs.h"
 #include "pkg_image.h"
 #include "pkg_manifest.h"
+#include "pkg_ameta.h"
 #include "pkg_sha256.h"
 
 #include <ctype.h>
@@ -615,6 +616,8 @@ struct loaded {
     char          *rel;
     unsigned char *data;
     size_t         len;
+    unsigned long long prot;    /* the AROS protection word it is published with */
+    char          *comment;     /* its comment, UTF-8; NULL for none */
 };
 
 struct drawer {
@@ -629,6 +632,10 @@ struct drawer {
 static void leave_out(const char *rel, int is_dir, void *ctx)
 {
     struct drawer *d = (struct drawer *)ctx;
+    const char *base = strrchr(rel, '/');
+    base = base ? base + 1 : rel;
+    if (!is_dir && (strcmp(base, ".ameta") == 0 || strncmp(base, ".ameta.", 7) == 0))
+        return;                     /* read for the attributes, never packaged */
     char **g = (char **)realloc(d->left_out, (d->nleft + 1) * sizeof *g);
     size_t n = strlen(rel) + 2;
     char *s = (char *)malloc(n);
@@ -664,6 +671,8 @@ static int load_one(const char *rel, void *ctx)
         return -1;
     }
     free(full);
+    d->v[d->n].prot = 0;
+    d->v[d->n].comment = NULL;
     d->n++;
     return 0;
 }
@@ -676,7 +685,7 @@ static int by_rel(const void *a, const void *b)
 static void drawer_free(struct drawer *d)
 {
     size_t i;
-    for (i = 0; i < d->n; i++) { free(d->v[i].rel); free(d->v[i].data); }
+    for (i = 0; i < d->n; i++) { free(d->v[i].rel); free(d->v[i].data); free(d->v[i].comment); }
     free(d->v);
     for (i = 0; i < d->nleft; i++) free(d->left_out[i]);
     free(d->left_out);
@@ -858,23 +867,33 @@ static int to_image(struct drawer *d, const char *name)
     char err[300], rel[80];
 
     if (e == NULL) return refuse("out of memory");
+    char (*latin)[PKG_COMMENT_MAX + 1] = calloc(d->n ? d->n : 1, sizeof *latin);
+    if (latin == NULL) { free(e); return refuse("out of memory"); }
     for (i = 0; i < d->n; i++) {
         e[i].path = d->v[i].rel;
         e[i].data = d->v[i].data;
         e[i].len = d->v[i].len;
+        e[i].protect = (unsigned long)(d->v[i].prot & 0xFFFFFFFFull);
+        if (d->v[i].comment != NULL)
+            pkg_comment_latin1(d->v[i].comment, latin[i], sizeof latin[i]);
+        e[i].comment = latin[i];
     }
     if (pkg_image_build(e, d->n, name, &img, &len, err, sizeof err) != 0) {
         free(e);
+        free(latin);
         return refuse_c(20, "the drawer cannot become an image: %s", err);
     }
     free(e);
+    free(latin);
     snprintf(rel, sizeof rel, "%s.hdf", name);
-    for (i = 0; i < d->n; i++) { free(d->v[i].rel); free(d->v[i].data); }
+    for (i = 0; i < d->n; i++) { free(d->v[i].rel); free(d->v[i].data); free(d->v[i].comment); }
     d->v[0].rel = malloc(strlen(rel) + 1);
     if (d->v[0].rel == NULL) { free(img); d->n = 0; return refuse("out of memory"); }
     strcpy(d->v[0].rel, rel);
     d->v[0].data = img;
     d->v[0].len = len;
+    d->v[0].prot = 0;
+    d->v[0].comment = NULL;
     d->n = 1;
     return 0;
 }
@@ -948,6 +967,152 @@ static void check_cookie_names(const struct drawer *d)
     }
 }
 
+struct present_ctx { const char *dir; };
+
+static int present_in(const unsigned char *name, size_t len, void *ctx)
+{
+    const struct present_ctx *pc = (const struct present_ctx *)ctx;
+    char n[512], *p;
+    int there;
+    if (len >= sizeof n) return 1;
+    memcpy(n, name, len);
+    n[len] = '\0';
+    p = pkg_join(pc->dir, n);
+    there = p != NULL && pkg_fs_exists(p);
+    free(p);
+    return there;
+}
+
+static char *pkg_strdup(const char *s)
+{
+    char *p = (char *)malloc(strlen(s) + 1);
+    if (p != NULL) strcpy(p, s);
+    return p;
+}
+
+static void latin1_to_utf8(const char *in, char *out, size_t outsz)
+{
+    size_t o = 0;
+    for (; *in && o + 3 < outsz; in++) {
+        unsigned char c = (unsigned char)*in;
+        if (c < 0x80) out[o++] = (char)c;
+        else { out[o++] = (char)(0xC0 | c >> 6); out[o++] = (char)(0x80 | (c & 0x3F)); }
+    }
+    out[o] = '\0';
+}
+
+/* The protection word and comment each file of the drawer is published
+ * with. On AROS, the file system's own. Elsewhere, the publishing profile of
+ * ameta.md: owner Execute from the host mode, where there is one, every
+ * other bit and the comment from the directory's .ameta, AROS defaults
+ * otherwise. A signed package does not drop metadata silently: a malformed
+ * or stale .ameta line, or a comment AROS cannot store, is refused. */
+static int drawer_attrs(struct drawer *d)
+{
+    char done[64][512];
+    size_t ndone = 0, i;
+    int warned_owner = 0;
+    for (i = 0; i < d->n; i++) {
+        struct loaded *f = &d->v[i];
+        char *full = pkg_join(d->root, f->rel), latin[PKG_COMMENT_MAX + 1], cbuf[4 * PKG_COMMENT_MAX + 1];
+        const char *slash = strrchr(f->rel, '/'), *base = slash ? slash + 1 : f->rel;
+        char dirrel[512], *dir, *ap;
+        unsigned char *buf = NULL;
+        size_t len = 0, k;
+        struct pkg_ameta a;
+        struct pkg_ameta_entry *e;
+        int native, ex, seen = 0;
+        if (full == NULL) return refuse("out of memory");
+        native = pkg_fs_amiga_get(full, &f->prot, latin, sizeof latin);
+        if (native < 0) { free(full); return refuse_c(17, "cannot read the attributes of \"%s\"", f->rel); }
+        if (native == 1) {
+            if (latin[0]) {
+                latin1_to_utf8(latin, cbuf, sizeof cbuf);
+                f->comment = pkg_strdup(cbuf);
+            }
+            free(full);
+            continue;
+        }
+        ex = pkg_fs_owner_exec(full);
+        free(full);
+        snprintf(dirrel, sizeof dirrel, "%.*s", slash ? (int)(slash - f->rel) : 0, f->rel);
+        dir = pkg_join(d->root, dirrel);
+        ap = dir ? pkg_join(dir, ".ameta") : NULL;
+        if (ap == NULL) { free(dir); return refuse("out of memory"); }
+        pkg_ameta_init(&a);
+        if (pkg_fs_exists(ap)) {
+            struct present_ctx pc;
+            if (pkg_fs_read(ap, &buf, &len) != 0 || pkg_ameta_parse(buf, len, &a) != 0) {
+                free(buf); free(ap); free(dir); pkg_ameta_free(&a);
+                return refuse_c(17, "cannot read %s/.ameta", dirrel[0] ? dirrel : ".");
+            }
+            free(buf);
+            for (k = 0; k < ndone; k++)
+                if (strcmp(done[k], dirrel) == 0) seen = 1;
+            if (!a.usable || a.nr > 0) {
+                refuse_c(20, "%s/.ameta, line %u: %s. A published package must not drop metadata; "
+                         "correct the line", dirrel[0] ? dirrel : ".", a.nr ? a.r[0].line : 1,
+                         a.nr ? a.r[0].reason : "unreadable");
+                free(ap); free(dir); pkg_ameta_free(&a);
+                return 1;
+            }
+            pc.dir = dir;
+            pkg_ameta_mark_stale(&a, present_in, &pc);
+            for (k = 0; !seen && k < a.n; k++) {
+                char esc[1600];
+                pkg_ameta_escape(a.e[k].name, a.e[k].name_len, esc);
+                if (a.e[k].stale) {
+                    refuse_c(20, "%s/.ameta names %s, which is not in the drawer (renamed or deleted "
+                             "on the host?); correct or remove that section", dirrel[0] ? dirrel : ".", esc);
+                    free(ap); free(dir); pkg_ameta_free(&a);
+                    return 1;
+                }
+                if ((a.e[k].has_uid || a.e[k].has_gid) && !warned_owner) {
+                    warn("%s/.ameta gives an owner, which a package does not carry: installed files "
+                         "belong to whoever installs them", dirrel[0] ? dirrel : ".");
+                    warned_owner = 1;
+                }
+                {
+                    char raw[512], *sub;
+                    snprintf(raw, sizeof raw, "%.*s", (int)a.e[k].name_len, (const char *)a.e[k].name);
+                    sub = pkg_join(dir, raw);
+                    /* a directory's own attributes: no manifest line holds them */
+                    if (sub != NULL && pkg_fs_is_dir(sub)
+                        && ((a.e[k].prot & ~PKG_AMETA_RECORD_MASK) || a.e[k].comment_len))
+                        warn("%s/.ameta gives attributes to the directory %s, which a package does "
+                             "not carry", dirrel[0] ? dirrel : ".", esc);
+                    free(sub);
+                }
+            }
+            if (!seen && ndone < 64)
+                snprintf(done[ndone++], sizeof done[0], "%s", dirrel);
+        }
+        e = pkg_ameta_find(&a, (const unsigned char *)base, strlen(base));
+        f->prot = pkg_ameta_publish_word(e, ex >= 0, ex == 1);
+        if (e != NULL && e->comment_len) {
+            char *c = (char *)malloc(e->comment_len + 1);
+            if (c == NULL) { free(ap); free(dir); pkg_ameta_free(&a); return refuse("out of memory"); }
+            memcpy(c, e->comment, e->comment_len);
+            c[e->comment_len] = '\0';
+            if (memchr(c, '\0', e->comment_len) != NULL
+                || pkg_comment_latin1(c, latin, sizeof latin) < 0) {
+                refuse_c(20, "the comment of %s in %s/.ameta is longer than %d characters or holds "
+                         "a character outside Latin-1: AROS would cut or change it at install",
+                         f->rel, dirrel[0] ? dirrel : ".", PKG_COMMENT_MAX);
+                free(c); free(ap); free(dir); pkg_ameta_free(&a);
+                return 1;
+            }
+            f->comment = c;
+        }
+        tr("attributes of %s: prot 0x%08llx%s%s", f->rel, f->prot, f->comment ? ", comment " : "",
+           f->comment ? f->comment : "");
+        pkg_ameta_free(&a);
+        free(ap);
+        free(dir);
+    }
+    return 0;
+}
+
 static int ascii_casecmp(const char *x, const char *y)
 {
     for (; *x && *y; x++, y++) {
@@ -987,6 +1152,7 @@ static int build(const struct pkg_options *a, struct built *out)
         return refuse_c(20, "\"%s\" holds no files", a->target);
     }
     qsort(d.v, d.n, sizeof d.v[0], by_rel);
+    if (drawer_attrs(&d) != 0) { drawer_free(&d); return 1; }
     {
         size_t t;
         tr("drawer %s: %lu files, %lu left out", a->target, (unsigned long)d.n,
@@ -1130,6 +1296,9 @@ static int build(const struct pkg_options *a, struct built *out)
                 drawer_free(&d);
                 return refuse("out of memory");
             }
+            out->m.content[out->m.ncontent - 1].prot = d.v[i].prot;
+            if (d.v[i].comment != NULL)
+                out->m.content[out->m.ncontent - 1].comment = pkg_strdup(d.v[i].comment);
         }
     }
     if (strcmp(kind, "image") == 0 && to_image(&d, name) != 0) {
@@ -1147,6 +1316,9 @@ static int build(const struct pkg_options *a, struct built *out)
             pkg_writer_free(w); drawer_free(&d);
             return refuse("out of memory");
         }
+        out->m.files[out->m.nfiles - 1].prot = d.v[i].prot;
+        if (d.v[i].comment != NULL)
+            out->m.files[out->m.nfiles - 1].comment = pkg_strdup(d.v[i].comment);
     }
     drawer_free(&d);
     if (pkg_writer_finish(w, &out->pkg, &out->pkg_len) != PKG_OK) {
@@ -1946,6 +2118,99 @@ static int stage_entry(const struct pkg_entry *e, void *ctx)
  *   - a path both versions own was edited by the user since install.
  * Files the old version owned and the new one drops are removed when
  * unchanged, and kept, with a note, when the user edited them. */
+/* ---- Amiga attributes on the installed files -------------------------- */
+
+/* Record one file's word and comment in its directory's .ameta, under the
+ * directory lock with the identity check (ameta.md, Writing). A default
+ * word and no comment remove the entry. 0, or -1 with a warning given. */
+static int ameta_set(const char *root, const char *rel, unsigned long long prot, const char *comment)
+{
+    const char *slash = strrchr(rel, '/');
+    const char *base = slash ? slash + 1 : rel;
+    char dirrel[1024], *dir, *path;
+    int attempt, rc = -1;
+    void *lock;
+    snprintf(dirrel, sizeof dirrel, "%.*s", slash ? (int)(slash - rel) : 0, rel);
+    dir = dirrel[0] ? pkg_join(root, dirrel) : pkg_join(root, "");
+    path = dir ? pkg_join(dir, ".ameta") : NULL;
+    if (path == NULL) { free(dir); return -1; }
+    if ((prot & ~PKG_AMETA_RECORD_MASK) == 0 && (comment == NULL || !comment[0]) && !pkg_fs_exists(path)) {
+        free(path); free(dir);
+        return 0;                       /* nothing to record, nothing to take back */
+    }
+    lock = pkg_fs_lock_dir(dir);
+    for (attempt = 0; attempt < 5 && rc < 0; attempt++) {
+        struct pkg_fs_id id;
+        struct pkg_ameta a;
+        unsigned char *buf = NULL;
+        size_t len = 0;
+        char *out = NULL;
+        size_t olen = 0;
+        struct present_ctx pc;
+        int r;
+        if (pkg_fs_identity(path, &id) != 0) break;
+        pkg_ameta_init(&a);
+        if (id.exists && t_read(path, &buf, &len) != 0) break;
+        if (id.exists && (pkg_ameta_parse(buf, len, &a) != 0 || !a.usable)) {
+            warn("%s is not an .ameta this Pkg can write: %s's attributes were not recorded",
+                 path, rel);
+            free(buf); pkg_ameta_free(&a);
+            attempt = 5;
+            break;
+        }
+        free(buf);
+        pc.dir = dir;
+        pkg_ameta_mark_stale(&a, present_in, &pc);
+        if ((prot & ~PKG_AMETA_RECORD_MASK) == 0 && (comment == NULL || !comment[0])) {
+            pkg_ameta_delete(&a, (const unsigned char *)base, strlen(base));
+        } else {
+            struct pkg_ameta_entry *e = pkg_ameta_get(&a, (const unsigned char *)base, strlen(base));
+            if (e == NULL) { pkg_ameta_free(&a); break; }
+            e->prot = prot;
+            e->has_prot = 1;
+            pkg_ameta_set_comment(e, (const unsigned char *)(comment ? comment : ""),
+                                  comment ? strlen(comment) : 0);
+        }
+        if (pkg_ameta_emit(&a, &out, &olen) != 0) { pkg_ameta_free(&a); break; }
+        pkg_ameta_free(&a);
+        r = pkg_fs_replace_if_same(path, &id, out, olen);
+        free(out);
+        if (r == 0) { rc = 0; tr("recorded the attributes of %s in %s", rel, path); }
+        else if (r < 0) break;
+    }
+    pkg_fs_unlock_dir(lock);
+    if (rc != 0 && attempt < 5)
+        warn("the attributes of %s could not be recorded in %s", rel, path);
+    free(path);
+    free(dir);
+    return rc;
+}
+
+/* Give each installed file its protection and comment: on AROS the file
+ * system holds them; elsewhere the host mode takes owner Execute and the
+ * directory's .ameta the rest. */
+static void apply_attrs(const char *root, const struct pkg_manifest *m)
+{
+    size_t i;
+    for (i = 0; i < m->nfiles; i++) {
+        const struct pkg_file *f = &m->files[i];
+        char latin[PKG_COMMENT_MAX + 1], *full = pkg_join(root, f->path);
+        int r;
+        if (full == NULL) continue;
+        latin[0] = '\0';
+        if (f->comment) pkg_comment_latin1(f->comment, latin, sizeof latin);
+        r = pkg_fs_amiga_set(full, f->prot, latin);
+        if (r < 0) {
+            warn("the protection or comment of %s could not be set", f->path);
+        } else if (r == 0) {
+            if (pkg_fs_set_owner_exec(full, (f->prot & PKG_AMETA_OWNER_EXECUTE) == 0) != 0)
+                warn("the host mode of %s could not be set", f->path);
+            ameta_set(root, f->path, f->prot, f->comment);
+        }
+        free(full);
+    }
+}
+
 static int apply(const char *root, const struct pkg_manifest *old, const struct fetched *f,
                  unsigned long *placed, unsigned long *dropped, unsigned long *kept)
 {
@@ -2011,7 +2276,10 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     for (i = 0; i < m->nfiles; i++) {
         char *from = pkg_join(staging, m->files[i].path);
         char *to = pkg_join(root, m->files[i].path);
-        int good = from && to && pkg_fs_rename(from, to) == 0;
+        int good;
+        if (to != NULL && pkg_fs_exists(to))
+            pkg_fs_unprotect(to);           /* the version it replaces may forbid Delete */
+        good = from && to && pkg_fs_rename(from, to) == 0;
         free(from);
         free(to);
         if (!good) {
@@ -2054,6 +2322,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         return 1;
     }
     free(dbp);
+    apply_attrs(root, m);
     if (write_pin(root, m->name, f->signer) != 0)
         warn("the signing key could not be pinned");
     if (old != NULL) {
@@ -2325,9 +2594,14 @@ static int remove_files(const char *root, const struct pkg_manifest *m,
             (*removed)++;
         } else if (s == 0) {
             char *p = pkg_join(root, m->files[i].path);
+            if (p != NULL)
+                pkg_fs_unprotect(p);            /* a Delete-forbidden file is still Pkg's to remove */
             if (p != NULL && pkg_fs_unlink(p) == 0) {
                 (*removed)++;
+                ameta_set(root, m->files[i].path, 0, NULL);   /* its entry goes too */
                 pkg_fs_prune_empty_parents(root, m->files[i].path);
+            } else if (p != NULL && report) {
+                warn("%s could not be deleted: %s", m->files[i].path, strerror(errno));
             }
             free(p);
         } else if (s == 1) {
@@ -2699,6 +2973,7 @@ static int cmd_image(const struct pkg_options *a)
         return 1;
     }
     qsort(d.v, d.n, sizeof d.v[0], by_rel);
+    if (drawer_attrs(&d) != 0) { drawer_free(&d); return 1; }
     {
         char vn[65], vv[64], seen[400];
         const char *vf;

@@ -45,7 +45,9 @@
 #define L_TABLE_END  77
 #define L_BM_FLAG    78
 #define L_BM_PAGES   79
+#define L_PROTECT    80
 #define L_SIZE       81
+#define L_COMMENT    82                      /* a length byte, then up to 79 bytes */
 #define L_NAME       108
 #define L_CHAIN      124
 #define L_PARENT     125
@@ -293,6 +295,13 @@ int pkg_image_build(const struct pkg_image_entry *e, size_t n, const char *volum
             }
             put(h, L_SECTYPE, ST_FILE);
             put(h, L_SIZE, (unsigned long)f->len);
+            put(h, L_PROTECT, f->protect & 0xFFFFFFFFul);
+            if (f->comment != NULL && f->comment[0]) {
+                size_t cl = strlen(f->comment);
+                if (cl > 79) cl = 79;           /* the caller checked; the block has room for 79 */
+                h[4 * L_COMMENT] = (unsigned char)cl;
+                memcpy(h + 4 * L_COMMENT + 1, f->comment, cl);
+            }
             for (k = 0; k < ndata; k++) {
                 size_t off = (size_t)k * PKG_IMAGE_BLOCK;
                 size_t len = f->len - off < PKG_IMAGE_BLOCK ? f->len - off : PKG_IMAGE_BLOCK;

@@ -30,14 +30,14 @@ static int builds(const struct pkg_image_entry *e, size_t n, const char *vol, ch
 static void refusals(void)
 {
     char err[300];
-    struct pkg_image_entry ok1[] = { { "C/Hello", A, 5 } };
-    struct pkg_image_entry longname[] = { { "C/abcdefghijklmnopqrstuvwxyz12345", A, 5 } };
-    struct pkg_image_entry thirty[] = { { "C/abcdefghijklmnopqrstuvwxyz1234", A, 5 } };
-    struct pkg_image_entry casefold[] = { { "C/README", A, 5 }, { "C/readme", B, 4 } };
-    struct pkg_image_entry latin1[] = { { "C/\xe9t\xe9", A, 5 }, { "C/\xc9T\xc9", B, 4 } };
-    struct pkg_image_entry divide[] = { { "C/\xf7", A, 5 }, { "C/\xd7", B, 4 } };
-    struct pkg_image_entry filedir[] = { { "C", A, 5 }, { "C/x", B, 4 } };
-    struct pkg_image_entry dircase[] = { { "C/x", A, 5 }, { "c/y", B, 4 } };
+    struct pkg_image_entry ok1[] = { { "C/Hello", A, 5, 0, NULL } };
+    struct pkg_image_entry longname[] = { { "C/abcdefghijklmnopqrstuvwxyz12345", A, 5, 0, NULL } };
+    struct pkg_image_entry thirty[] = { { "C/abcdefghijklmnopqrstuvwxyz1234", A, 5, 0, NULL } };
+    struct pkg_image_entry casefold[] = { { "C/README", A, 5, 0, NULL }, { "C/readme", B, 4, 0, NULL } };
+    struct pkg_image_entry latin1[] = { { "C/\xe9t\xe9", A, 5, 0, NULL }, { "C/\xc9T\xc9", B, 4, 0, NULL } };
+    struct pkg_image_entry divide[] = { { "C/\xf7", A, 5, 0, NULL }, { "C/\xd7", B, 4, 0, NULL } };
+    struct pkg_image_entry filedir[] = { { "C", A, 5, 0, NULL }, { "C/x", B, 4, 0, NULL } };
+    struct pkg_image_entry dircase[] = { { "C/x", A, 5, 0, NULL }, { "c/y", B, 4, 0, NULL } };
 
     printf("refusals\n");
     ok(builds(ok1, 1, "Vol", err), "a plain drawer builds");
@@ -55,7 +55,7 @@ static void refusals(void)
 
 static void shape(void)
 {
-    struct pkg_image_entry e[] = { { "C/Hello", A, 5 }, { "Libs/b", B, 4 } };
+    struct pkg_image_entry e[] = { { "C/Hello", A, 5, 0, NULL }, { "Libs/b", B, 4, 0, NULL } };
     unsigned char *x, *y;
     size_t lx, ly;
     char err[300], vol[40];

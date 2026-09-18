@@ -298,6 +298,23 @@ one `Content: <sha256> <size> <path>` line each, the syntax of `File:`, so
 that the dry run of a new version can say which files changed since the
 last one.
 
+### Protection bits and comments
+
+Each file carries its AROS protection word and comment, where they differ
+from the default: `Protect: 0x00000041 S/Go` and `Comment: Starts%20the%20tool
+S/Go` lines in the signed manifest, for the package's files and for the files
+inside its image. On AROS they come from the file system; on a host from the
+drawer's `.ameta` files (the format of the planning repository's
+`docs/features/file-metadata/ameta.md`, whose reference cases are vendored in
+`tests/ameta-corpus` and run by `tests/test_ameta.c`), with owner Execute
+from the host mode. A malformed or stale `.ameta` line refuses the publish,
+naming it, as does a comment AROS cannot store (over 79 characters, or
+outside Latin-1). INSTALL applies them with SetProtection and SetComment on
+AROS, and writes the host mode and `.ameta` in a host root, under a directory
+lock; REMOVE takes the entries out. An image carries them in its FFS file
+headers. `tests/aros-smoke.sh` checks on hosted AROS that `List` shows the
+word and the comment the drawer gave.
+
 FFS rather than AFS+, which settles one of the open questions in the planning
 repository's packaging README. An application image is read-only, written
 once, and has to outlive handler revisions; AFS+ changes its on-disk format

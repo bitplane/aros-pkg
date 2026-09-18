@@ -502,3 +502,96 @@ int pkg_fs_random(void *buf, size_t len)
 {
     return BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0 ? 0 : -1;
 }
+
+/* ---- Amiga attributes -------------------------------------------------- */
+
+/* Windows has no mode: .ameta decides every bit (ameta.md, Publishing). */
+int pkg_fs_owner_exec(const char *path)
+{
+    (void)path;
+    return -1;
+}
+
+int pkg_fs_set_owner_exec(const char *path, int exec)
+{
+    (void)path;
+    (void)exec;
+    return 0;
+}
+
+int pkg_fs_amiga_get(const char *path, unsigned long long *prot, char *comment, size_t cl)
+{
+    (void)path; (void)prot; (void)comment; (void)cl;
+    return 0;
+}
+
+int pkg_fs_amiga_set(const char *path, unsigned long long prot, const char *comment_latin1)
+{
+    (void)path; (void)prot; (void)comment_latin1;
+    return 0;
+}
+
+void pkg_fs_unprotect(const char *path)
+{
+    (void)path;
+}
+
+int pkg_fs_identity(const char *path, struct pkg_fs_id *id)
+{
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    wchar_t *w = wide(path);
+    BOOL ok;
+    memset(id, 0, sizeof *id);
+    if (w == NULL)
+        return -1;
+    ok = GetFileAttributesExW(w, GetFileExInfoStandard, &a);
+    free(w);
+    if (!ok) {
+        DWORD e = GetLastError();
+        return (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) ? 0 : -1;
+    }
+    id->exists = 1;
+    id->size = ((unsigned long long)a.nFileSizeHigh << 32) | a.nFileSizeLow;
+    id->mtime_s = (long long)(((unsigned long long)a.ftLastWriteTime.dwHighDateTime << 32)
+                              | a.ftLastWriteTime.dwLowDateTime);
+    return 0;
+}
+
+int pkg_fs_replace_if_same(const char *path, const struct pkg_fs_id *before,
+                           const void *buf, size_t len)
+{
+    struct pkg_fs_id now;
+    char *tmp = NULL;
+    int rc;
+    if (buf != NULL) {
+        size_t pl = strlen(path);
+        unsigned char r[4];
+        tmp = (char *)malloc(pl + 16);
+        if (tmp == NULL || pkg_fs_random(r, sizeof r) != 0) { free(tmp); return -1; }
+        snprintf(tmp, pl + 16, "%s.%02x%02x%02x%02x", path, r[0], r[1], r[2], r[3]);
+        if (pkg_fs_write_atomic(tmp, buf, len) != 0) { free(tmp); return -1; }
+    }
+    if (pkg_fs_identity(path, &now) != 0 || now.exists != before->exists
+        || (now.exists && (now.size != before->size || now.mtime_s != before->mtime_s))) {
+        if (tmp) { pkg_fs_unlink(tmp); free(tmp); }
+        return 1;
+    }
+    if (tmp != NULL) {
+        rc = pkg_fs_rename(tmp, path);
+        if (rc != 0) pkg_fs_unlink(tmp);
+        free(tmp);
+        return rc;
+    }
+    return (pkg_fs_unlink(path) == 0 || !pkg_fs_exists(path)) ? 0 : -1;
+}
+
+void *pkg_fs_lock_dir(const char *dir)
+{
+    (void)dir;
+    return NULL;
+}
+
+void pkg_fs_unlock_dir(void *lock)
+{
+    (void)lock;
+}
