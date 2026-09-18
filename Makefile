@@ -6,12 +6,13 @@ CFLAGS   ?= -std=c99 -Wall -Wextra -Werror -O2
 CPPFLAGS  = -Iinclude
 
 # Portable C99: everything except the host filesystem layer.
-CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_manifest.c
+CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
+       src/pkg_manifest.c
 # The host layer. POSIX covers macOS and Linux; AROS gets its own.
 HOST = src/pkg_fs_posix.c
 HDR  = $(wildcard include/*.h)
 
-UNITS = test_container test_sha256 test_manifest
+UNITS = test_container test_sha256 test_manifest test_ed25519
 
 .PHONY: all test test-ubsan check-portability check-m68k check clean
 

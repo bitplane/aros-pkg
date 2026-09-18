@@ -38,4 +38,12 @@ int pkg_fs_list(const char *dir, char ***names, size_t *count);
 /* Caller frees. */
 char *pkg_join(const char *a, const char *b);
 
+/* Fill buf from the system's cryptographic random source. 0 or -1. */
+int pkg_fs_random(void *buf, size_t len);
+
+/* Like pkg_fs_write_atomic, readable and writable by the owner alone. For a
+ * signing key, which must not be world-readable even for the instant between
+ * creation and a chmod. */
+int pkg_fs_write_private(const char *path, const void *buf, size_t len);
+
 #endif

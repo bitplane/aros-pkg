@@ -14,7 +14,7 @@ directory of signed index snapshots and content-addressed objects.
 
 ## State
 
-Goal and milestones: [GOAL.md](GOAL.md). **M1, the macOS loop, is done.**
+Goal and milestones: [GOAL.md](GOAL.md). **M1 and M2 are done** on macOS.
 
 | Piece | State |
 |---|---|
@@ -24,8 +24,9 @@ Goal and milestones: [GOAL.md](GOAL.md). **M1, the macOS loop, is done.**
 | Text manifest | Built, strict parser, with its test |
 | Host filesystem layer | POSIX (macOS, Linux). The AROS layer comes with M3 |
 | `MANIFEST`, `PUBLISH`, `INSTALL ROOT`, `LIST`, `VERIFY`, `REMOVE` | Built, end-to-end test on macOS |
-| Ed25519 signatures, key pinning | M2 |
-| `UPGRADE`, `ROLLBACK`, version selection beyond highest and exact | M2 |
+| SHA-512 and Ed25519 | Built, checked against FIPS and the RFC 8032 vectors |
+| `KEYGEN`, `SIGN`, signed `PUBLISH`, key pinned per package in the root | Built, end-to-end test |
+| `UPGRADE`, `ROLLBACK`, `DOWNGRADE`, `EXACT` and `COMPATIBLE` selection | Built, end-to-end test |
 | AROS client | M3 |
 | ARexx port | M4 |
 
@@ -33,12 +34,30 @@ Goal and milestones: [GOAL.md](GOAL.md). **M1, the macOS loop, is done.**
 
 ```sh
 make
+./build/pkg KEYGEN FILE ~/.pkg-dev.key          # once
+export PKG_SIGNKEY=~/.pkg-dev.key
 ./build/pkg PUBLISH ~/dev/MyTool CHANNEL ~/pkg-channel
 ./build/pkg INSTALL mytool ROOT ~/aros-root CHANNEL ~/pkg-channel
 ./build/pkg LIST ROOT ~/aros-root
 ./build/pkg VERIFY mytool ROOT ~/aros-root
+./build/pkg UPGRADE mytool ROOT ~/aros-root CHANNEL ~/pkg-channel
+./build/pkg ROLLBACK mytool ROOT ~/aros-root CHANNEL ~/pkg-channel
 ./build/pkg REMOVE mytool ROOT ~/aros-root
 ```
+
+**Every package is signed; there is no development mode.** A development key
+is a real Ed25519 key, written readable by its owner alone. The signature covers
+the manifest, and the manifest names the payload digest, so one signature covers
+every byte installed. The first install of a package into a root pins the key
+that signed it, in `.pkg/keys`; a later install or upgrade signed by another key
+is refused with both keys printed, and goes through only with `ACCEPTKEY`
+followed by the new key in full.
+
+`UPGRADE` with no `VERSION` takes the highest published version; with `VERSION`
+it takes exactly that one. An older version needs `DOWNGRADE`. `ROLLBACK` returns
+to the version installed before the last change, fetched again from the channel,
+which never changes a published version. An upgrade that would overwrite a file
+the user edited is refused before anything moves.
 
 Name and version come from the `$VER:` cookie when `NAME` and `VERSION` are
 not given. Keywords are case-insensitive, AmigaDOS style.
@@ -84,6 +103,9 @@ The suite was run against three deliberate defects, each built separately:
 | Whole-payload digest check disabled | 1 check fails, the one pinning that refusal's message. The tampered payload is **still refused**, by the per-file digests, so the two layers are independent and each is exercised |
 | Unsafe-path refusal disabled | 4 checks fail, including "nothing written outside the root": with the guard gone, `../evil` **was** written outside it |
 | macOS metadata filter disabled | 5 checks fail, exactly the metadata ones |
+| Signature verification disabled | The altered signature installs, and its check fails. The unsigned refusal still holds, correctly, since it comes from the missing file |
+| Key pinning disabled | 6 checks fail, all in the substituted-key section |
+| Edited-file protection disabled | 3 checks fail, exactly the edited-file ones |
 
 A first run of that last control reported 38 failures. The mutated binary had
 been built without `-Werror` and its compiler output cut off, so the 38 measured

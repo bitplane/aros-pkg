@@ -93,7 +93,30 @@ static int mkparents(const char *path)
     return rc;
 }
 
+static int write_atomic_mode(const char *path, const void *buf, size_t len, int mode);
+
 int pkg_fs_write_atomic(const char *path, const void *buf, size_t len)
+{
+    return write_atomic_mode(path, buf, len, 0644);
+}
+
+int pkg_fs_write_private(const char *path, const void *buf, size_t len)
+{
+    return write_atomic_mode(path, buf, len, 0600);
+}
+
+int pkg_fs_random(void *buf, size_t len)
+{
+    FILE *f = fopen("/dev/urandom", "rb");
+    size_t got;
+    if (f == NULL)
+        return -1;
+    got = fread(buf, 1, len, f);
+    fclose(f);
+    return got == len ? 0 : -1;
+}
+
+static int write_atomic_mode(const char *path, const void *buf, size_t len, int mode)
 {
     size_t lp = strlen(path);
     char *tmp = (char *)malloc(lp + 16u);
@@ -104,7 +127,7 @@ int pkg_fs_write_atomic(const char *path, const void *buf, size_t len)
         return -1;
     if (mkparents(path) != 0) { free(tmp); return -1; }
     snprintf(tmp, lp + 16u, "%s.tmp%ld", path, (long)getpid());
-    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, mode);
     if (fd < 0) { free(tmp); return -1; }
     while (len > 0) {
         ssize_t w = write(fd, b, len);
