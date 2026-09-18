@@ -195,8 +195,8 @@ Nothing published is ever deleted; three things are possible instead.
   `repaired`. Without the original drawer and key it cannot be repaired:
   say so, and WITHDRAW it if the key is at hand.
 - **Meanwhile**, anyone can install an intact version by asking for it
-  with `VERSION`: Pkg never falls back on its own from a damaged or
-  withdrawn highest version.
+  with `VERSION`. A withdrawn version is skipped on its own; a damaged one
+  is not: Pkg refuses rather than quietly installing something older.
 
 ## Running an application image on AROS
 
