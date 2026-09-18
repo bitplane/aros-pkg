@@ -103,6 +103,8 @@ test:
 	@PKG=./build/pkg sh tests/crossarch.sh
 	@echo "== status"
 	@PKG=./build/pkg sh tests/status.sh
+	@echo "== network"
+	@PKG=./build/pkg sh tests/network.sh
 	@echo "== hostile"
 	@PKG=./build/pkg sh tests/hostile.sh
 	@echo "== archive"

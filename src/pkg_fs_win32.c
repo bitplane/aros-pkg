@@ -595,3 +595,38 @@ void pkg_fs_unlock_dir(void *lock)
 {
     (void)lock;
 }
+
+/* ---- the network ------------------------------------------------------ */
+
+#include <process.h>
+
+/* curl.exe ships with Windows 10 and later: http and https both go through
+ * it, with no shell in between. */
+int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
+{
+    size_t dl = strlen(dest);
+    char *tmp = (char *)malloc(dl + 8);
+    intptr_t rc;
+    if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
+    snprintf(tmp, dl + 8, "%s.part", dest);
+    if (mkparents(tmp) != 0) { free(tmp); snprintf(err, errlen, "cannot create the cache directory"); return -1; }
+    rc = _spawnlp(_P_WAIT, "curl.exe", "curl.exe", "-sS", "-f", "-L", "--max-redirs", "5", "-o", tmp, url, (char *)NULL);
+    if (rc == -1) { free(tmp); snprintf(err, errlen, "fetching a channel needs curl.exe, part of Windows 10 and later"); return -1; }
+    if (rc == 22) { pkg_fs_unlink(tmp); free(tmp); return 1; }
+    if (rc != 0) { pkg_fs_unlink(tmp); free(tmp); snprintf(err, errlen, "curl failed with exit code %d fetching %s", (int)rc, url); return -1; }
+    if (pkg_fs_rename(tmp, dest) != 0) { free(tmp); snprintf(err, errlen, "cannot keep %s", dest); return -1; }
+    free(tmp);
+    return 0;
+}
+
+char *pkg_cache_dir(void)
+{
+    const char *e = getenv("PKG_CACHE"), *l = getenv("LOCALAPPDATA");
+    size_t n = 32 + (e ? strlen(e) : 0) + (l ? strlen(l) : 0);
+    char *p = (char *)malloc(n);
+    if (p == NULL) return NULL;
+    if (e && *e) snprintf(p, n, "%s", e);
+    else if (l && *l) snprintf(p, n, "%s\\pkg-cache", l);
+    else snprintf(p, n, "pkg-cache");
+    return p;
+}

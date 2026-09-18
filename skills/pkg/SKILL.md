@@ -194,6 +194,11 @@ and only what other programs share goes into `DEPENDS`, by package name.
 The dry run lists the files that go into the image as `content:` lines.
 On macOS the filesystem ignores case: never create `GURU` beside `Guru`.
 
+**A channel on the network:** give its URL as `CHANNEL http://host/pkg`
+(or https) to every reading verb; nothing else changes, and nothing is
+trusted before its signature and digests are checked. PUBLISH and
+WITHDRAW refuse a URL: publish into a local directory, then PUSH it.
+
 **From someone else's archive** (a nightly contrib `.tar.bz2`):
 `PUBLISH "<archive>!/<top dir>" FILES "Extras/App,Prefs/Env-Archive/SYS/Packages/App"`
 publishes those paths as one package without unpacking anything; copy or

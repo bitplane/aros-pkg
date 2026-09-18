@@ -94,4 +94,16 @@ int pkg_fs_replace_if_same(const char *path, const struct pkg_fs_id *before,
 void *pkg_fs_lock_dir(const char *dir);
 void  pkg_fs_unlock_dir(void *lock);
 
+/* ---- the network ------------------------------------------------------ */
+
+/* Fetch url into the file dest, whole, replacing it only once complete.
+ * http:// is spoken here; https:// goes through the system's curl where
+ * there is one. 0 fetched, 1 the server has no such file (404), -1 with a
+ * reason in err. Redirects are followed. */
+int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen);
+
+/* Where downloaded channel files are kept: PKG_CACHE, or the host's usual
+ * cache directory. Caller frees. */
+char *pkg_cache_dir(void);
+
 #endif

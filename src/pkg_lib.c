@@ -1716,19 +1716,88 @@ struct index {
 
 static void mark_withdrawn(const char *channel, struct index *ix);
 
+/* ---- channels over the network ---------------------------------------- *
+ *
+ * A channel may be a URL: http://host/pkg reads exactly like a directory
+ * channel, file for file. Its files are fetched into a cache (pkg_cache_dir,
+ * one directory per channel URL) the first time they are needed, and every
+ * check applies to them as to local ones: the manifest against the index,
+ * the signature, every file against the manifest. Files named by a digest
+ * never change, so they are fetched once; the index and withdrawals can,
+ * so they are fetched once per run. */
+static int is_url(const char *ch)
+{
+    return ch != NULL && (strncmp(ch, "http://", 7) == 0 || strncmp(ch, "https://", 8) == 0);
+}
+
+static char net_err[400];           /* why the last fetch failed, for the refusal */
+static char fetched_once[16][128];  /* mutable files already fetched in this run */
+static size_t nfetched_once;
+
+static char *chan_file(const char *channel, const char *rel)
+{
+    char *cache, sub[PKG_SHA256_HEXLEN + 1], url[2300], *dir, *local;
+    size_t k, rl = strlen(rel);
+    int mutable_file, again = 1, rc;
+
+    if (!is_url(channel))
+        return pkg_join(channel, rel);
+    cache = pkg_cache_dir();
+    if (cache == NULL) return NULL;
+    pkg_sha256_hex((const unsigned char *)channel, strlen(channel), sub);
+    sub[16] = '\0';                 /* one directory per channel URL */
+    dir = pkg_join(cache, sub);
+    free(cache);
+    local = dir ? pkg_join(dir, rel) : NULL;
+    free(dir);
+    if (local == NULL) return NULL;
+    mutable_file = strcmp(rel, "index") == 0
+                   || (rl > 10 && strcmp(rel + rl - 10, ".withdrawn") == 0)
+                   || (rl > 14 && strcmp(rel + rl - 14, ".withdrawn.sig") == 0);
+    if (mutable_file) {
+        for (k = 0; k < nfetched_once; k++)
+            if (strcmp(fetched_once[k], rel) == 0) again = 0;
+    } else if (pkg_fs_exists(local)) {
+        again = 0;                  /* named by what it holds: a cached copy is the file */
+    }
+    if (!again)
+        return local;
+    snprintf(url, sizeof url, "%s%s%s", channel, channel[strlen(channel) - 1] == '/' ? "" : "/", rel);
+    {
+        /* the cache directory for this file */
+        char *slash = strrchr(local, '/');
+        if (slash) { *slash = '\0'; pkg_fs_mkdirs(local); *slash = '/'; }
+    }
+    rc = pkg_net_get(url, local, net_err, sizeof net_err);
+    tr("fetched %s: %s", url, rc == 0 ? "ok" : rc == 1 ? "not there" : net_err);
+    if (rc == 1)
+        pkg_fs_unlink(local);       /* not published there: no stale copy either */
+    if (rc >= 0 && mutable_file && nfetched_once < 16)
+        snprintf(fetched_once[nfetched_once++], sizeof fetched_once[0], "%s", rel);
+    if (rc < 0 && !mutable_file)
+        pkg_fs_unlink(local);
+    return local;
+}
+
 static int read_index(const char *channel, struct index *ix)
 {
-    char *path = pkg_join(channel, "index");
+    char *path;
     unsigned char *buf = NULL;
     size_t len = 0, at = 0;
     unsigned line = 0;
 
     ix->e = NULL;
     ix->n = 0;
+    net_err[0] = '\0';
+    path = chan_file(channel, "index");
     if (path == NULL)
         return refuse("out of memory");
     if (!pkg_fs_exists(path)) {
         free(path);
+        if (is_url(channel) && net_err[0])
+            return refuse_c(17, "cannot reach the channel %s: %s", channel, net_err);
+        if (is_url(channel))
+            return refuse_n(11, "report", "there is no channel at %s: it has no index", channel);
         return 0;                 /* a channel with nothing published yet */
     }
     if (pkg_fs_read(path, &buf, &len) != 0) {
@@ -1803,7 +1872,7 @@ static char *object_path(const char *channel, const char *digest, const char *ex
 {
     char rel[128];
     snprintf(rel, sizeof rel, "objects/%s.%s", digest, ext);
-    return pkg_join(channel, rel);
+    return chan_file(channel, rel);
 }
 
 /* Where installers find the archive a Source line names: archives/<name>
@@ -1814,7 +1883,7 @@ static char *archive_path(const char *channel, const char *name)
     if (strchr(name, '/') != NULL || name[0] == '.')
         return NULL;
     snprintf(rel, sizeof rel, "archives/%s", name);
-    return pkg_join(channel, rel);
+    return chan_file(channel, rel);
 }
 
 /* The kind and dependencies of the highest version of a package published in
@@ -2417,6 +2486,9 @@ static int cmd_withdraw(const struct pkg_options *a)
     if (a->target == NULL)  return refuse_c(20, "name the package to withdraw");
     if (a->version == NULL) return refuse_c(20, "name the version with VERSION <v>: a withdrawal names one version");
     if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
+    if (is_url(a->channel))
+        return refuse_c(20, "WITHDRAW writes into a channel on this machine; withdraw in the "
+                        "directory you publish from, then PUSH it to %s", a->channel);
     if (load_key(a->sign, &k) != 0) return 1;
     if (read_index(a->channel, &ix) != 0) { memset(&k, 0, sizeof k); return 1; }
     for (i = 0; i < ix.n; i++)
@@ -3697,6 +3769,9 @@ static int cmd_publish(const struct pkg_options *a)
 
     if (a->channel == NULL)
         return refuse_c(20, "name the channel with CHANNEL <dir>");
+    if (is_url(a->channel))
+        return refuse_c(20, "PUBLISH writes into a channel on this machine; publish into a "
+                        "directory, then PUSH it to %s", a->channel);
     new_channel = !pkg_fs_exists(a->channel);
     memset(&k, 0, sizeof k);
     if (a->sign == NULL && dryrun) {
@@ -4676,7 +4751,7 @@ static int keep_current_setup(const struct pkg_options *a, struct index *ix, str
 {
     if (a->root == NULL)    return refuse_c(20, "name the root with ROOT <dir>");
     if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
-    if (!pkg_fs_is_dir(a->channel))
+    if (!is_url(a->channel) && !pkg_fs_is_dir(a->channel))  /* a URL answers for itself */
         return refuse_c(11, "there is no channel at %s: not mounted, or not the path meant; "
                         "nothing was checked or changed", a->channel);
     if (resolve_arch(a) != 0) return 1;

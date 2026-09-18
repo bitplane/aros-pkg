@@ -352,6 +352,25 @@ one `Content: <sha256> <size> <path>` line each, the syntax of `File:`, so
 that the dry run of a new version can say which files changed since the
 last one.
 
+### Channels over the network
+
+`CHANNEL http://host/pkg` (or `https://`) reads a channel served over the
+network exactly like a directory channel, file for file: SHOW, INSTALL,
+UPGRADE, ROLLBACK, STATUS and UPGRADE ALL all take one. Files are fetched
+into a cache (`PKG_CACHE`, else `~/.cache/pkg`, `%LOCALAPPDATA%\pkg-cache`
+on Windows) the first time they are needed; those named by their digest
+are never fetched again, the index and withdrawals are fetched once per
+run. Every check applies as for a local channel: nothing downloaded is
+trusted before the signature and the digests say so. Plain HTTP is spoken
+by Pkg itself (redirects and chunked replies included), which is enough
+since integrity comes from the signatures and what 68k machines need;
+HTTPS goes through the system's `curl` on macOS, Linux and Windows. An
+unreachable host is refused with 17, a URL with no channel with 11.
+PUBLISH and WITHDRAW refuse a URL: they write a channel on this machine,
+which PUSH sends to a portal. AROS reads network channels in a later step;
+there, a channel is a directory for now. `tests/network.sh` runs all this
+against a local server.
+
 ### Packages whose files stay in someone else's archive
 
 `PUBLISH "<archive>!/<path>" FILES "a,b"` publishes the files under a path

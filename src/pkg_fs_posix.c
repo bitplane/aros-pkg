@@ -527,3 +527,229 @@ void pkg_fs_unlock_dir(void *lock)
     (void)lock;
 #endif
 }
+
+/* ---- the network ------------------------------------------------------ */
+
+#if defined(__AROS__)
+int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
+{
+    (void)url; (void)dest;
+    snprintf(err, errlen, "network channels are not built for AROS yet; copy the channel to a "
+             "volume this machine reads, and name that directory");
+    return -1;
+}
+
+char *pkg_cache_dir(void)
+{
+    const char *e = getenv("PKG_CACHE");
+    char *p = (char *)malloc(64 + (e ? strlen(e) : 0));
+    if (p) strcpy(p, e ? e : "T:pkg-cache");
+    return p;
+}
+#else
+#include <netdb.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <spawn.h>
+extern char **environ;
+
+char *pkg_cache_dir(void)
+{
+    const char *e = getenv("PKG_CACHE"), *x = getenv("XDG_CACHE_HOME"), *h = getenv("HOME");
+    size_t n = 32 + (e ? strlen(e) : 0) + (x ? strlen(x) : 0) + (h ? strlen(h) : 0);
+    char *p = (char *)malloc(n);
+    if (p == NULL) return NULL;
+    if (e && *e) snprintf(p, n, "%s", e);
+    else if (x && *x) snprintf(p, n, "%s/pkg", x);
+    else if (h && *h) snprintf(p, n, "%s/.cache/pkg", h);
+    else snprintf(p, n, "/tmp/pkg-cache");
+    return p;
+}
+
+/* https: the system's curl, with no shell in between. */
+static int get_with_curl(const char *url, const char *tmp, char *err, size_t errlen)
+{
+    char *argv[] = { "curl", "-sS", "-f", "-L", "--max-redirs", "5", "-o", (char *)tmp, (char *)url, NULL };
+    pid_t pid;
+    int st;
+    if (posix_spawnp(&pid, "curl", NULL, NULL, argv, environ) != 0) {
+        snprintf(err, errlen, "https needs curl, which is not on this machine's PATH");
+        return -1;
+    }
+    if (waitpid(pid, &st, 0) < 0 || !WIFEXITED(st)) {
+        snprintf(err, errlen, "curl did not finish");
+        return -1;
+    }
+    if (WEXITSTATUS(st) == 22) return 1;        /* -f: an HTTP error; Pkg asks for files that may not exist */
+    if (WEXITSTATUS(st) != 0) {
+        snprintf(err, errlen, "curl failed with exit code %d fetching %s", WEXITSTATUS(st), url);
+        return -1;
+    }
+    return 0;
+}
+
+static int http_get_once(const char *url, int fd, char *location, size_t ll, char *err, size_t errlen)
+{
+    char host[256], port[8] = "80", req[2300], head[8192];
+    const char *p = url + 7, *slash = strchr(p, '/'), *colon;
+    const char *path = slash ? slash : "/";
+    size_t hl = slash ? (size_t)(slash - p) : strlen(p), hlen = 0;
+    struct addrinfo hints, *ai = NULL, *a;
+    int s = -1, code = 0, chunked = 0;
+    long long clen = -1;
+    char *body;
+    ssize_t n;
+
+    colon = memchr(p, ':', hl);
+    if (hl == 0 || hl >= sizeof host) { snprintf(err, errlen, "no host in %s", url); return -1; }
+    if (colon) {
+        snprintf(port, sizeof port, "%.*s", (int)(hl - (size_t)(colon - p) - 1), colon + 1);
+        hl = (size_t)(colon - p);
+    }
+    snprintf(host, sizeof host, "%.*s", (int)hl, p);
+    memset(&hints, 0, sizeof hints);
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, port, &hints, &ai) != 0) {
+        snprintf(err, errlen, "cannot find the host %s", host);
+        return -1;
+    }
+    for (a = ai; a && s < 0; a = a->ai_next) {
+        s = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (s >= 0 && connect(s, a->ai_addr, a->ai_addrlen) != 0) { close(s); s = -1; }
+    }
+    freeaddrinfo(ai);
+    if (s < 0) { snprintf(err, errlen, "cannot connect to %s:%s", host, port); return -1; }
+    snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Pkg\r\nConnection: close\r\n\r\n",
+             path, host);
+    if (write(s, req, strlen(req)) != (ssize_t)strlen(req)) {
+        close(s); snprintf(err, errlen, "cannot send to %s", host); return -1;
+    }
+    /* the head, up to the blank line */
+    for (;;) {
+        if (hlen + 1 >= sizeof head) { close(s); snprintf(err, errlen, "an oversized reply from %s", host); return -1; }
+        n = read(s, head + hlen, sizeof head - 1 - hlen);
+        if (n <= 0) { close(s); snprintf(err, errlen, "%s closed the connection early", host); return -1; }
+        hlen += (size_t)n;
+        head[hlen] = '\0';
+        if ((body = strstr(head, "\r\n\r\n")) != NULL) { body += 4; break; }
+    }
+    if (sscanf(head, "HTTP/%*s %d", &code) != 1) { close(s); snprintf(err, errlen, "%s did not answer HTTP", host); return -1; }
+    {
+        char *line = strstr(head, "\r\n");
+        while (line && line + 2 < body - 2) {
+            char *eol = strstr(line + 2, "\r\n");
+            size_t k = eol ? (size_t)(eol - (line + 2)) : 0;
+            if (k > 15 && strncasecmp(line + 2, "Content-Length:", 15) == 0) clen = atoll(line + 17);
+            if (k > 18 && strncasecmp(line + 2, "Transfer-Encoding:", 18) == 0
+                && strstr(line + 2, "chunked") && (size_t)(strstr(line + 2, "chunked") - (line + 2)) < k)
+                chunked = 1;
+            if (k > 9 && strncasecmp(line + 2, "Location:", 9) == 0 && location) {
+                const char *v = line + 11;
+                while (*v == ' ') v++;
+                snprintf(location, ll, "%.*s", (int)(eol - v), v);
+            }
+            line = eol;
+        }
+    }
+    if (code == 404 || code == 410) { close(s); return 1; }
+    if (code >= 300 && code < 400) { close(s); return 3; }
+    if (code != 200) { close(s); snprintf(err, errlen, "%s answered HTTP %d for %s", host, code, path); return -1; }
+    {
+        /* the body: what followed the head, then the rest of the stream */
+        size_t have = hlen - (size_t)(body - head);
+        char buf[65536];
+        long long got = 0;
+        if (!chunked) {
+            if (have && write(fd, body, have) != (ssize_t)have) goto werr;
+            got = (long long)have;
+            while (clen < 0 || got < clen) {
+                n = read(s, buf, sizeof buf);
+                if (n <= 0) break;
+                if (write(fd, buf, (size_t)n) != n) goto werr;
+                got += n;
+            }
+            close(s);
+            if (clen >= 0 && got != clen) { snprintf(err, errlen, "%s sent %lld of %lld bytes", host, got, clen); return -1; }
+            return 0;
+        } else {
+            /* chunked: collect everything, then decode */
+            size_t cap = have + 65536, len = have, at = 0;
+            char *all = (char *)malloc(cap + 1);
+            if (all == NULL) { close(s); snprintf(err, errlen, "out of memory"); return -1; }
+            memcpy(all, body, have);
+            while ((n = read(s, buf, sizeof buf)) > 0) {
+                if (len + (size_t)n + 1 > cap) {
+                    char *g;
+                    cap = (len + (size_t)n) * 2;
+                    g = (char *)realloc(all, cap + 1);
+                    if (g == NULL) { free(all); close(s); snprintf(err, errlen, "out of memory"); return -1; }
+                    all = g;
+                }
+                memcpy(all + len, buf, (size_t)n);
+                len += (size_t)n;
+            }
+            close(s);
+            all[len] = '\0';
+            for (;;) {
+                unsigned long size = strtoul(all + at, NULL, 16);
+                char *eol = strstr(all + at, "\r\n");
+                if (eol == NULL) break;
+                at = (size_t)(eol - all) + 2;
+                if (size == 0) { free(all); return 0; }
+                if (at + size > len || write(fd, all + at, size) != (ssize_t)size) {
+                    free(all); snprintf(err, errlen, "%s sent a broken chunked reply", host); return -1;
+                }
+                at += size + 2;
+            }
+            free(all);
+            snprintf(err, errlen, "%s ended a chunked reply early", host);
+            return -1;
+        }
+    }
+werr:
+    close(s);
+    snprintf(err, errlen, "cannot write the download: %s", strerror(errno));
+    return -1;
+}
+
+int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
+{
+    size_t dl = strlen(dest);
+    char *tmp = (char *)malloc(dl + 8), cur[2100], loc[2100];
+    int hops, rc = -1, fd;
+
+    if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
+    snprintf(tmp, dl + 8, "%s.part", dest);
+    snprintf(cur, sizeof cur, "%s", url);
+    for (hops = 0; hops < 6; hops++) {
+        if (strncmp(cur, "https://", 8) == 0) {
+            rc = get_with_curl(cur, tmp, err, errlen);
+            break;
+        }
+        if (strncmp(cur, "http://", 7) != 0) {
+            snprintf(err, errlen, "cannot fetch %s: only http:// and https:// are read", cur);
+            rc = -1;
+            break;
+        }
+        fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0) { snprintf(err, errlen, "cannot write %s: %s", tmp, strerror(errno)); rc = -1; break; }
+        loc[0] = '\0';
+        rc = http_get_once(cur, fd, loc, sizeof loc, err, errlen);
+        close(fd);
+        if (rc != 3) break;
+        if (loc[0] == '\0') { snprintf(err, errlen, "a redirect with no Location"); rc = -1; break; }
+        if (loc[0] == '/') {                     /* same host */
+            const char *h = strchr(cur + 8, '/');
+            snprintf(cur, sizeof cur, "%.*s%s", h ? (int)(h - cur) : (int)strlen(cur), cur, loc);
+        } else {
+            snprintf(cur, sizeof cur, "%s", loc);
+        }
+        rc = -1;
+        snprintf(err, errlen, "too many redirects");
+    }
+    if (rc == 0 && rename(tmp, dest) != 0) { snprintf(err, errlen, "cannot keep %s: %s", dest, strerror(errno)); rc = -1; }
+    if (rc != 0) unlink(tmp);
+    free(tmp);
+    return rc;
+}
+#endif
