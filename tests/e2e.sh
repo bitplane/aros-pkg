@@ -128,6 +128,29 @@ $PKG MANIFEST "$T/two" > "$T/two.m" 2>&1
 $PKG MANIFEST "$T/two" NAME guru > "$T/two.m2" 2>&1
 has "$T/two.m2" '^Name: guru$' && has "$T/two.m2" '^Version: 2.0$'
                                                       ok $? "NAME alone takes the version from that program's cookie"
+mkdir -p "$T/one/L"
+printf 'h\000$VER: afs.handler 41.7 (1.1.2026)\000' > "$T/one/L/afs-handler"
+$PKG MANIFEST "$T/one" NAME afs-handler > "$T/one.m" 2>&1
+has "$T/one.m" '^Name: afs-handler$' && has "$T/one.m" '^Version: 41.7$'
+                                                      ok $? "NAME differing from the only cookie keeps that cookie's version"
+
+# Architecture from the executables' own headers.
+mkdir -p "$T/elf/C" "$T/mix/C"
+python3 -c "
+import sys
+elf = bytearray(64); elf[0:4] = b'\x7fELF'; elf[4] = 2; elf[5] = 1; elf[18] = 183
+open(sys.argv[1], 'wb').write(bytes(elf) + b'\0\$VER: Tool 1.0 (1.1.2026)\0')
+open(sys.argv[2], 'wb').write(b'\x00\x00\x03\xf3' + b'\0' * 28)
+" "$T/elf/C/Tool" "$T/mix/C/Old"
+cp "$T/elf/C/Tool" "$T/mix/C/Tool"
+$PKG MANIFEST "$T/elf" > "$T/elf.m" 2>&1
+has "$T/elf.m" '^Architecture: aarch64$';            ok $? "an aarch64 ELF executable makes the package aarch64"
+$PKG MANIFEST "$T/mix" NAME tool > "$T/mix.m" 2>&1
+[ $? -eq 20 ] && has "$T/mix.m" 'C/Old (m68k)';       ok $? "aarch64 and 68k hunk executables in one drawer: refused with 20, both named"
+$PKG MANIFEST "$T/elf" ARCH m68k > "$T/elf.m2" 2>&1
+[ $? -eq 20 ] && has "$T/elf.m2" 'built for aarch64'; ok $? "ARCH contradicting the executables is refused"
+$PKG MANIFEST "$D" > "$T/gen.m" 2>&1
+has "$T/gen.m" '^Architecture: generic$';            ok $? "a drawer with no executable header stays generic"
 $PKG HELP > "$T/help" 2>"$T/help.e"
 [ $? -eq 0 ] && has "$T/help" 'DEPENDS' && [ ! -s "$T/help.e" ]
                                                       ok $? "HELP prints the usage on stdout and succeeds"
@@ -158,8 +181,7 @@ cp "$T/good.pkg" "$CH/objects/$payload.pkg"
 
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/twice" 2>&1
-[ $? -eq 15 ];                                         ok $? "second install refused"
-has "$T/twice" 'already installed';                   ok $? "and points to UPGRADE"
+[ $? -eq 0 ] && has "$T/twice" 'already installed';  ok $? "installing the installed version again succeeds and says so"
 $PKG REMOVE hello ROOT "$R" > /dev/null 2>&1
 
 mkdir -p "$R/C"; printf 'mine' > "$R/C/Hello"
@@ -287,7 +309,8 @@ $PKG VERIFY hello ROOT "$R" > /dev/null 2>&1;         ok $? "verify passes on 1.
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG UPGRADE hello VERSION 1.2 ROOT "$R" CHANNEL "$CH" > "$T/dg" 2>&1
 [ $? -eq 18 ];                                         ok $? "EXACT to an older version refused without DOWNGRADE"
-has "$T/dg" 'add DOWNGRADE';                          ok $? "and the way through is named"
+has "$T/dg" "person's decision" && ! has "$T/dg" 'add DOWNGRADE'
+                                                      ok $? "and leaves the choice to the person, with no keyword to paste"
 $PKG UPGRADE hello VERSION 1.2 DOWNGRADE ROOT "$R" CHANNEL "$CH" > "$T/dg2" 2>&1
                                                       ok $? "EXACT with DOWNGRADE succeeds"
 has "$T/dg2" 'downgraded hello from 1.3 to 1.2';      ok $? "and calls it a downgrade"
@@ -375,6 +398,52 @@ mrun x5 VERIFY hello ROOT "$M" MACHINE
 mrun mx REMOVE hello ROOT "$M" MACHINE
 has "$T/mx.o" '^result: removed$' && has "$T/mx.o" '^kept: C/Hello$'
                                                       ok $? "remove reports the edited file it kept"
+
+echo "agent_safety"
+
+# What an agent needs from the tool itself: a next step on every refusal, no
+# ready-made command that overrides a safeguard, suggestions instead of
+# guesses, dry runs that write nothing, and retries that are harmless.
+A="$T/aroot"
+$PKG INSTALL hello VERSION 1.2 ROOT "$A" CHANNEL "$CH" > /dev/null 2>&1
+$PKG UPGRADE hello ROOT "$A" CHANNEL "$CH" MACHINE > "$T/k14" 2>&1
+[ $? -eq 14 ] && has "$T/k14" '^next: ask-person$' && has "$T/k14" "^signer: $EVILPUB\$" \
+    && has "$T/k14" "^pinned: $PUB\$";                ok $? "a key refusal: next ask-person, pinned and signer as their own fields"
+! has "$T/k14" "ACCEPTKEY $EVILPUB";                  ok $? "and no ACCEPTKEY with the key filled in to paste"
+$PKG UPGRADE hello ROOT "$A" CHANNEL "$CH" > "$T/k14h" 2>&1
+has "$T/k14h" 'next: ask the person';                ok $? "the human refusal ends with the same next step"
+$PKG INSTALL hello VERSION 1.2 ROOT "$A" CHANNEL "$CH" MACHINE > "$T/again" 2>&1
+[ $? -eq 0 ] && has "$T/again" '^result: unchanged$'; ok $? "a retried INSTALL of the same version succeeds, unchanged"
+$PKG INSTALL hello VERSION 1.3 ROOT "$A" CHANNEL "$CH" MACHINE > "$T/other" 2>&1
+[ $? -eq 15 ] && has "$T/other" '^next: use-upgrade$'; ok $? "INSTALL of a newer version than installed: 15, next use-upgrade"
+$PKG UPGRADE nosuch ROOT "$A" CHANNEL "$CH" MACHINE > "$T/ni" 2>&1
+[ $? -eq 11 ] && has "$T/ni" '^next: use-install$';   ok $? "UPGRADE of what is not installed: 11, next use-install"
+$PKG INSTALL hell ROOT "$A" CHANNEL "$CH" MACHINE > "$T/near" 2>&1
+[ $? -eq 11 ] && has "$T/near" 'did you mean hello' && has "$T/near" '^next: check-name$'
+                                                      ok $? "a near name is suggested, not guessed"
+$PKG INSTALL hello --root "$A" MACHINE > "$T/dash" 2>&1
+[ $? -eq 20 ] && has "$T/dash" 'perhaps ROOT' && has "$T/dash" '^next: fix-command$'
+                                                      ok $? "--root is answered with the Pkg spelling, ROOT"
+cp -R "$CH" "$T/chx"
+python3 -c "
+import sys
+p=sys.argv[1]; b=bytearray(open(p,'rb').read()); b[-1]^=1; open(p,'wb').write(b)
+" "$T/chx/objects/$payload.pkg"
+$PKG INSTALL hello VERSION 1.2 ROOT "$T/xroot" CHANNEL "$T/chx" MACHINE > "$T/x12" 2>&1
+[ $? -eq 12 ] && has "$T/x12" '^next: stop$';          ok $? "an integrity refusal says stop"
+
+$PKG INSTALL hello ROOT "$T/droot" CHANNEL "$CH" DRYRUN MACHINE > "$T/di" 2>&1
+[ $? -eq 0 ] && has "$T/di" '^result: would-install$' && [ ! -e "$T/droot" ]
+                                                      ok $? "INSTALL DRYRUN says would-install and creates nothing"
+before=$(cat "$CH/index")
+mkdir -p "$T/v15/C"; printf 'binary 5\000$VER: Hello 1.5 (1.10.2026)\000' > "$T/v15/C/Hello"
+$PKG PUBLISH "$T/v15" CHANNEL "$CH" DRYRUN MACHINE > "$T/dp" 2>&1
+[ $? -eq 0 ] && has "$T/dp" '^result: would-publish$' && has "$T/dp" '^depends: none$' \
+    && has "$T/dp" '^version: 1.5$' && [ "$(cat "$CH/index")" = "$before" ]
+                                                      ok $? "PUBLISH DRYRUN shows name, version, no dependencies, and leaves the channel as it was"
+$PKG REMOVE hello ROOT "$A" DRYRUN MACHINE > "$T/dr" 2>&1
+[ $? -eq 0 ] && has "$T/dr" '^result: would-remove$' && [ -f "$A/C/Hello" ] && [ -f "$A/.pkg/db/hello" ]
+                                                      ok $? "REMOVE DRYRUN says would-remove and removes nothing"
 
 echo
 echo "$checks checks, $fails failures"

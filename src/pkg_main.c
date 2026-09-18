@@ -101,6 +101,14 @@ static const char *class_name(int c)
 static const char *verb_name = "pkg";
 static int refused_class;
 static int machine;              /* MACHINE, or PKG_OUTPUT=machine */
+static int dryrun;               /* DRYRUN: every check, no write */
+
+/* A result word, or its conditional under DRYRUN: "installed" becomes
+ * "would-install", so a dry run can never be read as the real thing. */
+static const char *res(const char *done, const char *would)
+{
+    return dryrun ? would : done;
+}
 
 /* A result field, in machine mode only: "key: value", the manifest's syntax. */
 static void kv(const char *key, const char *fmt, ...)
@@ -115,11 +123,66 @@ static void kv(const char *key, const char *fmt, ...)
     pkg_out("%s: %s\n", key, buf);
 }
 
+/* What an agent, or a person, should do after a refusal. Every refusal says
+ * it, as `next:` in the machine record and as a last line in the human one,
+ * so the answer to "what now?" never has to be guessed from the reason's
+ * wording. The reasons themselves never hand over a ready-made command that
+ * overrides a safeguard (ACCEPTKEY, DOWNGRADE, removing something): those
+ * steps are the person's, and `ask-person` says so. */
+static const char *next_default(int cls)
+{
+    switch (cls) {
+    case PKGRC_NOTFOUND:   return "check-name";
+    case PKGRC_INTEGRITY:  return "stop";
+    case PKGRC_SIGNATURE:  return "stop";
+    case PKGRC_KEY:        return "ask-person";
+    case PKGRC_CONFLICT:   return "ask-person";
+    case PKGRC_DEPENDENCY: return "ask-person";
+    case PKGRC_POLICY:     return "ask-person";
+    case PKGRC_USAGE:      return "fix-command";
+    default:               return "report";
+    }
+}
+
+static const char *next_words(const char *next)
+{
+    if (strcmp(next, "stop") == 0)
+        return "stop here: the bytes or signatures are not what was published, and "
+               "no keyword or other channel makes that safe";
+    if (strcmp(next, "ask-person") == 0)
+        return "ask the person; this is their decision, not a step to take for them";
+    if (strcmp(next, "fix-command") == 0)
+        return "fix the command; pkg HELP lists the verbs and keywords";
+    if (strcmp(next, "check-name") == 0)
+        return "check the name; pkg SHOW CHANNEL <dir> lists what a channel offers, "
+               "pkg LIST ROOT <dir> what a root holds";
+    if (strcmp(next, "use-upgrade") == 0)
+        return "to move to that version, UPGRADE instead of INSTALL";
+    if (strcmp(next, "use-install") == 0)
+        return "it is not installed there; INSTALL it instead";
+    return "report this to the person";
+}
+
+static const char *pending_next;   /* set by refuse_n for the next refusal */
+static const char *refused_next;
+static int quiet;                  /* SHOW checks entries without printing refusals */
+static char quiet_reason[512];
+
 static int refuse_c(int cls, const char *fmt, ...)
 {
     va_list ap;
-    if (refused_class == 0)
+    const char *next = pending_next ? pending_next : next_default(cls);
+    pending_next = NULL;
+    if (refused_class == 0) {
         refused_class = cls;
+        refused_next = next;
+    }
+    if (quiet) {
+        va_start(ap, fmt);
+        vsnprintf(quiet_reason, sizeof quiet_reason, fmt, ap);
+        va_end(ap);
+        return 1;
+    }
     if (machine) {
         char buf[2048], *q;
         va_start(ap, fmt);
@@ -127,18 +190,20 @@ static int refuse_c(int cls, const char *fmt, ...)
         va_end(ap);
         for (q = buf; *q; q++)
             if (*q == '\n') *q = ' ';
-        pkg_out("result: refused\nclass: %s\ncode: %d\nreason: %s\n",
-                class_name(refused_class), refused_class, buf);
+        pkg_out("result: refused\nclass: %s\ncode: %d\nreason: %s\nnext: %s\n",
+                class_name(refused_class), refused_class, buf, refused_next);
         return 1;
     }
     pkg_err("pkg %s: ", verb_name);
     va_start(ap, fmt);
     pkg_verr(fmt, ap);
     va_end(ap);
-    pkg_err("\n");
+    pkg_err("\n  next: %s\n", next_words(refused_next));
     return 1;
 }
 
+/* A refusal whose next step differs from its class's usual one. */
+#define refuse_n(cls, nx, ...) (pending_next = (nx), refuse_c((cls), __VA_ARGS__))
 #define refuse(...) refuse_c(PKGRC_REFUSED, __VA_ARGS__)
 
 /* A warning is not a failure and leaves the command's class alone. */
@@ -198,7 +263,7 @@ static int fromhex(unsigned char *b, size_t n, const char *hex)
 struct args {
     const char *pos;
     const char *root, *channel, *name, *version, *arch, *kind;
-    const char *file, *sign, *key, *out, *acceptkey, *depends;
+    const char *file, *sign, *key, *out, *acceptkey, *depends, *unit, *handler;
     int downgrade, orphans;
 };
 
@@ -222,7 +287,9 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "KEY",       offsetof(struct args, key) },
         { "OUT",       offsetof(struct args, out) },
         { "ACCEPTKEY", offsetof(struct args, acceptkey) },
-        { "DEPENDS",   offsetof(struct args, depends) }
+        { "DEPENDS",   offsetof(struct args, depends) },
+        { "UNIT",      offsetof(struct args, unit) },
+        { "HANDLER",   offsetof(struct args, handler) }
 };
 
 static int takes_value(const char *w)
@@ -265,6 +332,10 @@ static int parse_args(int argc, char **argv, struct args *a)
             a->orphans = 1;
             continue;
         }
+        if (ieq(argv[i], "DRYRUN")) {
+            dryrun = 1;
+            continue;
+        }
         if (ieq(argv[i], "MACHINE")) {
             machine = 1;
             continue;
@@ -276,6 +347,17 @@ static int parse_args(int argc, char **argv, struct args *a)
             if (i + 1 >= argc)
                 return refuse_c(20, "%s needs a value", argv[i]), -1;
             *slot = argv[++i];
+        } else if (argv[i][0] == '-') {
+            /* The habit of other tools. Say the Pkg spelling, never guess. */
+            const char *w = argv[i] + strspn(argv[i], "-");
+            char up[32];
+            size_t j2;
+            for (j2 = 0; w[j2] && j2 + 1 < sizeof up && w[j2] != '='; j2++)
+                up[j2] = (char)toupper((unsigned char)w[j2]);
+            up[j2] = '\0';
+            return refuse_c(20, "\"%s\": Pkg keywords have no dashes and take their value "
+                            "as the next word, as in ROOT <dir>%s%s", argv[i],
+                            up[0] ? "; here perhaps " : "", up), -1;
         } else if (a->pos == NULL) {
             a->pos = argv[i];
         } else {
@@ -521,9 +603,10 @@ static int cookie(const struct loaded *f, char *name, size_t nl, char *ver, size
 static int find_ver(const struct drawer *d, const char *want, char *name, size_t nl,
                     char *ver, size_t vl, const char **from, char *seen, size_t sl)
 {
-    size_t i, at = 0;
+    size_t i, at = 0, count = 0;
     int found = 0, clash = 0;
-    char n[65], v[64];
+    char n[65], v[64], only_v[64];
+    const char *only_from = NULL;
 
     seen[0] = '\0';
     for (i = 0; i < d->n; i++) {
@@ -532,6 +615,10 @@ static int find_ver(const struct drawer *d, const char *want, char *name, size_t
         if (at + 100 < sl)
             at += (size_t)snprintf(seen + at, sl - at, "%s%s (%s %s)", at ? ", " : "",
                                    d->v[i].rel, n, v);
+        if (count++ == 0) {
+            snprintf(only_v, sizeof only_v, "%s", v);
+            only_from = d->v[i].rel;
+        }
         if (want != NULL) {
             if (!found && strcmp(n, want) == 0) {
                 snprintf(name, nl, "%s", n);
@@ -548,7 +635,64 @@ static int find_ver(const struct drawer *d, const char *want, char *name, size_t
             clash = 1;
         }
     }
+    if (want != NULL && !found && count == 1) {
+        /* One program in the drawer, packaged under another name than its
+         * cookie gives ("afs.handler" as afs-handler): its version stands. */
+        snprintf(name, nl, "%s", want);
+        snprintf(ver, vl, "%s", only_v);
+        *from = only_from;
+        return 1;
+    }
+    if (want != NULL && !found && count > 1)
+        return -1;
     return clash ? -1 : found;
+}
+
+/* The CPU a file is built for, from its own header: ELF's e_machine, or the
+ * hunk format every 68k Amiga executable has. NULL for data and scripts. */
+static const char *file_arch(const unsigned char *p, size_t len)
+{
+    if (len >= 20 && p[0] == 0x7F && p[1] == 'E' && p[2] == 'L' && p[3] == 'F') {
+        unsigned m = p[5] == 2 ? (unsigned)p[18] << 8 | p[19] : (unsigned)p[19] << 8 | p[18];
+        switch (m) {
+        case 3:   return "i386";
+        case 4:   return "m68k";
+        case 20:  return "ppc";
+        case 21:  return "ppc64";
+        case 40:  return "arm";
+        case 62:  return "x86_64";
+        case 183: return "aarch64";
+        default:  return NULL;
+        }
+    }
+    if (len >= 4 && pkg_be32_get(p) == 0x000003F3ul)
+        return "m68k";
+    return NULL;
+}
+
+/* The drawer's architecture: the one its executables share, "generic" when
+ * it has none. 1 found, 0 none, -1 more than one, listed in `seen`. */
+static int drawer_arch(const struct drawer *d, const char **arch, const char **from,
+                       char *seen, size_t sl)
+{
+    size_t i, at = 0;
+    int clash = 0;
+    *arch = NULL;
+    seen[0] = '\0';
+    for (i = 0; i < d->n; i++) {
+        const char *a = file_arch(d->v[i].data, d->v[i].len);
+        if (a == NULL)
+            continue;
+        if (at + 80 < sl)
+            at += (size_t)snprintf(seen + at, sl - at, "%s%s (%s)", at ? ", " : "", d->v[i].rel, a);
+        if (*arch == NULL) {
+            *arch = a;
+            *from = d->v[i].rel;
+        } else if (strcmp(*arch, a) != 0) {
+            clash = 1;
+        }
+    }
+    return clash ? -1 : *arch != NULL;
 }
 
 /* DEPENDS "a >= 1.0, b": each item a name, alone or with ">=" and the lowest
@@ -630,6 +774,7 @@ struct built {
     char          *text;
     size_t         text_len;
     char           ver_from[512];
+    char           arch_from[512];
     unsigned       skipped;
     char         **left_out;
     size_t         nleft;
@@ -686,6 +831,11 @@ static int build(const struct args *a, struct built *out)
         char seen[600];
         int got = find_ver(&d, name, vname, sizeof vname, vver, sizeof vver, &from,
                            seen, sizeof seen);
+        if (got < 0 && name != NULL) {
+            drawer_free(&d);
+            return refuse_c(20, "none of the drawer's $VER cookies is %s: %s. Add VERSION",
+                            name, seen);
+        }
         if (got < 0) {
             drawer_free(&d);
             return refuse_c(20, "the $VER cookies in the drawer name different programs or "
@@ -697,7 +847,25 @@ static int build(const struct args *a, struct built *out)
             snprintf(out->ver_from, sizeof out->ver_from, "%s", from);
         }
     }
-    arch = a->arch ? a->arch : "generic";
+    {
+        char seen[600];
+        const char *found_arch = NULL, *afrom = NULL;
+        int got = drawer_arch(&d, &found_arch, &afrom, seen, sizeof seen);
+        if (got < 0) {
+            drawer_free(&d);
+            return refuse_c(20, "the drawer holds executables for different CPUs: %s. One "
+                            "package is one architecture; publish each separately", seen);
+        }
+        if (a->arch != NULL && got > 0 && strcmp(a->arch, found_arch) != 0) {
+            /* afrom points into the drawer: refuse before freeing it. */
+            refuse_c(20, "ARCH %s, but %s is built for %s", a->arch, afrom, found_arch);
+            drawer_free(&d);
+            return 1;
+        }
+        arch = a->arch ? a->arch : got > 0 ? found_arch : "generic";
+        if (a->arch == NULL && got > 0)
+            snprintf(out->arch_from, sizeof out->arch_from, "%s", afrom);
+    }
     kind = a->kind ? a->kind : "application";
     if (name == NULL) {
         drawer_free(&d);
@@ -866,16 +1034,38 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
     return p;
 }
 
+/* Names in the channel close to `name`: one contains the other, or they
+ * agree up to the first '.', '-' or '_' ("identify" and "identify.library"). */
+static int close_name(const char *a, const char *b)
+{
+    size_t la = strcspn(a, ".-_"), lb = strcspn(b, ".-_");
+    if (strstr(a, b) != NULL || strstr(b, a) != NULL)
+        return 1;
+    return la == lb && la >= 3 && strncmp(a, b, la) == 0;
+}
+
 static void say_not_found(const struct index *ix, const char *name, const char *version,
                           const char *channel)
 {
-    size_t i, at = 0;
+    size_t i, j, at = 0;
     char offered[512];
     offered[0] = '\0';
     for (i = 0; i < ix->n && at + 72 < sizeof offered; i++)
         if (strcmp(ix->e[i].name, name) == 0)
             at += (size_t)snprintf(offered + at, sizeof offered - at, "%s%s",
                                    at ? ", " : "; versions offered: ", ix->e[i].version);
+    if (at == 0) {
+        for (i = 0; i < ix->n && at + 72 < sizeof offered; i++) {
+            int seen = 0;
+            if (!close_name(ix->e[i].name, name))
+                continue;
+            for (j = 0; j < i; j++)
+                if (strcmp(ix->e[j].name, ix->e[i].name) == 0) seen = 1;
+            if (!seen)
+                at += (size_t)snprintf(offered + at, sizeof offered - at, "%s%s",
+                                       at ? ", " : "; did you mean ", ix->e[i].name);
+        }
+    }
     refuse_c(PKGRC_NOTFOUND, "%s%s%s is not in the channel %s%s", name,
              version ? " " : "", version ? version : "", channel, offered);
 }
@@ -986,7 +1176,8 @@ static int load_installed(const char *root, const char *name, struct pkg_manifes
         return refuse("out of memory");
     if (pkg_fs_read(p, &buf, &len) != 0) {
         free(p);
-        return quiet ? 1 : refuse_c(11, "%s is not installed in %s", name, root);
+        return quiet ? 1 : refuse_n(11, strcmp(verb_name, "upgrade") == 0 ? "use-install" : "check-name",
+                                    "%s is not installed in %s", name, root);
     }
     free(p);
     rc = pkg_manifest_parse((const char *)buf, len, m, err, sizeof err);
@@ -1025,10 +1216,14 @@ static int check_pin(const char *root, const char *name, const char *signer,
                name, pinned, signer);
         return 0;
     }
+    kv("pinned", "%s", pinned);
+    kv("signer", "%s", signer);
     return refuse_c(14, "%s is signed by a different key from the one pinned in %s.\n"
                   "  pinned %s\n  signer %s\n"
-                  "Nothing was changed. If the publisher really changed keys, accept the new "
-                  "one explicitly with ACCEPTKEY %s", name, root, pinned, signer, signer);
+                  "Nothing was changed. Either the publisher changed keys or someone else "
+                  "signed this; only the person can tell, by asking the publisher by another "
+                  "route than this channel. If they confirm the new key, it is accepted with "
+                  "ACCEPTKEY and the key in full", name, root, pinned, signer);
 }
 
 static int write_pin(const char *root, const char *name, const char *signer)
@@ -1155,14 +1350,23 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             free(t);
             if (there)
                 return refuse_c(15, "\"%s\" already exists in %s and belongs to no installed version "
-                              "of %s; nothing was changed", m->files[i].path, root, m->name);
+                              "of %s; nothing was changed. It may be the person's own file",
+                              m->files[i].path, root, m->name);
         } else if (file_state(root, of->path, of->digest, of->size) == 1) {
             return refuse_c(15, "\"%s\" was edited since %s %s was installed, and %s %s ships it too; "
-                          "nothing was changed. Save your edit elsewhere, then REMOVE or "
-                          "restore the file", of->path, old->name, old->version, m->name, m->version);
+                          "nothing was changed. The edit is the person's: they decide whether "
+                          "to keep it elsewhere first", of->path, old->name, old->version, m->name, m->version);
         }
     }
 
+    if (dryrun) {
+        /* Every check above has passed; say what would move, move nothing. */
+        *placed = (unsigned long)m->nfiles;
+        for (i = 0; old != NULL && i < old->nfiles; i++)
+            if (find_file(m, old->files[i].path) == NULL)
+                (*dropped)++;
+        return 0;
+    }
     {
         char rel[128];
         snprintf(rel, sizeof rel, ".pkg/staging/%s", m->name);
@@ -1381,7 +1585,8 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
             int low = min != NULL && pkg_version_cmp(cur.version, min) < 0;
             if (low)
                 refuse_c(16, "%s needs %s >= %s, and %s has %s %s; nothing was changed. "
-                         "UPGRADE %s first", from, name, min, p->root, name, cur.version, name);
+                         "Upgrading %s would change it for everything that uses it",
+                         from, name, min, p->root, name, cur.version, name);
             pkg_manifest_free(&cur);
             return low;
         }
@@ -1450,7 +1655,9 @@ static int remove_files(const char *root, const struct pkg_manifest *m,
     *removed = *kept = *gone = 0;
     for (i = 0; i < m->nfiles; i++) {
         int s = file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size);
-        if (s == 0) {
+        if (s == 0 && dryrun) {
+            (*removed)++;
+        } else if (s == 0) {
             char *p = pkg_join(root, m->files[i].path);
             if (p != NULL && pkg_fs_unlink(p) == 0) {
                 (*removed)++;
@@ -1467,6 +1674,8 @@ static int remove_files(const char *root, const struct pkg_manifest *m,
             (*gone)++;
         }
     }
+    if (dryrun)
+        return 0;
     dbp = root_path(root, "db", m->name);
     if (dbp == NULL || pkg_fs_unlink(dbp) != 0) {
         free(dbp);
@@ -1493,18 +1702,20 @@ static int run_plan(struct plan *p, const struct pkg_manifest *cur,
         int last = i + 1 == p->n;
         unsigned long pl, dr, ke;
         if (apply(p->root, last ? cur : NULL, &p->f[i], &pl, &dr, &ke) != 0) {
-            while (i-- > 0) {
+            while (!dryrun && i-- > 0) {
                 size_t r, k, g;
                 remove_files(p->root, &p->f[i].m, &r, &k, &g, 0);
             }
             return 1;
         }
         if (!last) {
-            set_auto(p->root, p->f[i].m.name, 1);
+            if (!dryrun)
+                set_auto(p->root, p->f[i].m.name, 1);
             if (machine)
                 kv("dependency", "%s %s", p->f[i].m.name, p->f[i].m.version);
             else
-                pkg_out("  added    %s %s, a dependency\n", p->f[i].m.name, p->f[i].m.version);
+                pkg_out("  %s %s %s, a dependency\n", dryrun ? "would add" : "added   ",
+                        p->f[i].m.name, p->f[i].m.version);
         } else {
             *placed = pl;
             *dropped = dr;
@@ -1537,6 +1748,181 @@ static size_t find_orphans(const struct installed *in, const char *root, size_t 
 }
 
 /* ---- verbs ------------------------------------------------------------ */
+
+/* The mount entry of an installed image, and the AmigaDOS steps around it.
+ * Pkg's part in an application ends with the image in place; this only
+ * writes down what mounting it takes, with the geometry read from the signed
+ * manifest, so nobody has to work it out. */
+static int cmd_mountlist(const struct args *a)
+{
+    struct pkg_manifest m;
+    struct installed in;
+    char text[1600], handler[512], fdsk[64], unitbuf[16], *img;
+    const char *unit = a->unit ? a->unit : "20";
+    unsigned long blocks;
+    size_t i, j;
+    int n, libs = 0;
+
+    if (a->pos == NULL)  return refuse_c(20, "name the installed image");
+    if (a->root == NULL) return refuse_c(20, "name the root with ROOT <dir>");
+    if (strspn(unit, "0123456789") != strlen(unit) || strlen(unit) == 0 || strlen(unit) > 4)
+        return refuse_c(20, "UNIT is a number, the fdsk.device unit");
+    if (load_installed(a->root, a->pos, &m, 0) != 0) return 1;
+    if (strcmp(m.kind, "image") != 0 || m.nfiles != 1) {
+        refuse_c(20, "%s is a %s, not an image; only an image is mounted", m.name, m.kind);
+        pkg_manifest_free(&m);
+        return 1;
+    }
+    blocks = (unsigned long)(m.files[0].size / PKG_IMAGE_BLOCK);
+    handler[0] = '\0';
+    if (a->handler != NULL) {
+        snprintf(handler, sizeof handler, "%s", a->handler);
+    } else if (load_all(a->root, &in) == 0) {
+        /* An FFS handler installed into the same root as a component. */
+        for (i = 0; i < in.n && !handler[0]; i++)
+            for (j = 0; j < in.m[i].nfiles; j++)
+                if (strcmp(in.m[i].kind, "device") == 0
+                    && strcmp(in.m[i].files[j].path, "L/afs-handler") == 0) {
+                    char *h = pkg_join(a->root, "L/afs-handler");
+                    if (h) snprintf(handler, sizeof handler, "%s", h);
+                    free(h);
+                }
+        for (i = 0; i < in.n; i++)
+            for (j = 0; j < m.ndeps; j++)
+                if (strcmp(in.m[i].name, m.deps[j].name) == 0)
+                    libs = 1;
+        installed_free(&in);
+    }
+    n = snprintf(text, sizeof text,
+        "%s%s%s"
+        "Device          = fdsk.device\n"
+        "Unit            = %s\n"
+        "Flags           = 0\n"
+        "Surfaces        = 1\n"
+        "BlocksPerTrack  = %u\n"
+        "LowCyl          = 0\n"
+        "HighCyl         = %lu\n"
+        "Reserved        = 2\n"
+        "BlockSize       = %u\n"
+        "Buffers         = 20\n"
+        "BufMemType      = 1\n"
+        "Mask            = 0\n"
+        "StackSize       = 16384\n"
+        "Priority        = 5\n"
+        "GlobVec         = -1\n"
+        "DosType         = 0x444F5303\n"
+        "Activate        = 1\n",
+        handler[0] ? "FileSystem      = " : "", handler, handler[0] ? "\n" : "",
+        unit, PKG_IMAGE_TRACK, blocks / PKG_IMAGE_TRACK - 1, PKG_IMAGE_BLOCK);
+    img = pkg_join(a->root, m.files[0].path);
+    snprintf(unitbuf, sizeof unitbuf, "Unit%s", unit);
+    snprintf(fdsk, sizeof fdsk, "RAM:fdsk");
+    if (a->out != NULL && !dryrun && pkg_fs_write_atomic(a->out, text, (size_t)n) != 0) {
+        free(img);
+        pkg_manifest_free(&m);
+        return refuse_c(17, "cannot write \"%s\": %s", a->out, strerror(errno));
+    }
+    kv("result", "%s", a->out ? res("created", "would-create") : "shown");
+    kv("name", "%s", m.name);
+    kv("image", "%s", img ? img : m.files[0].path);
+    kv("blocks", "%lu", blocks);
+    kv("highcyl", "%lu", blocks / PKG_IMAGE_TRACK - 1);
+    kv("unit", "%s", unit);
+    kv("handler", "%s", handler[0] ? handler : "none: the system's FFS for DOS\\3");
+    if (a->out) kv("file", "%s", a->out);
+    kv("step", "MakeDir %s", fdsk);
+    kv("step", "Assign FDSK: %s", fdsk);
+    kv("step", "MakeLink %s/%s %s", fdsk, unitbuf, img ? img : m.files[0].path);
+    kv("step", "Protect %s w SUB", img ? img : m.files[0].path);
+    if (libs) kv("step", "Assign LIBS: %s/Libs ADD", a->root);
+    kv("step", "Mount %s", a->out ? a->out : "<this mountlist, saved as a file named after the device>");
+    if (!machine) {
+        if (a->out == NULL)
+            pkg_outraw(text, (size_t)n);
+        else
+            pkg_out("%s %s, the mount entry for %s (%lu blocks)\n",
+                    dryrun ? "would write" : "wrote", a->out, m.name, blocks);
+        pkg_out("\nOn AROS, the device is named after the mountlist file:\n"
+                "  MakeDir %s\n  Assign FDSK: %s\n  MakeLink %s/%s %s\n  Protect %s w SUB\n%s%s%s"
+                "  Mount %s\n", fdsk, fdsk, fdsk, unitbuf, img ? img : "", img ? img : "",
+                libs ? "  Assign LIBS: " : "", libs ? a->root : "", libs ? "/Libs ADD\n" : "",
+                a->out ? a->out : "<file>");
+        if (!handler[0])
+            pkg_out("No FFS handler is installed in this root; the entry relies on the "
+                    "system's. Hosted AROS has none: install one, or name it with HANDLER.\n");
+    }
+    free(img);
+    pkg_manifest_free(&m);
+    return 0;
+}
+
+/* What a channel offers, each version checked the way INSTALL would check
+ * it: manifest against the index, signature, payload against the manifest.
+ * Nothing is installed. Exits with the class of the first bad entry. */
+static int cmd_show(const struct args *a)
+{
+    struct index ix;
+    size_t i, shown = 0, bad = 0;
+    int first_bad = 0;
+
+    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
+    if (read_index(a->channel, &ix) != 0) return 1;
+    kv("result", "shown");
+    for (i = 0; i < ix.n; i++) {
+        struct fetched f;
+        const char *status = "ok";
+        int rc;
+        if (a->pos != NULL && strcmp(ix.e[i].name, a->pos) != 0)
+            continue;
+        shown++;
+        quiet = 1;
+        refused_class = 0;
+        quiet_reason[0] = '\0';
+        rc = fetch(a->channel, &ix.e[i], &f);
+        quiet = 0;
+        if (rc != 0) {
+            status = class_name(refused_class);
+            bad++;
+            if (!first_bad) first_bad = refused_class;
+        }
+        if (machine) {
+            kv("entry", "%s %s %s %s %s %s", ix.e[i].name, ix.e[i].version,
+               rc == 0 ? f.m.kind : "-", rc == 0 ? f.m.architecture : "-", status,
+               rc == 0 ? f.signer : "-");
+            if (rc == 0) {
+                size_t d;
+                for (d = 0; d < f.m.ndeps; d++)
+                    kv("depends", "%s %s %s%s%s", ix.e[i].name, ix.e[i].version, f.m.deps[d].name,
+                       f.m.deps[d].min ? " >= " : "", f.m.deps[d].min ? f.m.deps[d].min : "");
+            } else {
+                kv("problem", "%s %s %s", ix.e[i].name, ix.e[i].version, quiet_reason);
+            }
+        } else {
+            pkg_out("%-20s %-8s %-11s %-8s %-10s %.16s\n", ix.e[i].name, ix.e[i].version,
+                    rc == 0 ? f.m.kind : "-", rc == 0 ? f.m.architecture : "-", status,
+                    rc == 0 ? f.signer : "-");
+            if (rc != 0)
+                pkg_out("  %s\n", quiet_reason);
+        }
+        fetched_free(&f);
+    }
+    kv("count", "%lu", (unsigned long)shown);
+    kv("bad", "%lu", (unsigned long)bad);
+    if (!machine && shown == 0)
+        pkg_out("%s%s offers nothing%s%s\n", a->channel, "", a->pos ? " named " : "",
+                a->pos ? a->pos : "");
+    free(ix.e);
+    refused_class = first_bad;
+    if (bad == 0)
+        return 0;
+    refused_next = next_default(first_bad);
+    if (!machine)
+        pkg_err("pkg show: %lu of %lu entries fail their checks\n  next: %s\n",
+                (unsigned long)bad, (unsigned long)shown, next_words(refused_next));
+    else
+        kv("next", "%s", refused_next);
+    return 1;
+}
 
 /* The image alone, for a person who wants the file without a channel. */
 static int cmd_image(const struct args *a)
@@ -1627,6 +2013,44 @@ static int cmd_publish(const struct args *a)
         }
     }
 
+    if (dryrun) {
+        size_t d;
+        kv("result", "would-publish");
+        kv("name", "%s", b.m.name);
+        kv("version", "%s", b.m.version);
+        kv("kind", "%s", b.m.kind);
+        kv("architecture", "%s", b.m.architecture);
+        kv("channel", "%s", a->channel);
+        if (b.m.ndeps == 0)
+            kv("depends", "none");
+        for (d = 0; d < b.m.ndeps; d++)
+            kv("depends", "%s%s%s", b.m.deps[d].name, b.m.deps[d].min ? " >= " : "",
+               b.m.deps[d].min ? b.m.deps[d].min : "");
+        for (d = 0; d < b.m.nfiles; d++)
+            kv("file", "%s %llu", b.m.files[d].path, b.m.files[d].size);
+        kv("signer", "%s", k.pkhex);
+        if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
+        if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
+        for (d = 0; d < b.nleft; d++)
+            kv("left-out", "%s", b.left_out[d]);
+        if (!machine) {
+            pkg_out("would publish %s %s (%s, %s) to %s, signed by %.16s\n", b.m.name, b.m.version,
+                    b.m.kind, b.m.architecture, a->channel, k.pkhex);
+            for (d = 0; d < b.m.ndeps; d++)
+                pkg_out("  depends  %s%s%s\n", b.m.deps[d].name, b.m.deps[d].min ? " >= " : "",
+                        b.m.deps[d].min ? b.m.deps[d].min : "");
+            if (b.m.ndeps == 0)
+                pkg_out("  depends  nothing\n");
+            for (d = 0; d < b.m.nfiles; d++)
+                pkg_out("  file     %s (%llu bytes)\n", b.m.files[d].path, b.m.files[d].size);
+            for (d = 0; d < b.nleft; d++)
+                pkg_out("  left out %s\n", b.left_out[d]);
+            if (b.ver_from[0])
+                pkg_out("  name and version from $VER: in %s\n", b.ver_from);
+        }
+        rc = 0;
+        goto out;
+    }
     po = object_path(a->channel, b.m.payload, "pkg");     /* content-addressed, shareable */
     mo = object_path(a->channel, mdigest, "manifest");      /* one per version */
     so = object_path(a->channel, mdigest, "sig");
@@ -1662,6 +2086,10 @@ static int cmd_publish(const struct args *a)
     if (!machine)
     pkg_out("published %s %s to %s: %lu files, payload %s, signed by %.16s\n", b.m.name,
            b.m.version, a->channel, (unsigned long)b.m.nfiles, s12, k.pkhex);
+    if (b.arch_from[0] && machine)
+        kv("arch-from", "%s", b.arch_from);
+    else if (b.arch_from[0])
+        pkg_out("  architecture %s, read from %s\n", b.m.architecture, b.arch_from);
     if (b.ver_from[0] && machine)
         kv("version-from", "%s", b.ver_from);
     else if (b.ver_from[0])
@@ -1719,8 +2147,22 @@ static int cmd_install(const struct args *a)
             free(ix.e);
             return 0;
         }
-        refuse_c(15, "%s %s is already installed in %s; use UPGRADE, or REMOVE it first",
-               cur.name, cur.version, a->root);
+        if (pkg_version_cmp(cur.version, e->version) == 0) {
+            /* The state asked for is the state there: a repeated INSTALL, as
+             * an agent retrying after a timeout sends, succeeds and changes
+             * nothing. */
+            kv("result", "unchanged");
+            kv("name", "%s", cur.name);
+            kv("version", "%s", cur.version);
+            if (!machine)
+                pkg_out("%s %s is already installed in %s\n", cur.name, cur.version, a->root);
+            pkg_manifest_free(&cur);
+            free(ix.e);
+            return 0;
+        }
+        refuse_n(15, pkg_version_cmp(e->version, cur.version) > 0 ? "use-upgrade" : "ask-person",
+                 "%s %s is installed in %s, not %s; nothing was changed",
+                 cur.name, cur.version, a->root, e->version);
         pkg_manifest_free(&cur);
         free(ix.e);
         return 1;
@@ -1730,7 +2172,7 @@ static int cmd_install(const struct args *a)
         const struct fetched *t = &p.f[p.n - 1];
         struct fetched f = *t;
         short12(f.m.payload, s12);
-        kv("result", "installed");
+        kv("result", "%s", res("installed", "would-install"));
         kv("name", "%s", f.m.name);
         kv("version", "%s", f.m.version);
         kv("root", "%s", a->root);
@@ -1738,8 +2180,17 @@ static int cmd_install(const struct args *a)
         kv("payload", "%s", f.m.payload);
         kv("signer", "%s", f.signer);
         if (!machine)
-        pkg_out("installed %s %s into %s: %lu files, payload %s, signed by %.16s\n",
+        pkg_out("%s %s %s into %s: %lu files, payload %s, signed by %.16s\n",
+               dryrun ? "would install" : "installed",
                f.m.name, f.m.version, a->root, placed, s12, f.signer);
+        if (strcmp(f.m.kind, "image") == 0 && f.m.nfiles == 1) {
+            kv("image", "%s", f.m.files[0].path);
+            kv("blocks", "%llu", f.m.files[0].size / PKG_IMAGE_BLOCK);
+            if (!machine)
+                pkg_out("  image %s, %llu blocks; pkg MOUNTLIST %s ROOT %s OUT <file> writes "
+                        "its mount entry\n", f.m.files[0].path,
+                        f.m.files[0].size / PKG_IMAGE_BLOCK, f.m.name, a->root);
+        }
         rc = 0;
     }
     plan_free(&p);
@@ -1757,7 +2208,9 @@ static int move_to(const struct args *a, const struct index *ix, const struct en
     if (plan_target(&p, a, ix, e->name, e->version) == 0
         && run_plan(&p, cur, &placed, &dropped, &kept) == 0) {
         struct fetched f = p.f[p.n - 1];
-        kv("result", "%s", verb[0] == 'u' ? "upgraded" : verb[0] == 'd' ? "downgraded" : "rolled-back");
+        kv("result", "%s", verb[0] == 'u' ? res("upgraded", "would-upgrade")
+                           : verb[0] == 'd' ? res("downgraded", "would-downgrade")
+                           : res("rolled-back", "would-roll-back"));
         kv("name", "%s", f.m.name);
         kv("from", "%s", cur->version);
         kv("version", "%s", f.m.version);
@@ -1766,7 +2219,8 @@ static int move_to(const struct args *a, const struct index *ix, const struct en
         kv("removed", "%lu", dropped);
         kv("signer", "%s", f.signer);
         if (!machine) {
-        pkg_out("%s %s from %s to %s in %s: %lu placed, %lu removed", verb, f.m.name,
+        pkg_out("%s%s %s from %s to %s in %s: %lu placed, %lu removed",
+               dryrun ? "would have " : "", verb, f.m.name,
                cur->version, f.m.version, a->root, placed, dropped);
         if (kept) pkg_out(", %lu kept", kept);
         pkg_out("\n");
@@ -1803,9 +2257,8 @@ static int cmd_upgrade(const struct args *a)
         goto out;
     }
     if (c < 0 && !a->downgrade) {
-        refuse_c(18, "%s %s is older than the installed %s; nothing was changed. Use ROLLBACK to "
-               "return to the previous version, or add DOWNGRADE to move to this one",
-               e->name, e->version, cur.version);
+        refuse_c(18, "%s %s is older than the installed %s; nothing was changed. Going back "
+               "a version is the person's decision", e->name, e->version, cur.version);
         goto out;
     }
     rc = move_to(a, &ix, e, &cur, c < 0 ? "downgraded" : "upgraded");
@@ -1938,14 +2391,31 @@ static int cmd_verify(const struct args *a)
     return 1;
 }
 
+/* Take one package out of an in-memory list, as removing it would. */
+static void drop_installed(struct installed *in, const char *name)
+{
+    size_t i;
+    for (i = 0; i < in->n; i++) {
+        if (strcmp(in->m[i].name, name) != 0)
+            continue;
+        pkg_manifest_free(&in->m[i]);
+        memmove(&in->m[i], &in->m[i + 1], (in->n - i - 1) * sizeof in->m[0]);
+        in->n--;
+        return;
+    }
+}
+
 static int remove_orphans(const struct args *a)
 {
     struct installed in;
     size_t *which, n, i, total = 0;
+    int loaded = 0;
 
     for (;;) {
-        if (load_all(a->root, &in) != 0)
+        /* A dry run works on the list in memory, since nothing leaves the disk. */
+        if (!(dryrun && loaded) && load_all(a->root, &in) != 0)
             return 1;
+        loaded = 1;
         which = malloc((in.n ? in.n : 1) * sizeof *which);
         if (which == NULL) { installed_free(&in); return refuse("out of memory"); }
         n = find_orphans(&in, a->root, which);
@@ -1961,15 +2431,25 @@ static int remove_orphans(const struct args *a)
             if (machine)
                 kv("package", "%s %s", m->name, m->version);
             else
-                pkg_out("removed %s %s, which nothing needed: %lu files removed%s\n", m->name,
+                pkg_out("%s %s %s, which nothing needed: %lu files%s\n",
+                        dryrun ? "would remove" : "removed", m->name,
                         m->version, (unsigned long)r, k ? ", edited files kept" : "");
         }
+        if (dryrun) {
+            char names[64][65];
+            size_t k2, nn = n < 64 ? n : 64;
+            for (k2 = 0; k2 < nn; k2++)
+                snprintf(names[k2], sizeof names[k2], "%s", in.m[which[k2]].name);
+            for (k2 = 0; k2 < nn; k2++)
+                drop_installed(&in, names[k2]);
+        }
         free(which);
-        installed_free(&in);
+        if (!dryrun || n == 0)
+            installed_free(&in);
         if (n == 0)
             break;              /* removing one orphan can orphan its own dependencies */
     }
-    kv("result", "removed");
+    kv("result", "%s", res("removed", "would-remove"));
     kv("count", "%lu", (unsigned long)total);
     if (!machine && total == 0)
         pkg_out("no orphans in %s\n", a->root);
@@ -1990,7 +2470,7 @@ static int cmd_remove(const struct args *a)
     if (load_all(a->root, &in) != 0) { pkg_manifest_free(&m); return 1; }
     if (needed_by(&in, m.name, who, sizeof who)) {
         installed_free(&in);
-        refuse_c(16, "%s is needed by %s; nothing was removed. Remove %s first",
+        refuse_c(16, "%s is needed by %s; nothing was removed. Removing it would break %s",
                  m.name, who, strchr(who, ',') ? "them" : "it");
         pkg_manifest_free(&m);
         return 1;
@@ -2000,21 +2480,23 @@ static int cmd_remove(const struct args *a)
         pkg_manifest_free(&m);
         return 1;
     }
-    kv("result", "removed");
+    kv("result", "%s", res("removed", "would-remove"));
     kv("name", "%s", m.name);
     kv("version", "%s", m.version);
     kv("root", "%s", a->root);
     kv("removed", "%lu", (unsigned long)removed);
     kv("gone", "%lu", (unsigned long)gone);
     if (!machine) {
-    pkg_out("removed %s %s from %s: %lu files removed", m.name, m.version, a->root,
-           (unsigned long)removed);
+    pkg_out("%s %s %s from %s: %lu files %s", dryrun ? "would remove" : "removed", m.name,
+           m.version, a->root, (unsigned long)removed, dryrun ? "to remove" : "removed");
     if (kept) pkg_out(", %lu kept", (unsigned long)kept);
     if (gone) pkg_out(", %lu already gone", (unsigned long)gone);
     pkg_out("\n");
     }
     /* Say what this leaves behind; removing it is a separate, explicit act. */
     if (load_all(a->root, &in) == 0) {
+        if (dryrun)
+            drop_installed(&in, m.name);
         which = malloc((in.n ? in.n : 1) * sizeof *which);
         n = which ? find_orphans(&in, a->root, which) : 0;
         for (i = 0; i < n; i++) {
@@ -2049,6 +2531,9 @@ static int usage(void)
         "  pkg REMOVE   <name> ROOT <dir>\n"
         "  pkg REMOVE   ORPHANS ROOT <dir>\n"
         "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
+        "  pkg MOUNTLIST <image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]\n"
+        "  pkg SHOW     [<name>] CHANNEL <dir>\n"
+        "Every verb that changes something takes DRYRUN: all checks, no write.\n"
         "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
         "  pkg HELP\n"
         "SIGN defaults to $PKG_SIGNKEY. Any verb takes MACHINE, or PKG_OUTPUT=machine:\n"
@@ -2072,7 +2557,9 @@ static int run_verb(int argc, char **argv)
         { "LIST",     "list",     cmd_list },
         { "VERIFY",   "verify",   cmd_verify },
         { "REMOVE",   "remove",   cmd_remove },
-        { "IMAGE",    "image",    cmd_image }
+        { "IMAGE",    "image",    cmd_image },
+        { "MOUNTLIST", "mountlist", cmd_mountlist },
+        { "SHOW",     "show",     cmd_show }
     };
     struct args a;
     size_t i;
@@ -2082,6 +2569,8 @@ static int run_verb(int argc, char **argv)
     const char *env = getenv("PKG_OUTPUT");
 
     refused_class = 0;
+    refused_next = NULL;
+    dryrun = 0;
     machine = env != NULL && ieq(env, "machine");
     if (wants_machine(argc, argv))
         machine = 1;
@@ -2091,7 +2580,7 @@ static int run_verb(int argc, char **argv)
         machine = saved_machine;
         return PKGRC_USAGE;
     }
-    if (ieq(argv[1], "HELP")) {
+    if (ieq(argv[1], "HELP") || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
         /* Asked for: to stdout, and a success. */
         usage_to = pkg_out;
         usage();

@@ -129,7 +129,8 @@ $PKG INSTALL needs2 ROOT "$R" CHANNEL "$CH" > "$T/c1" 2>&1
 $PKG INSTALL base ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 pub base 2.0 library - > /dev/null
 $PKG INSTALL needs2 ROOT "$R" CHANNEL "$CH" > "$T/c2" 2>&1
-[ $? -eq 16 ] && has "$T/c2" 'UPGRADE base first';      ok $? "an installed version too old refused with 16, naming the way out"
+[ $? -eq 16 ] && has "$T/c2" 'change it for everything that uses it' && has "$T/c2" 'next: ask the person'
+                                                        ok $? "an installed version too old refused with 16, leaving the upgrade to the person"
 $PKG UPGRADE base ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG INSTALL needs2 ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
                                                         ok $? "after UPGRADE base, the same install goes through"
@@ -191,6 +192,44 @@ $PKG ROLLBACK app ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
                                                         ok $? "rollback to 1"
 $PKG REMOVE app ROOT "$R" MACHINE > "$T/ra3" 2>&1
 has "$T/ra3" '^orphan: extra 1.0$';                     ok $? "extra, which only app 2 needed, is an orphan after removal"
+
+echo "show_and_mountlist"
+$PKG SHOW CHANNEL "$CH" MACHINE > "$T/sh" 2>&1
+[ $? -eq 0 ] && has "$T/sh" '^entry: app 1 image generic ok ' && has "$T/sh" '^depends: app 1 mid$' \
+    && has "$T/sh" '^bad: 0$';                          ok $? "SHOW lists each entry with kind, status, signer and dependencies"
+cp -R "$CH" "$T/chbad"
+b=$(awk '$1=="base" && $2=="1.0"{print $3}' "$CH/index")
+bp=$(awk '/^Payload:/{print $2}' "$CH/objects/$b.manifest")
+printf 'x' >> "$T/chbad/objects/$bp.pkg"
+$PKG SHOW base CHANNEL "$T/chbad" MACHINE > "$T/shb" 2>&1
+[ $? -eq 12 ] && has "$T/shb" '^entry: base 1.0 - - integrity -$' && has "$T/shb" '^bad: 1$' \
+    && has "$T/shb" '^next: stop$';                     ok $? "SHOW finds a damaged payload without installing it: exit 12"
+MR="$T/mroot"
+$PKG INSTALL app VERSION 1 ROOT "$MR" CHANNEL "$CH" MACHINE > "$T/mi" 2>&1
+has "$T/mi" '^image: app\.hdf$';                        ok $? "INSTALL of an image names the image"
+$PKG MOUNTLIST app ROOT "$MR" OUT "$T/APP0" UNIT 21 MACHINE > "$T/ml" 2>&1
+blocks=$(( $(wc -c < "$MR/app.hdf") / 512 ))
+[ $? -eq 0 ] && has "$T/APP0" '^Unit            = 21$' && has "$T/APP0" "^HighCyl         = $((blocks / 32 - 1))\$" \
+    && has "$T/ml" "^step: Assign LIBS: $MR/Libs ADD\$"
+                                                        ok $? "MOUNTLIST writes the entry with the image's own geometry, and the LIBS step"
+$PKG MOUNTLIST mid ROOT "$MR" > "$T/ml2" 2>&1
+[ $? -eq 20 ] && has "$T/ml2" 'not an image';           ok $? "MOUNTLIST of a library is refused"
+
+echo "dry_runs"
+DR="$T/dryroot"
+$PKG INSTALL app VERSION 1 ROOT "$DR" CHANNEL "$CH" > /dev/null 2>&1
+before=$(files_in "$DR")
+$PKG UPGRADE app ROOT "$DR" CHANNEL "$CH" DRYRUN MACHINE > "$T/du" 2>&1
+[ $? -eq 0 ] && has "$T/du" '^result: would-upgrade$' && has "$T/du" '^dependency: extra 1.0$'
+                                                        ok $? "UPGRADE DRYRUN names the dependency it would bring"
+[ "$(files_in "$DR")" = "$before" ];                    ok $? "and nothing under the root changed"
+$PKG REMOVE app ROOT "$DR" > /dev/null 2>&1
+before=$(files_in "$DR")
+$PKG REMOVE ORPHANS ROOT "$DR" DRYRUN MACHINE > "$T/do" 2>&1
+[ $? -eq 0 ] && has "$T/do" '^result: would-remove$' && has "$T/do" '^package: mid 1.0$' \
+    && has "$T/do" '^package: base 2.0$' && has "$T/do" '^count: 2$'
+                                                        ok $? "REMOVE ORPHANS DRYRUN follows the chain: mid, then base"
+[ "$(files_in "$DR")" = "$before" ];                    ok $? "and removes nothing"
 
 echo
 echo "$checks checks, $fails failures"

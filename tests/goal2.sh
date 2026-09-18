@@ -75,7 +75,7 @@ echo "goal2 0: what the hosted system lacks"
 # ---- 1. macOS publishes ----------------------------------------------------
 
 echo "goal2 1: macOS publishes"
-mkdir -p "$share/out" "$share/mnt" "$work/afs/L" "$work/id/Libs" "$work/g20/C" "$work/g21/C" "$work/self/C"
+mkdir -p "$share/out" "$work/afs/L" "$work/id/Libs" "$work/g20/C" "$work/g21/C" "$work/self/C"
 cp "$b/afs-handler" "$work/afs/L/afs-handler"
 cp "$b/identify/identify.library" "$work/id/Libs/identify.library"
 cp "$b/identify/Guru" "$work/g20/C/Guru"
@@ -107,31 +107,8 @@ blocks_of() {
 n20=$(blocks_of 2.0)
 n21=$(blocks_of 2.1)
 [ -n "$n20" ] && [ -n "$n21" ] && [ "$n20" != "$n21" ]; ok $? "the two images differ in size: $n20 and $n21 blocks"
-mountlist() {  # mountlist <file> <unit> <blocks>
-    cat > "$1" <<EOF
-FileSystem      = MacRW:sys/L/afs-handler
-Device          = fdsk.device
-Unit            = $2
-Flags           = 0
-Surfaces        = 1
-BlocksPerTrack  = 32
-LowCyl          = 0
-HighCyl         = $(($3 / 32 - 1))
-Reserved        = 2
-BlockSize       = 512
-Buffers         = 20
-BufMemType      = 1
-Mask            = 0
-StackSize       = 16384
-Priority        = 5
-GlobVec         = -1
-DosType         = 0x444F5303
-Activate        = 1
-EOF
-}
-mountlist "$share/GURU0" 20 "$n20"
-mountlist "$share/GURU1" 21 "$n21"
-mountlist "$share/GURU2" 22 "$n20"
+# The mount entries are written on AROS by Pkg MOUNTLIST; the host only
+# checks their geometry against these sizes.
 
 # A copy of the channel with one byte of the 2.1 image flipped, and one where
 # the dependency's signature is damaged.
@@ -168,26 +145,33 @@ $(step s01 RAM:boot/Pkg INSTALL pkg $S)
 $(step s02 $P INSTALL afs-handler $S)
 $(step s03 $P INSTALL guru VERSION 2.0 $S)
 $(step s04 $P LIST ROOT MacRW:sys MACHINE)
-Assign FDSK: MacRW:mnt
+C:MakeDir RAM:fdsk
+Assign FDSK: RAM:fdsk
+$(step m20 $P MOUNTLIST guru ROOT MacRW:sys UNIT 20 OUT RAM:GURU0 MACHINE)
+C:Copy RAM:GURU0 MacRW:out/GURU0.ml
 C:Protect MacRW:sys/guru.hdf w SUB
-C:MakeLink MacRW:mnt/Unit20 MacRW:sys/guru.hdf
-C:Mount MacRW:GURU0
+C:MakeLink RAM:fdsk/Unit20 MacRW:sys/guru.hdf
+C:Mount RAM:GURU0
 $(step r19 GURU0:C/Guru 04000001)
 Assign LIBS: MacRW:sys/Libs ADD
 $(step r20 GURU0:C/Guru 04000001)
 C:List GURU0: ALL >MacRW:out/l20.o
 C:Eject GURU0:
 $(step s05 $P UPGRADE guru $S)
+$(step m21 $P MOUNTLIST guru ROOT MacRW:sys UNIT 21 OUT RAM:GURU1 MACHINE)
+C:Copy RAM:GURU1 MacRW:out/GURU1.ml
 C:Protect MacRW:sys/guru.hdf w SUB
-C:MakeLink MacRW:mnt/Unit21 MacRW:sys/guru.hdf
-C:Mount MacRW:GURU1
+C:MakeLink RAM:fdsk/Unit21 MacRW:sys/guru.hdf
+C:Mount RAM:GURU1
 $(step r21 GURU1:C/Guru 04000001)
 C:List GURU1: ALL >MacRW:out/l21.o
 C:Eject GURU1:
 $(step s06 $P ROLLBACK guru $S)
+$(step m22 $P MOUNTLIST guru ROOT MacRW:sys UNIT 22 OUT RAM:GURU2 MACHINE)
+C:Copy RAM:GURU2 MacRW:out/GURU2.ml
 C:Protect MacRW:sys/guru.hdf w SUB
-C:MakeLink MacRW:mnt/Unit22 MacRW:sys/guru.hdf
-C:Mount MacRW:GURU2
+C:MakeLink RAM:fdsk/Unit22 MacRW:sys/guru.hdf
+C:Mount RAM:GURU2
 $(step r22 GURU2:C/Guru 04000001)
 C:List GURU2: ALL >MacRW:out/l22.o
 $(step s07 $P VERIFY guru ROOT MacRW:sys MACHINE)
@@ -242,20 +226,29 @@ Subsystem:  intuition.library
 General:    General fault
 Specified:  Recovery form of AN_GadgetType
 EOF
+ml_ok() {  # ml_ok <device> <step> <unit> <blocks>: Pkg's entry and the steps it gave
+    has "$O/$1.ml" "^Unit            = $3\$" && has "$O/$1.ml" "^HighCyl         = $(($4 / 32 - 1))\$" \
+        && has "$O/$1.ml" '^FileSystem      = MacRW:sys/L/afs-handler$' \
+        && has "$O/$2.o" "^step: MakeLink RAM:fdsk/Unit$3 MacRW:sys/guru.hdf\$" \
+        && has "$O/$2.o" '^step: Assign LIBS: MacRW:sys/Libs ADD$'
+}
 guru_ok() { sed 's/^ *//; s/ *$//; /^$/d' "$O/$1.o" 2>/dev/null | cmp -s - "$work/guru.expected"; }
 ! guru_ok r19 && has "$O/r19.o" 'Could not open version 37 or higher of library "identify.library"'
                                                       ok $? "control: before the root's Libs is visible, Guru cannot open identify.library"
 exits r19 20 "control: and AmigaDOS sees the failure"
+ml_ok GURU0 m20 20 "$n20";                             ok $? "Pkg MOUNTLIST on AROS: the 2.0 entry, handler from the root, and its steps"
 guru_ok r20;                                          ok $? "Guru 2.0 runs from the mounted image and decodes 04000001 as its sources say"
 exits r20 0 "Guru 2.0"
 grep -q 'Guru' "$O/l20.o" && ! grep -q 'Function' "$O/l20.o"
                                                       ok $? "the 2.0 volume holds Guru and not Function"
 exits s05 0 "the upgrade to 2.1"
 has "$O/s05.o" '^from: 2.0$' && has "$O/s05.o" '^version: 2.1$'; ok $? "reports 2.0 to 2.1"
+ml_ok GURU1 m21 21 "$n21";                             ok $? "Pkg MOUNTLIST: the 2.1 entry with 2.1's own geometry"
 guru_ok r21;                                          ok $? "Guru 2.1 runs from its image with the same output"
 grep -q 'Function' "$O/l21.o";                        ok $? "the 2.1 volume holds Function"
 exits s06 0 "the rollback"
 has "$O/s06.o" '^result: rolled-back$' && has "$O/s06.o" '^version: 2.0$'; ok $? "reports the return to 2.0"
+ml_ok GURU2 m22 22 "$n20";                             ok $? "Pkg MOUNTLIST: the rolled-back entry"
 guru_ok r22;                                          ok $? "Guru runs from the rolled-back image"
 ! grep -q 'Function' "$O/l22.o";                      ok $? "the rolled-back volume no longer holds Function"
 exits s07 0 "verify after three mounts"
