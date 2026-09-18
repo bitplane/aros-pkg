@@ -1,0 +1,194 @@
+@page "/packages/{channel}/{name}"
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@inject Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
+@{
+    var channel = (string)RouteData.Values["channel"]!;
+    var name = (string)RouteData.Values["name"]!;
+    var ch = Catalogue.Get(channel);
+    var p = ch?.Packages.GetValueOrDefault(name);
+    if (p is null) { Response.StatusCode = 404; ViewData["Title"] = "No such package"; }
+}
+@if (ch is null || p is null)
+{
+    <h1>No package “@name” in @channel</h1>
+    <p><a href="/search?q=@Uri.EscapeDataString(name)">Search for it</a> in every channel.</p>
+    return;
+}
+@{
+    string qv = Request.Query["version"].ToString(), qa = Request.Query["arch"].ToString();
+    var v = p.Versions.FirstOrDefault(x => x.Version == qv && (qa.Length == 0 || x.Arch == qa)) ?? p.Latest;
+    var m = v.Manifest;
+    var isLatest = v.Version == p.Latest.Version;
+    ViewData["Title"] = $"{p.Name} {v.Version}";
+    var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
+    var install = $"Pkg INSTALL {p.Name} CHANNEL {url}" + (v.Version != p.Latest.Version ? $" VERSION {v.Version}" : "");
+    const int maxFiles = 1500;
+    var openFiles = m.Files.Count <= 40;
+}
+<p class="crumbs"><a href="/">Channels</a> / <a href="/channels/@ch.Name">@ch.Name</a> /</p>
+<div class="title-row">
+    <h1>@p.Name <span class="ver">@v.Version</span></h1>
+    <div class="badges">
+        <span class="badge">@Site.KindLabel(m.Kind)</span>
+        <span class="badge">@Site.ArchLabel(v.Arch)</span>
+        @if (v.Withdrawn)
+        {
+            <span class="badge warn">withdrawn</span>
+        }
+        else if (!isLatest)
+        {
+            <span class="badge warn">not the latest</span>
+        }
+    </div>
+</div>
+@if (v.Withdrawn)
+{
+    <p class="note warn">Its publisher withdrew this version. Pkg no longer installs or upgrades to it, and asking for it by version is refused.</p>
+}
+else if (!isLatest)
+{
+    <p class="note">The latest version is <a href="/packages/@ch.Name/@p.Name">@p.Latest.Version</a>.</p>
+}
+
+<div class="cmd"><code>@install</code><button class="copy" data-copy="@install">Copy</button></div>
+
+<div class="grid">
+<section>
+    <h2>About this version</h2>
+    <dl class="facts">
+        <dt>Version</dt><dd><code>@PkgVersion.Base(v.Version)</code>
+            @if (v.Build is { } b)
+            {
+                <span class="muted"> · @Site.BuildLabel(b)</span>
+            }
+        </dd>
+        <dt>Kind</dt><dd>@Site.KindLabel(m.Kind)</dd>
+        <dt>CPU</dt><dd>@Site.ArchLabel(v.Arch)</dd>
+        <dt>Installed size</dt><dd>@Site.Size(m.InstalledSize) in @m.Files.Count file@(m.Files.Count == 1 ? "" : "s")</dd>
+        <dt>Download</dt>
+        <dd>
+            @if (m.Payload is not null)
+            {
+                <text>@Site.Size(v.PayloadSize), <a href="/@ch.Name/objects/@(m.Payload).pkg">the signed package</a></text>
+            }
+            else if (m.SourceArchive is { } arc)
+            {
+                <text>files taken from <a href="/@ch.Name/archives/@arc">@arc</a></text>
+                <div class="muted small">@Site.ArchiveStatus(ch, arc)</div>
+            }
+        </dd>
+        <dt>Published</dt><dd>@Site.Date(v.Published)</dd>
+        <dt>Signed by</dt><dd><code title="@v.Signer">@Site.Short(v.Signer)</code> <span class="muted small">Ed25519; Pkg pins this key at the first install</span></dd>
+        <dt>Manifest</dt><dd><a href="/@ch.Name/objects/@(v.Line.Digest).manifest">@Site.Short(v.Line.Digest)</a> · <a href="/@ch.Name/objects/@(v.Line.Digest).sig">signature</a></dd>
+    </dl>
+</section>
+<section>
+    <h2>Dependencies</h2>
+    @if (m.Depends.Count == 0)
+    {
+        <p class="muted">None.</p>
+    }
+    else
+    {
+        <ul class="plain">
+        @foreach (var d in m.Depends)
+        {
+            <li>
+                @if (ch.Packages.ContainsKey(d.Name))
+                {
+                    <a href="/packages/@ch.Name/@d.Name">@d.Name</a>
+                }
+                else
+                {
+                    <span>@d.Name <span class="muted small">(not in this channel)</span></span>
+                }
+                @if (d.Min is not null)
+                {
+                    <span class="muted"> ≥ @d.Min</span>
+                }
+            </li>
+        }
+        </ul>
+    }
+    <h2>Used by</h2>
+    @if (p.UsedBy.Count == 0)
+    {
+        <p class="muted">Nothing in this channel depends on it.</p>
+    }
+    else
+    {
+        <ul class="plain">
+            @foreach (var u in p.UsedBy.Order())
+            {
+                <li><a href="/packages/@ch.Name/@u">@u</a></li>
+            }
+        </ul>
+    }
+</section>
+</div>
+
+<h2>Versions</h2>
+<table class="list">
+    <thead><tr><th>Version</th><th>CPU</th><th class="hide-s">Published</th><th class="num">Size</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var x in p.Versions)
+    {
+        var current = x.Version == v.Version && x.Arch == v.Arch;
+        <tr class="@(x.Withdrawn ? "withdrawn" : "") @(current ? "current" : "")">
+            <td><a href="/packages/@ch.Name/@p.Name?version=@Uri.EscapeDataString(x.Version)&arch=@x.Arch"><code>@x.Version</code></a></td>
+            <td>@Site.ArchLabel(x.Arch)</td>
+            <td class="hide-s">@Site.Date(x.Published)</td>
+            <td class="num">@Site.Size(x.Manifest.InstalledSize)</td>
+            <td>
+                @if (x.Withdrawn)
+                {
+                    <span class="badge warn">withdrawn</span>
+                }
+                else if (x.Version == p.Latest.Version)
+                {
+                    <span class="badge">latest</span>
+                }
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+<details class="files" open="@openFiles">
+    <summary><h2>Files <span class="muted">@m.Files.Count</span></h2></summary>
+    @if (m.SourcePrefix is not null)
+    {
+        <p class="muted small">Installed at these paths, as the archive holds them.</p>
+    }
+    <table class="list mono">
+        <thead><tr><th>Path</th><th class="num">Size</th><th class="hide-s">Protection</th><th class="hide-s">Comment</th></tr></thead>
+        <tbody>
+        @foreach (var f in m.Files.Take(maxFiles))
+        {
+            <tr><td title="SHA-256 @f.Digest">@f.Path</td><td class="num">@Site.Size(f.Size)</td><td class="hide-s">@f.Protect</td><td class="hide-s">@f.Comment</td></tr>
+        }
+        </tbody>
+    </table>
+    @if (m.Files.Count > maxFiles)
+    {
+        <p class="muted">and @(m.Files.Count - maxFiles) more; the <a href="/@ch.Name/objects/@(v.Line.Digest).manifest">manifest</a> lists them all.</p>
+    }
+</details>
+
+@if (m.Content.Count > 0)
+{
+    <details class="files">
+        <summary><h2>Inside the image <span class="muted">@m.Content.Count</span></h2></summary>
+        <table class="list mono">
+            <thead><tr><th>Path</th><th class="num">Size</th><th class="hide-s">Protection</th><th class="hide-s">Comment</th></tr></thead>
+            <tbody>
+            @foreach (var f in m.Content.Take(maxFiles))
+            {
+                <tr><td title="SHA-256 @f.Digest">@f.Path</td><td class="num">@Site.Size(f.Size)</td><td class="hide-s">@f.Protect</td><td class="hide-s">@f.Comment</td></tr>
+            }
+            </tbody>
+        </table>
+    </details>
+}

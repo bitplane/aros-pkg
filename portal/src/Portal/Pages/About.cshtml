@@ -1,0 +1,16 @@
+@page "/about"
+@{ ViewData["Title"] = "How this works"; }
+<h1>How this works</h1>
+<p>Each channel here is a Pkg channel served over HTTP, file for file as it is on the publisher's disk:
+   an <code>index</code> with one line per version and CPU, and <code>objects/</code> with each version's
+   manifest, its Ed25519 signature and its payload. Packages taken from a published archive, such as a
+   nightly contrib build, list every file with its SHA-256 and point at the archive in <code>archives/</code>.</p>
+<p>Pkg checks every manifest against the index, every signature against the manifest, and every file it
+   installs against the manifest. The first install of a package pins the key that signed it, and a later
+   version signed by another key is refused. The connection proves nothing and does not need to, which is
+   why the same channels answer over plain http for machines without TLS.</p>
+<h2>Publishing</h2>
+<p>Publishers sign on their own machine; the portal never holds a signing key. A push sends what the
+   portal lacks, and the portal publishes only what Pkg itself accepts: signatures, digests and the rule
+   that a package keeps the key of its first version. A published version never changes and a push never
+   removes one; its publisher can withdraw it.</p>

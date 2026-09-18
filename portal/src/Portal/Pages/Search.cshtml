@@ -1,0 +1,72 @@
+@page "/search"
+@using Portal.Channels
+@inject Catalogue Catalogue
+@{
+    string q = Request.Query["q"].ToString().Trim();
+    string kind = Request.Query["kind"].ToString();
+    string arch = Request.Query["arch"].ToString();
+    var all = Catalogue.Channels().SelectMany(c => c.Packages.Values).ToList();
+    var hits = all.Where(p =>
+            (q.Length == 0 || p.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || p.Latest.Manifest.Files.Any(f => f.Path.Contains(q, StringComparison.OrdinalIgnoreCase)))
+            && (kind.Length == 0 || p.Kind == kind)
+            && (arch.Length == 0 || p.Archs.Contains(arch)))
+        // Names first, then packages that only hold a file of that name.
+        .OrderBy(p => q.Length > 0 && p.Name.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0
+                    : q.Length > 0 && p.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 1
+                    : q.Length == 0 || p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ? 2 : 3)
+        .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    ViewData["Title"] = q.Length > 0 ? $"Search: {q}" : "All packages";
+    var kinds = all.Select(p => p.Kind).Distinct().Order().ToList();
+    var archs = all.SelectMany(p => p.Archs).Distinct().Order().ToList();
+}
+<h1>@(q.Length > 0 ? $"Packages matching “{q}”" : "All packages")</h1>
+<form class="filters" method="get" action="/search">
+    <input type="hidden" name="q" value="@q" />
+    <label>Kind
+        <select name="kind" data-autosubmit>
+            <option value="">any</option>
+            @foreach (var k in kinds)
+            {
+                <option value="@k" selected="@(k == kind)">@Site.KindLabel(k)</option>
+            }
+        </select>
+    </label>
+    <label>CPU
+        <select name="arch" data-autosubmit>
+            <option value="">any</option>
+            @foreach (var a in archs)
+            {
+                <option value="@a" selected="@(a == arch)">@Site.ArchLabel(a)</option>
+            }
+        </select>
+    </label>
+    <noscript><button type="submit">Filter</button></noscript>
+</form>
+<p class="muted">@hits.Count result@(hits.Count == 1 ? "" : "s")@(q.Length > 0 ? ", by package name and by the files packages hold" : "").</p>
+@if (hits.Count > 0)
+{
+    <table class="list">
+        <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="hide-s">Channel</th></tr></thead>
+        <tbody>
+        @foreach (var p in hits)
+        {
+            var file = q.Length > 0 && !p.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+                ? p.Latest.Manifest.Files.FirstOrDefault(f => f.Path.Contains(q, StringComparison.OrdinalIgnoreCase)) : null;
+            <tr>
+                <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a>
+                    @if (file is not null)
+                    {
+                        <div class="muted small">holds <code>@file.Path</code></div>
+                    }
+                </td>
+                <td><code>@p.Latest.Version</code></td>
+                <td class="hide-s">@Site.KindLabel(p.Kind)</td>
+                <td class="hide-s">@string.Join(", ", p.Archs.Select(Site.ArchLabel))</td>
+                <td class="hide-s">@p.Channel</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
