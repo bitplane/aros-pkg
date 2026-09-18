@@ -588,9 +588,11 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
 
     argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = (char *)method;
     if (body_file) {
-        snprintf(data, sizeof data, "@%s", body_file);
-        argv[n++] = "--data-binary"; argv[n++] = data;
+        /* streamed from the file, never held whole: an archive is large */
+        snprintf(data, sizeof data, "%s", body_file);
+        argv[n++] = "-T"; argv[n++] = data;
         argv[n++] = "-H"; argv[n++] = "Content-Type: application/octet-stream";
+        argv[n++] = "-H"; argv[n++] = "Expect:";
     }
     if (header_file) {
         snprintf(hdr, sizeof hdr, "@%s", header_file);

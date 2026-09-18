@@ -371,6 +371,21 @@ which PUSH sends to a portal. AROS reads network channels in a later step;
 there, a channel is a directory for now. `tests/network.sh` runs all this
 against a local server.
 
+### PUSH: a local channel to a portal
+
+`pkg PUSH CHANNEL <local dir> TO https://<portal>/<channel>` sends a channel
+published on this machine to a portal that serves channels (the API agreed
+with the portal: plan, files, commit). It asks the portal which files it
+lacks, sends only those, a file over 32 MiB in parts that resume where the
+portal says it got to, then commits the local index; the portal merges it,
+checks the result with Pkg itself and answers in this program's records
+(`published:`, `refused:`, `summary:`), which PUSH relays. Signing never
+leaves this machine. The key is the publisher's, in `PKG_PUSHKEY`: it goes
+in a header file readable by its owner alone, never on a command line, and
+only over https (plain http is accepted to this machine alone, for tests).
+A second push of the same channel sends nothing. `tests/push.sh` runs it
+against `tests/push_server.py`, a stand-in for the portal.
+
 ### Packages whose files stay in someone else's archive
 
 `PUBLISH "<archive>!/<path>" FILES "a,b"` publishes the files under a path

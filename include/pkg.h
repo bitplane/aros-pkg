@@ -133,6 +133,9 @@ struct pkg_options {
                                a build whose files equal the last version's is not published */
     const char *archive;    /* show: only the entries whose files are in this archive of the
                                channel (its name in archives/), that archive read once */
+    const char *to;         /* push: the channel's URL on the portal (https, or http to this
+                               machine for tests) */
+    const char *pushkey;    /* push: the publisher's portal key; the CLI takes PKG_PUSHKEY */
     int metadata;           /* show: manifests, signatures and payloads only; source archives
                                are not read, and their entries say archive: unchecked */
     int downgrade;          /* upgrade: moving to an older version was asked for */
@@ -280,6 +283,7 @@ int pkg_remove   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_show     (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_push     (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_status   (const struct pkg_sink *s, const struct pkg_options *o);  /* root, channel, [target] */
 
 /* A refusal of the request itself, answered in the same form as the

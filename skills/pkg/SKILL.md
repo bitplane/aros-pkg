@@ -199,6 +199,11 @@ On macOS the filesystem ignores case: never create `GURU` beside `Guru`.
 trusted before its signature and digests are checked. PUBLISH and
 WITHDRAW refuse a URL: publish into a local directory, then PUSH it.
 
+**Publishing to a portal:** publish into a local directory as usual, then
+`pkg PUSH CHANNEL <dir> TO https://<portal>/<channel>` with the publisher's
+portal key in `PKG_PUSHKEY` (ask the requester for it; never invent or
+print it). PUSH sends only what the portal lacks and relays its answer.
+
 **From someone else's archive** (a nightly contrib `.tar.bz2`):
 `PUBLISH "<archive>!/<top dir>" FILES "Extras/App,Prefs/Env-Archive/SYS/Packages/App"`
 publishes those paths as one package without unpacking anything; copy or

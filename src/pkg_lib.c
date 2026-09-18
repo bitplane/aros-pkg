@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* ---- exit codes and failure classes ----------------------------------- *
  *
@@ -5329,7 +5330,7 @@ static int options_clean(const struct pkg_options *o)
         { "DEPENDS", o->depends }, { "SIGN", o->sign }, { "FILE", o->file }, { "KEY", o->key },
         { "OUT", o->out }, { "ACCEPTKEY", o->acceptkey }, { "UNIT", o->unit },
         { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build },
-        { "ARCHIVE", o->archive }
+        { "ARCHIVE", o->archive }, { "TO", o->to }, { "PKG_PUSHKEY", o->pushkey }
     };
     size_t i, j;
     for (i = 0; i < sizeof f / sizeof f[0]; i++)
@@ -5400,3 +5401,315 @@ int pkg_usage_error(const struct pkg_sink *s, const char *verb, const char *reas
     usage_reason = reason;
     return call(s, verb, usage_op, NULL);
 }
+
+/* ---- PUSH: a local channel to a portal ---------------------------------- *
+ *
+ * The portal serves a channel file for file; PUSH sends what a local one
+ * has and it lacks: plan (which files the portal needs), files (large ones
+ * in parts that resume), commit (the local index, merged by the portal,
+ * which checks the result with Pkg itself). The key travels in a header
+ * file, never on a command line, and only over https, or http to this
+ * machine for tests. The portal's answers are records in this program's
+ * own form, relayed as they come. */
+
+#define PUSH_PART_DEFAULT (32ul << 20)
+
+static int push_path_ok(const char *rel)
+{
+    size_t n = strlen(rel);
+    if (strncmp(rel, "objects/", 8) == 0)
+        return 1;
+    if (strncmp(rel, "archives/", 9) == 0)
+        return !(n > 7 && strcmp(rel + n - 7, ".pkgidx") == 0) && !(n > 7 && strcmp(rel + n - 7, ".sha256") == 0);
+    if (strncmp(rel, "Bootstrap/", 10) == 0)
+        return n > 4 && strcmp(rel + n - 4, "/Pkg") == 0;
+    return strcmp(rel, "Install-Pkg") == 0 || strcmp(rel, "ReadMe") == 0;
+}
+
+struct push_list { char **rel; size_t n, cap; };
+
+static int push_collect(const char *rel, void *ctx)
+{
+    struct push_list *pl = (struct push_list *)ctx;
+    if (!push_path_ok(rel)) return 0;
+    if (pl->n == pl->cap) {
+        size_t nc = pl->cap ? pl->cap * 2 : 64;
+        char **g = (char **)realloc(pl->rel, nc * sizeof *g);
+        if (g == NULL) return -1;
+        pl->rel = g;
+        pl->cap = nc;
+    }
+    pl->rel[pl->n] = pkg_strdup(rel);
+    return pl->rel[pl->n++] ? 0 : -1;
+}
+
+/* sha256 and size of a file read in pieces: an archive is large. */
+static int file_digest(const char *path, char hex[PKG_SHA256_HEXLEN + 1], unsigned long long *size)
+{
+    FILE *f = fopen(path, "rb");
+    unsigned char buf[65536], dg[PKG_SHA256_LEN];
+    struct pkg_sha256 c;
+    size_t n, k;
+    if (f == NULL) return -1;
+    pkg_sha256_init(&c);
+    *size = 0;
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
+        pkg_sha256_update(&c, buf, n);
+        *size += n;
+    }
+    fclose(f);
+    pkg_sha256_final(&c, dg);
+    for (k = 0; k < PKG_SHA256_LEN; k++) snprintf(hex + 2 * k, 3, "%02x", dg[k]);
+    return 0;
+}
+
+/* The value of the first "key: " record in an answer file, or NULL. */
+static char *answer_field(const char *path, const char *key, char *out, size_t ol)
+{
+    unsigned char *buf;
+    size_t len, kl = strlen(key);
+    const char *p, *end;
+    if (pkg_fs_read(path, &buf, &len) != 0) return NULL;
+    for (p = (const char *)buf, end = p + len; p < end; ) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        size_t ll = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        if (ll > kl + 1 && memcmp(p, key, kl) == 0 && p[kl] == ':' && p[kl + 1] == ' ') {
+            snprintf(out, ol, "%.*s", (int)(ll - kl - 2), p + kl + 2);
+            free(buf);
+            return out;
+        }
+        p = nl ? nl + 1 : end;
+    }
+    free(buf);
+    return NULL;
+}
+
+static int cmd_push(const struct pkg_options *a)
+{
+    struct push_list pl = { NULL, 0, 0 };
+    char *cache = NULL, *tmp = NULL, *hdr = NULL, *plan = NULL, *out = NULL, *part = NULL, *ix = NULL;
+    char url[2300], err[400], line[2200];
+    const char *base;
+    unsigned skipped = 0;
+    unsigned long long sent_bytes = 0;
+    unsigned long partsz = PUSH_PART_DEFAULT;
+    size_t i, sent = 0, nneed = 0;
+    int code = 0, rc = 1;
+    FILE *f;
+
+    if (a->channel == NULL) return refuse_c(20, "name the local channel with CHANNEL <dir>");
+    if (a->to == NULL) return refuse_c(20, "name the portal's channel with TO <url>");
+    if (is_url(a->channel))
+        return refuse_c(20, "CHANNEL is the channel on this machine that PUSH sends; the portal's is TO");
+    if (strncmp(a->to, "https://", 8) != 0
+        && strncmp(a->to, "http://127.0.0.1", 16) != 0 && strncmp(a->to, "http://localhost", 16) != 0)
+        return refuse_c(20, "PUSH sends a key, so only over https (http is accepted to this "
+                        "machine alone, for tests): %s", a->to);
+    if (a->pushkey == NULL || a->pushkey[0] == '\0')
+        return refuse_n(14, "ask-requester", "no portal key: set PKG_PUSHKEY to the key the portal "
+                        "gave the publisher. Ask whoever requested this for it; never make one up");
+    ix = pkg_join(a->channel, "index");
+    if (ix == NULL || !pkg_fs_exists(ix)) {
+        free(ix);
+        return refuse_c(11, "%s has no index: nothing is published there to push", a->channel);
+    }
+    if (getenv("PKG_PUSH_PART_BYTES"))            /* tests make parts small */
+        partsz = strtoul(getenv("PKG_PUSH_PART_BYTES"), NULL, 10);
+    if (partsz < 1024) partsz = 1024;
+    base = a->to;
+    if (pkg_fs_walk(a->channel, push_collect, NULL, &pl, &skipped, err, sizeof err) != 0) {
+        refuse_c(17, "cannot read %s: %s", a->channel, err);
+        goto out;
+    }
+    cache = pkg_cache_dir();
+    {
+        char name[64];
+        snprintf(name, sizeof name, "push-%ld", (long)time(NULL));
+        tmp = cache ? pkg_join(cache, name) : NULL;
+    }
+    if (tmp == NULL || pkg_fs_mkdirs(tmp) != 0) { refuse_c(17, "cannot make a working directory"); goto out; }
+    hdr = pkg_join(tmp, "headers");
+    plan = pkg_join(tmp, "plan");
+    out = pkg_join(tmp, "answer");
+    part = pkg_join(tmp, "part");
+    snprintf(line, sizeof line, "Authorization: Bearer %s\n", a->pushkey);
+    if (hdr == NULL || pkg_fs_write_private(hdr, line, strlen(line)) != 0) {
+        refuse_c(17, "cannot write the key where only this user reads it");
+        goto out;
+    }
+
+    /* 1. plan: every file, its digest and size; the portal says what it needs */
+    f = fopen(plan, "wb");
+    if (f == NULL) { refuse_c(17, "cannot write the plan"); goto out; }
+    for (i = 0; i < pl.n; i++) {
+        char hex[PKG_SHA256_HEXLEN + 1], *full = pkg_join(a->channel, pl.rel[i]);
+        unsigned long long size;
+        if (full == NULL || file_digest(full, hex, &size) != 0) {
+            free(full); fclose(f);
+            refuse_c(17, "cannot read %s", pl.rel[i]);
+            goto out;
+        }
+        fprintf(f, "%s %s %llu\n", pl.rel[i], hex, size);
+        free(full);
+    }
+    fclose(f);
+    snprintf(url, sizeof url, "%s/_push/plan", base);
+    if (pkg_net_send("POST", url, plan, hdr, out, &code, err, sizeof err) != 0) {
+        refuse_c(17, "cannot reach %s: %s", base, err);
+        goto out;
+    }
+    if (code == 401 || code == 403) {
+        char why[600];
+        refuse_n(14, "ask-requester", "the portal refused the key (HTTP %d)%s%s", code,
+                 answer_field(out, "reason", why, sizeof why) ? ": " : "", answer_field(out, "reason", why, sizeof why) ? why : "");
+        goto out;
+    }
+    if (code != 200) { refuse_c(17, "the portal answered the plan with HTTP %d", code); goto out; }
+
+    /* 2. the files it needs, whole or in parts */
+    {
+        unsigned char *ans;
+        size_t alen;
+        char **need = NULL;
+        const char *p2, *end;
+        if (pkg_fs_read(out, &ans, &alen) != 0) { refuse_c(17, "cannot read the plan's answer"); goto out; }
+        for (p2 = (const char *)ans, end = p2 + alen; p2 < end; ) {
+            const char *nl = memchr(p2, '\n', (size_t)(end - p2));
+            size_t ll = nl ? (size_t)(nl - p2) : (size_t)(end - p2);
+            if (ll > 6 && memcmp(p2, "need: ", 6) == 0) {
+                char **g = (char **)realloc(need, (nneed + 1) * sizeof *g);
+                if (g == NULL) break;
+                need = g;
+                need[nneed] = (char *)malloc(ll - 5);
+                if (need[nneed] == NULL) break;
+                snprintf(need[nneed], ll - 5, "%.*s", (int)(ll - 6), p2 + 6);
+                nneed++;
+            }
+            p2 = nl ? nl + 1 : end;
+        }
+        free(ans);
+        for (i = 0; i < nneed; i++) {
+            char *full = pkg_join(a->channel, need[i]), hex[PKG_SHA256_HEXLEN + 1], result[64], rec[64];
+            unsigned long long size = 0, off = 0;
+            int ok_file = 0;
+            if (!push_path_ok(need[i]) || full == NULL || file_digest(full, hex, &size) != 0) {
+                warn("the portal asked for %s, which this channel does not send", need[i]);
+                free(full);
+                continue;
+            }
+            snprintf(url, sizeof url, "%s/_push/files/%s", base, need[i]);
+            if (size <= partsz) {
+                if (pkg_net_send("PUT", url, full, hdr, out, &code, err, sizeof err) == 0 && code == 200
+                    && answer_field(out, "result", result, sizeof result)
+                    && (strcmp(result, "received") == 0 || strcmp(result, "unchanged") == 0))
+                    ok_file = 1;
+            } else {
+                /* in parts, each resuming where the portal says it got to */
+                FILE *src = fopen(full, "rb");
+                while (src != NULL && off < size) {
+                    unsigned long long end2 = off + partsz < size ? off + partsz : size;
+                    FILE *pf = fopen(part, "wb");
+                    char buf[65536], ph[2600];
+                    unsigned long long left = end2 - off;
+                    if (pf == NULL) break;
+                    fseek(src, (long)off, SEEK_SET);
+                    while (left > 0) {
+                        size_t k = fread(buf, 1, left < sizeof buf ? (size_t)left : sizeof buf, src);
+                        if (k == 0) break;
+                        fwrite(buf, 1, k, pf);
+                        left -= k;
+                    }
+                    fclose(pf);
+                    snprintf(ph, sizeof ph, "Authorization: Bearer %s\nContent-Range: bytes %llu-%llu/%llu\n",
+                             a->pushkey, off, end2 - 1, size);
+                    if (pkg_fs_write_private(hdr, ph, strlen(ph)) != 0) break;
+                    if (pkg_net_send("PUT", url, part, hdr, out, &code, err, sizeof err) != 0 || code != 200
+                        || answer_field(out, "result", result, sizeof result) == NULL)
+                        break;
+                    if (strcmp(result, "received") == 0 || strcmp(result, "unchanged") == 0) { ok_file = 1; break; }
+                    if (strcmp(result, "partial") != 0 || answer_field(out, "received", rec, sizeof rec) == NULL)
+                        break;
+                    off = strtoull(rec, NULL, 10);         /* the portal's count, so a resume skips */
+                }
+                if (src) fclose(src);
+                snprintf(line, sizeof line, "Authorization: Bearer %s\n", a->pushkey);
+                pkg_fs_write_private(hdr, line, strlen(line));
+            }
+            if (!ok_file) {
+                char why[600];
+                refuse_c(17, "the portal did not take %s: %s", need[i],
+                         answer_field(out, "reason", why, sizeof why) ? why : code ? "an unexpected answer" : err);
+                for (; i < nneed; i++) free(need[i]);
+                free(need);
+                free(full);
+                goto out;
+            }
+            sent++;
+            sent_bytes += size;
+            free(full);
+            free(need[i]);
+        }
+        free(need);
+    }
+
+    /* 3. commit: the local index; the portal merges, checks and answers */
+    snprintf(url, sizeof url, "%s/_push/commit", base);
+    if (pkg_net_send("POST", url, ix, hdr, out, &code, err, sizeof err) != 0) {
+        refuse_c(17, "cannot reach %s to commit: %s", base, err);
+        goto out;
+    }
+    {
+        unsigned char *ans;
+        size_t alen;
+        char result[64] = "", cls[16] = "", nextw[40] = "", summary[1200] = "";
+        const char *p2, *end;
+        if (pkg_fs_read(out, &ans, &alen) != 0) { refuse_c(17, "cannot read the commit's answer"); goto out; }
+        /* relayed record by record: the portal speaks this program's form */
+        for (p2 = (const char *)ans, end = p2 + alen; p2 < end; ) {
+            const char *nl = memchr(p2, '\n', (size_t)(end - p2));
+            size_t ll = nl ? (size_t)(nl - p2) : (size_t)(end - p2);
+            char k[64], v[2048];
+            const char *colon = memchr(p2, ':', ll);
+            if (colon && (size_t)(colon - p2) < sizeof k && colon + 1 < p2 + ll && colon[1] == ' ') {
+                snprintf(k, sizeof k, "%.*s", (int)(colon - p2), p2);
+                snprintf(v, sizeof v, "%.*s", (int)(ll - (size_t)(colon - p2) - 2), colon + 2);
+                if (strcmp(k, "result") == 0) snprintf(result, sizeof result, "%.63s", v);
+                else if (strcmp(k, "code") == 0) snprintf(cls, sizeof cls, "%.15s", v);
+                else if (strcmp(k, "next") == 0) snprintf(nextw, sizeof nextw, "%.39s", v);
+                else if (strcmp(k, "summary") == 0) snprintf(summary, sizeof summary, "%.1199s", v);
+                if (machine && sink && sink->record)
+                    { one_line(v); sink->record(sink->user, k, v); }
+                else if (strcmp(k, "refused") == 0 || strcmp(k, "published") == 0)
+                    say("  %s %s\n", k, v);
+            }
+            p2 = nl ? nl + 1 : end;
+        }
+        free(ans);
+        kv("uploaded", "%lu", (unsigned long)sent);
+        kv("uploaded-bytes", "%llu", sent_bytes);
+        if (!machine)
+            say("%s\n  %lu file%s sent to %s (%llu bytes)\n", summary[0] ? summary : result,
+                (unsigned long)sent, sent == 1 ? "" : "s", base, sent_bytes);
+        if (code == 401 || code == 403) {
+            refused_class = 14;
+            refused_next = "ask-requester";
+            rc = 1;
+        } else if (strcmp(result, "refused") == 0 || code != 200) {
+            refused_class = cls[0] ? atoi(cls) : 10;
+            refused_next = strcmp(nextw, "stop") == 0 ? "stop" : strcmp(nextw, "fix-command") == 0 ? "fix-command"
+                         : strcmp(nextw, "ask-requester") == 0 ? "ask-requester" : "report";
+            rc = 1;
+        } else {
+            rc = 0;
+        }
+    }
+out:
+    if (hdr) pkg_fs_unlink(hdr);
+    if (tmp) pkg_fs_rmtree(tmp);
+    for (i = 0; i < pl.n; i++) free(pl.rel[i]);
+    free(pl.rel);
+    free(cache); free(tmp); free(hdr); free(plan); free(out); free(part); free(ix);
+    return rc;
+}
+
+int pkg_push(const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "push", cmd_push, o); }

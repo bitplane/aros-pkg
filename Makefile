@@ -105,6 +105,8 @@ test:
 	@PKG=./build/pkg sh tests/status.sh
 	@echo "== network"
 	@PKG=./build/pkg sh tests/network.sh
+	@echo "== push"
+	@PKG=./build/pkg sh tests/push.sh
 	@echo "== hostile"
 	@PKG=./build/pkg sh tests/hostile.sh
 	@echo "== archive"

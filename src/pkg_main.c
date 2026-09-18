@@ -107,7 +107,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "HANDLER",   offsetof(struct pkg_options, handler) },
         { "FILES",     offsetof(struct pkg_options, files) },
         { "BUILD",     offsetof(struct pkg_options, build) },
-        { "ARCHIVE",   offsetof(struct pkg_options, archive) }
+        { "ARCHIVE",   offsetof(struct pkg_options, archive) },
+        { "TO",        offsetof(struct pkg_options, to) }
 };
 
 static int takes_value(const char *w)
@@ -223,6 +224,8 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
     }
     if (a->sign == NULL)
         a->sign = getenv("PKG_SIGNKEY");
+    if (a->pushkey == NULL)
+        a->pushkey = getenv("PKG_PUSHKEY");
     return 0;
 }
 
@@ -255,7 +258,8 @@ static int usage(void)
         "  pkg REMOVE   ORPHANS ROOT <dir>\n"
         "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
         "  pkg MOUNTLIST <image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]\n"
-        "  pkg SHOW     [<name>] CHANNEL <dir> [ROOT <dir>]\n"
+        "  pkg SHOW     [<name>] CHANNEL <dir> [ROOT <dir>] [METADATA] [ARCHIVE <name>]\n"
+        "  pkg PUSH     CHANNEL <dir> TO <https url>     (the key in PKG_PUSHKEY)\n"
         "  pkg STATUS   [<name>] ROOT <dir> CHANNEL <dir>\n"
         "               each installed package: current, upgradable, withdrawn, not-offered or\n"
         "               edited; exit 0 whether or not updates exist. Nothing ever prompts:\n"
@@ -295,6 +299,7 @@ static int run_verb(int argc, char **argv)
         { "IMAGE",     "image",     pkg_image },
         { "MOUNTLIST", "mountlist", pkg_mountlist },
         { "SHOW",      "show",      pkg_show },
+        { "PUSH",      "push",      pkg_push },
         { "STATUS",    "status",    pkg_status }
     };
     struct pkg_options a;
