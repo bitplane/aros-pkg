@@ -58,6 +58,11 @@ step in `tools/build-aros-regina.sh`, decode a dead-end alert in
   output, so a person or an agent copies them into a script. Pkg could write
   that script too (an agent in round 5 wrote one by hand, checked on the host
   only).
+- **A drawer on a mounted AFS+ volume.** The AFS+ macOS driver exposes each
+  file's comment and protection word as `afsplus.aros.comment` and
+  `afsplus.aros.protection` xattrs (afsplus e026786, ADR-120). PUBLISH could
+  read them as the native source there, before `.ameta`; today such a drawer
+  needs a `.ameta` like any host folder.
 - **The single-file bootstrap, rest of `[PKG23]`**: a database location for
   read-only media, self-upgrade with a fallback, a lock against two Pkg runs
   on one root.
