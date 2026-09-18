@@ -14,7 +14,7 @@ directory of signed index snapshots and content-addressed objects.
 
 ## State
 
-Goals and milestones: [GOAL.md](GOAL.md). **Goal 1 is met**: all four milestones, and the whole sequence passes as one run, `tests/goal.sh`, 25 checks. **Goal 2 is under way**: an application arrives with its dependencies and runs, checked from outside, with no ARexx anywhere. M1 to M3 are done: the contract, the image route with dependencies, and the whole sequence on hosted AROS, `tests/goal2.sh`, 51 checks. M4 is built, a Windows layer and a test kit, and waits for its run on a Windows machine.
+Goals and milestones: [GOAL.md](GOAL.md). **Goal 1 is met**: all four milestones, and the whole sequence passes as one run, `tests/goal.sh`, 25 checks. **Goal 2 is met** within its agreed line: an application arrives with its dependencies and runs, checked from outside, with no ARexx anywhere (`tests/goal2.sh`, 51 checks), the contract is identical on AROS, macOS and through the ARexx port (`tests/aros-contract.sh`, 152 checks), and the Windows, macOS and Linux kit is ready; its Windows run is the owner's.
 
 | Piece | State |
 |---|---|

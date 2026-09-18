@@ -44,7 +44,10 @@ Gates touched: `[PKG1]`, `[PKG6]`, `[PKG10]`, `[PKG11]`, `[PKG17]`, `[PKG18]`,
 # Goal 2: an application arrives, its dependencies arrive by Pkg, it runs, and it is checked from outside, with no ARexx anywhere
 
 Set 2026-09-18. ARexx is never a requirement: hosted AROS installs none by
-default, and macOS and Windows have none at all.
+default, and macOS and Windows have none at all. **Met 2026-09-18 within its agreed line**: steps 1,
+2, 4, 5 and 6, and step 3 on AROS, macOS and (through the kit) nothing more
+yet. The Windows run was set outside the finish line from the start; the kit
+waits for it.
 
 1. **macOS publishes** a real AROS application as a signed mountable image,
    with `Depends` on a system library published as a component.
