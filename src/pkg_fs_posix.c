@@ -19,7 +19,9 @@
 char *pkg_join(const char *a, const char *b)
 {
     size_t la = strlen(a), lb = strlen(b);
-    int slash = la > 0 && a[la - 1] != '/';
+    /* No separator after "RAM:" either: on AmigaDOS a leading '/' in the rest
+     * of a path means the parent directory, so "RAM:/C" is not "RAM:C". */
+    int slash = la > 0 && a[la - 1] != '/' && a[la - 1] != ':';
     char *p = (char *)malloc(la + (size_t)slash + lb + 1u);
     if (p == NULL)
         return NULL;
@@ -60,6 +62,19 @@ int pkg_fs_read(const char *path, unsigned char **buf, size_t *len)
     return 0;
 }
 
+/* Existence is tested before each mkdir, never inferred from errno after it.
+ * AROS's posixc does not report EEXIST for a directory that is already there,
+ * which the first hosted run showed: the first file of a package staged, the
+ * second failed on the parents the first had just created. */
+static int mkdir_one(const char *p)
+{
+    if (pkg_fs_is_dir(p))
+        return 0;
+    if (mkdir(p, 0755) == 0)
+        return 0;
+    return pkg_fs_is_dir(p) ? 0 : -1;
+}
+
 int pkg_fs_mkdirs(const char *dir)
 {
     char *p = strdup(dir), *s;
@@ -68,13 +83,12 @@ int pkg_fs_mkdirs(const char *dir)
     for (s = p + 1; *s; s++) {
         if (*s == '/') {
             *s = '\0';
-            if (mkdir(p, 0755) != 0 && errno != EEXIST) { free(p); return -1; }
+            if (mkdir_one(p) != 0) { free(p); return -1; }
             *s = '/';
         }
     }
-    if (mkdir(p, 0755) != 0 && errno != EEXIST) { free(p); return -1; }
+    if (mkdir_one(p) != 0) { free(p); return -1; }
     free(p);
-    if (!pkg_fs_is_dir(dir)) { errno = ENOTDIR; return -1; }
     return 0;
 }
 
@@ -153,10 +167,14 @@ int pkg_fs_exists(const char *path)
     return lstat(path, &st) == 0;
 }
 
+/* stat, following links: a directory reached through a symlink is still a
+ * directory to create files under. On macOS /var is exactly that, a link to
+ * /private/var, and every temporary directory lives beneath it. The walk that
+ * builds a package keeps its own lstat, since there a link must be refused. */
 int pkg_fs_is_dir(const char *path)
 {
     struct stat st;
-    return lstat(path, &st) == 0 && S_ISDIR(st.st_mode);
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 int pkg_fs_rename(const char *from, const char *to)
@@ -177,8 +195,10 @@ int pkg_fs_rmtree(const char *path)
     DIR *d;
     struct dirent *e;
 
+    if (!pkg_fs_exists(path))
+        return 0;
     if (lstat(path, &st) != 0)
-        return errno == ENOENT ? 0 : -1;
+        return -1;
     if (!S_ISDIR(st.st_mode))
         return unlink(path);
     d = opendir(path);
@@ -281,15 +301,18 @@ static int cmp_str(const void *a, const void *b)
 
 int pkg_fs_list(const char *dir, char ***names, size_t *count)
 {
-    DIR *d = opendir(dir);
+    DIR *d;
     struct dirent *e;
     char **v = NULL;
     size_t n = 0, cap = 0;
 
     *names = NULL;
     *count = 0;
+    if (!pkg_fs_is_dir(dir))
+        return 0;                 /* absent: an empty list, whatever errno says */
+    d = opendir(dir);
     if (d == NULL)
-        return errno == ENOENT ? 0 : -1;
+        return -1;
     while ((e = readdir(d)) != NULL) {
         if (e->d_name[0] == '.')
             continue;

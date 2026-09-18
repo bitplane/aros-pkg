@@ -32,6 +32,7 @@
 #include "pkg_ed25519.h"
 #include "pkg_fs.h"
 #include "pkg_manifest.h"
+#include "pkg_out.h"
 #include "pkg_sha256.h"
 
 #include <ctype.h>
@@ -41,6 +42,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ---- exit codes ------------------------------------------------------- *
+ *
+ * A refusal ends the command with the host's own failure code, so that the
+ * host's own scripting reacts to it: 1 under POSIX, and RETURN_ERROR (10) under
+ * AmigaDOS, where `If ERROR` tests for 10 and a 1 would pass unnoticed as a
+ * success. A usage error is 2 under POSIX and RETURN_FAIL (20) under AmigaDOS.
+ */
+#ifdef __AROS__
+#define PKG_EXIT_REFUSED 10
+#define PKG_EXIT_USAGE   20
+#else
+#define PKG_EXIT_REFUSED 1
+#define PKG_EXIT_USAGE   2
+#endif
+
 /* ---- output ----------------------------------------------------------- */
 
 static const char *verb_name = "pkg";
@@ -48,11 +64,11 @@ static const char *verb_name = "pkg";
 static int refuse(const char *fmt, ...)
 {
     va_list ap;
-    fprintf(stderr, "pkg %s: ", verb_name);
+    pkg_err("pkg %s: ", verb_name);
     va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
+    pkg_verr(fmt, ap);
     va_end(ap);
-    fputc('\n', stderr);
+    pkg_err("\n");
     return 1;
 }
 
@@ -180,7 +196,7 @@ static int cmd_keygen(const struct args *a)
     memset(seed, 0, sizeof seed);
     memset(seedhex, 0, sizeof seedhex);
     memset(text, 0, sizeof text);
-    printf("key written to %s, readable by you alone\npublic key %s\n", a->file, k.pkhex);
+    pkg_out("key written to %s, readable by you alone\npublic key %s\n", a->file, k.pkhex);
     return 0;
 }
 
@@ -267,7 +283,7 @@ static int cmd_sign(const struct args *a)
         return refuse("cannot write \"%s\"", a->out);
     }
     free(buf);
-    printf("signed %s with %.16s\n", a->pos, k.pkhex);
+    pkg_out("signed %s with %.16s\n", a->pos, k.pkhex);
     return 0;
 }
 
@@ -480,10 +496,12 @@ static int read_index(const char *channel, struct index *ix)
     ix->n = 0;
     if (path == NULL)
         return refuse("out of memory");
+    if (!pkg_fs_exists(path)) {
+        free(path);
+        return 0;                 /* a channel with nothing published yet */
+    }
     if (pkg_fs_read(path, &buf, &len) != 0) {
         free(path);
-        if (errno == ENOENT)
-            return 0;
         return refuse("cannot read the channel index");
     }
     free(path);
@@ -575,14 +593,14 @@ static void say_not_found(const struct index *ix, const char *name, const char *
 {
     size_t i;
     int any = 0;
-    fprintf(stderr, "pkg %s: %s%s%s is not in the channel %s", verb_name,
+    pkg_err("pkg %s: %s%s%s is not in the channel %s", verb_name,
             name, version ? " " : "", version ? version : "", channel);
     for (i = 0; i < ix->n; i++)
         if (strcmp(ix->e[i].name, name) == 0) {
-            fprintf(stderr, "%s%s", any ? ", " : "; versions offered: ", ix->e[i].version);
+            pkg_err("%s%s", any ? ", " : "; versions offered: ", ix->e[i].version);
             any = 1;
         }
-    fputc('\n', stderr);
+    pkg_err("\n");
 }
 
 /* A fetched, verified package: bytes that hash to the index digest, a manifest
@@ -704,7 +722,7 @@ static int check_pin(const char *root, const char *name, const char *signer,
     if (strcmp(pinned, signer) == 0)
         return 0;
     if (acceptkey != NULL && strcmp(acceptkey, signer) == 0) {
-        printf("  key for %s changed by explicit ACCEPTKEY\n    was %s\n    now %s\n",
+        pkg_out("  key for %s changed by explicit ACCEPTKEY\n    was %s\n    now %s\n",
                name, pinned, signer);
         return 0;
     }
@@ -894,7 +912,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
                 free(p);
             } else if (s == 1) {
                 (*kept)++;
-                printf("  kept     %s (edited, and no longer part of %s)\n", of->path, m->name);
+                pkg_out("  kept     %s (edited, and no longer part of %s)\n", of->path, m->name);
             }
         }
     }
@@ -928,7 +946,7 @@ static int cmd_manifest(const struct args *a)
 {
     struct built b;
     if (build(a, &b) != 0) { built_free(&b); return 1; }
-    fwrite(b.text, 1, b.text_len, stdout);
+    pkg_outraw(b.text, b.text_len);
     built_free(&b);
     return 0;
 }
@@ -953,7 +971,7 @@ static int cmd_publish(const struct args *a)
         if (strcmp(ix.e[i].name, b.m.name) == 0
             && pkg_version_cmp(ix.e[i].version, b.m.version) == 0) {
             if (strcmp(ix.e[i].digest, b.m.payload) == 0) {
-                printf("%s %s is already published with this exact payload; nothing to do\n",
+                pkg_out("%s %s is already published with this exact payload; nothing to do\n",
                        b.m.name, b.m.version);
                 rc = 0;
             } else {
@@ -991,12 +1009,12 @@ static int cmd_publish(const struct args *a)
         goto out;
     }
     short12(b.m.payload, s12);
-    printf("published %s %s to %s: %lu files, payload %s, signed by %.16s\n", b.m.name,
+    pkg_out("published %s %s to %s: %lu files, payload %s, signed by %.16s\n", b.m.name,
            b.m.version, a->channel, (unsigned long)b.m.nfiles, s12, k.pkhex);
     if (b.ver_from[0])
-        printf("  name and version taken from $VER: in %s\n", b.ver_from);
+        pkg_out("  name and version taken from $VER: in %s\n", b.ver_from);
     if (b.skipped)
-        printf("  skipped %u host metadata file%s (.DS_Store, ._*)\n",
+        pkg_out("  skipped %u host metadata file%s (.DS_Store, ._*)\n",
                b.skipped, b.skipped == 1u ? "" : "s");
     rc = 0;
 out:
@@ -1042,7 +1060,7 @@ static int cmd_install(const struct args *a)
         && check_pin(a->root, e->name, f.signer, a->acceptkey) == 0
         && apply(a->root, NULL, &f, &placed, &dropped, &kept) == 0) {
         short12(f.digest, s12);
-        printf("installed %s %s into %s: %lu files, payload %s, signed by %.16s\n",
+        pkg_out("installed %s %s into %s: %lu files, payload %s, signed by %.16s\n",
                f.m.name, f.m.version, a->root, placed, s12, f.signer);
         rc = 0;
     }
@@ -1061,10 +1079,10 @@ static int move_to(const struct args *a, const struct entry *e, struct pkg_manif
     if (fetch(a->channel, e, &f) == 0
         && check_pin(a->root, e->name, f.signer, a->acceptkey) == 0
         && apply(a->root, cur, &f, &placed, &dropped, &kept) == 0) {
-        printf("%s %s from %s to %s in %s: %lu placed, %lu removed", verb, f.m.name,
+        pkg_out("%s %s from %s to %s in %s: %lu placed, %lu removed", verb, f.m.name,
                cur->version, f.m.version, a->root, placed, dropped);
-        if (kept) printf(", %lu kept", kept);
-        printf("\n");
+        if (kept) pkg_out(", %lu kept", kept);
+        pkg_out("\n");
         rc = 0;
     }
     fetched_free(&f);
@@ -1088,7 +1106,7 @@ static int cmd_upgrade(const struct args *a)
     }
     c = pkg_version_cmp(e->version, cur.version);
     if (c == 0) {
-        printf("%s is already at %s\n", cur.name, cur.version);
+        pkg_out("%s is already at %s\n", cur.name, cur.version);
         rc = 0;
         goto out;
     }
@@ -1167,7 +1185,7 @@ static int cmd_list(const struct args *a)
     for (i = 0; i < n; i++) {
         struct pkg_manifest m;
         if (load_installed(a->root, names[i], &m, 0) == 0) {
-            printf("%-24s %-10s %-12s %lu files\n", m.name, m.version, m.kind,
+            pkg_out("%-24s %-10s %-12s %lu files\n", m.name, m.version, m.kind,
                    (unsigned long)m.nfiles);
             pkg_manifest_free(&m);
         }
@@ -1175,7 +1193,7 @@ static int cmd_list(const struct args *a)
     }
     free(names);
     if (n == 0)
-        printf("nothing installed in %s\n", a->root);
+        pkg_out("nothing installed in %s\n", a->root);
     return 0;
 }
 
@@ -1189,13 +1207,13 @@ static int cmd_verify(const struct args *a)
     if (load_installed(a->root, a->pos, &m, 0) != 0) return 1;
     for (i = 0; i < m.nfiles; i++) {
         int s = file_state(a->root, m.files[i].path, m.files[i].digest, m.files[i].size);
-        if (s == 1) { changed++; printf("  changed  %s\n", m.files[i].path); }
-        if (s == 2) { missing++; printf("  missing  %s\n", m.files[i].path); }
+        if (s == 1) { changed++; pkg_out("  changed  %s\n", m.files[i].path); }
+        if (s == 2) { missing++; pkg_out("  missing  %s\n", m.files[i].path); }
     }
     if (changed + missing == 0)
-        printf("%s %s: %lu files, all intact\n", m.name, m.version, (unsigned long)m.nfiles);
+        pkg_out("%s %s: %lu files, all intact\n", m.name, m.version, (unsigned long)m.nfiles);
     else
-        printf("%s %s: %lu changed, %lu missing, of %lu files\n", m.name, m.version,
+        pkg_out("%s %s: %lu changed, %lu missing, of %lu files\n", m.name, m.version,
                (unsigned long)changed, (unsigned long)missing, (unsigned long)m.nfiles);
     pkg_manifest_free(&m);
     return changed + missing == 0 ? 0 : 1;
@@ -1221,7 +1239,7 @@ static int cmd_remove(const struct args *a)
             free(p);
         } else if (s == 1) {
             kept++;
-            printf("  kept     %s (changed since install, so it is yours now)\n", m.files[i].path);
+            pkg_out("  kept     %s (changed since install, so it is yours now)\n", m.files[i].path);
         } else {
             gone++;
         }
@@ -1238,19 +1256,18 @@ static int cmd_remove(const struct args *a)
     if (pp != NULL) pkg_fs_unlink(pp);
     free(pp);
     /* The pinned key stays: reinstalling the package later is still held to it. */
-    printf("removed %s %s from %s: %lu files removed", m.name, m.version, a->root,
+    pkg_out("removed %s %s from %s: %lu files removed", m.name, m.version, a->root,
            (unsigned long)removed);
-    if (kept) printf(", %lu kept", (unsigned long)kept);
-    if (gone) printf(", %lu already gone", (unsigned long)gone);
-    printf("\n");
+    if (kept) pkg_out(", %lu kept", (unsigned long)kept);
+    if (gone) pkg_out(", %lu already gone", (unsigned long)gone);
+    pkg_out("\n");
     pkg_manifest_free(&m);
     return 0;
 }
 
 static int usage(void)
 {
-    fprintf(stderr,
-        "usage:\n"
+    pkg_err("usage:\n"
         "  pkg KEYGEN   FILE <keyfile>\n"
         "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k]\n"
         "  pkg PUBLISH  <drawer> CHANNEL <dir> [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a] [KIND k]\n"
@@ -1262,7 +1279,7 @@ static int usage(void)
         "  pkg VERIFY   <name> ROOT <dir>\n"
         "  pkg REMOVE   <name> ROOT <dir>\n"
         "SIGN defaults to $PKG_SIGNKEY.\n");
-    return 2;
+    return PKG_EXIT_USAGE;
 }
 
 int main(int argc, char **argv)
@@ -1288,8 +1305,8 @@ int main(int argc, char **argv)
         if (ieq(argv[1], verbs[i].verb)) {
             verb_name = verbs[i].name;
             if (parse_args(argc, argv, &a) != 0)
-                return 2;
-            return verbs[i].fn(&a);
+                return PKG_EXIT_USAGE;
+            return verbs[i].fn(&a) == 0 ? 0 : PKG_EXIT_REFUSED;
         }
     }
     return usage();

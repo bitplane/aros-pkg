@@ -9,12 +9,12 @@ CPPFLAGS  = -Iinclude
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
        src/pkg_manifest.c
 # The host layer. POSIX covers macOS and Linux; AROS gets its own.
-HOST = src/pkg_fs_posix.c
+HOST = src/pkg_fs_posix.c src/pkg_out.c
 HDR  = $(wildcard include/*.h)
 
 UNITS = test_container test_sha256 test_manifest test_ed25519
 
-.PHONY: all test test-ubsan check-portability check-m68k check clean
+.PHONY: all test test-ubsan check-portability check-m68k check check-aros clean
 
 all: build/pkg
 
@@ -89,6 +89,13 @@ check-m68k:
 	else \
 		echo "check-m68k: SKIP, no m68k compiler at $(M68K_CC)"; \
 	fi
+
+# The client on hosted AROS: needs the AROS build under ~/aros-build, the
+# crosstools under ~/aros-crosstools, and no hosted instance already running.
+# Kept out of `check` because it boots an operating system.
+check-aros: build/pkg
+	@sh tools/build-aros.sh
+	@sh tests/aros-smoke.sh
 
 clean:
 	rm -rf build
