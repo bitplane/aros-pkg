@@ -5,6 +5,8 @@
 # Nor are "move" and "back": C/Hello moved by hand to Tools/Hello, and back.
 i12   0  INSTALL hello VERSION 1.2 ROOT {R} CHANNEL {CH} MACHINE
 list  0  LIST ROOT {R} MACHINE
+stat  0  STATUS ROOT {R} CHANNEL {CH} MACHINE
+upall 14 UPGRADE ALL ROOT {R} CHANNEL {CH} DRYRUN MACHINE
 ver   0  VERIFY hello ROOT {R} MACHINE
 u13   0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
 same  0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
