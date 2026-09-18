@@ -461,6 +461,17 @@ already has the file keeps it the same way. Any other edited file still
 stops the upgrade with 15, and the refusal names CONFIG. `tests/e2e.sh`,
 section `config_files`.
 
+### An AROS installed without Pkg
+
+InstallAROS copies the system with no package database. When INSTALL finds
+one of the package's files already there, byte for byte the package's, it
+takes it over (`adopted: <count>`); from then on that version upgrades and
+rolls back like any other. A file already there with other content is
+refused with 15, as before, and left alone; so is an identical file that
+another installed package lists, since one file has one owner and removing
+either package would take it away from the other. `tests/e2e.sh`, section
+`adopt`.
+
 ### Dependencies
 
 `Depends: <name>` or `Depends: <name> >= <version>` in the manifest, set with

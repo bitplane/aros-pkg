@@ -211,6 +211,10 @@ link the archive into the channel as `archives/<name>` first. Keep the
 archive's own layout: files install at the paths the archive gives them. A
 nightly's version is the component's `$VER` plus the date: `2.1+20260918`.
 
+**An AROS installed with InstallAROS**: install the packages of the
+version it was installed from; the files already there are taken over
+(`adopted:`). A refusal with 15 names each file that differs: report it.
+
 **Files people edit** (S/Startup-Sequence, Prefs/Env-Archive): declare
 them at the first publish with `CONFIG "S/Startup-Sequence,Prefs/Env-Archive"`;
 later versions inherit the list. An upgrade then keeps a person's edit and

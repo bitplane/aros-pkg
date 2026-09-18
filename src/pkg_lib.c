@@ -2849,6 +2849,55 @@ static void apply_attrs(const char *root, const struct pkg_manifest *m)
     }
 }
 
+struct installed {
+    struct pkg_manifest *m;
+    size_t               n;
+};
+
+static void installed_free(struct installed *in)
+{
+    size_t i;
+    for (i = 0; i < in->n; i++)
+        pkg_manifest_free(&in->m[i]);
+    free(in->m);
+    in->m = NULL;
+    in->n = 0;
+}
+
+/* Every package in the root's database. */
+static int load_all(const char *root, struct installed *in)
+{
+    char *dir = pkg_join(root, ".pkg/db"), **names;
+    size_t n, i;
+
+    in->m = NULL;
+    in->n = 0;
+    if (dir == NULL)
+        return refuse("out of memory");
+    if (!pkg_fs_exists(dir)) {
+        free(dir);
+        return 0;
+    }
+    if (pkg_fs_list(dir, &names, &n) != 0) {
+        free(dir);
+        return refuse_c(17, "cannot read the database of %s", root);
+    }
+    free(dir);
+    in->m = calloc(n ? n : 1, sizeof *in->m);
+    if (in->m == NULL) {
+        for (i = 0; i < n; i++) free(names[i]);
+        free(names);
+        return refuse("out of memory");
+    }
+    for (i = 0; i < n; i++) {
+        if (load_installed(root, names[i], &in->m[in->n], 1) == 0)
+            in->n++;
+        free(names[i]);
+    }
+    free(names);
+    return 0;
+}
+
 static int apply(const char *root, const struct pkg_manifest *old, const struct fetched *f,
                  unsigned long *placed, unsigned long *dropped, unsigned long *kept)
 {
@@ -2856,6 +2905,9 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     struct walk_ctx wc;
     struct stage_ctx sc;
     char *staging, *dbp;
+    unsigned long adopted;  /* files already there, byte for byte the package's */
+    struct installed others;/* loaded when a file is already there */
+    int others_loaded = 0;
     unsigned char *keep;    /* per file: 1 a person's configuration kept, the new one set
                                beside it; 2 kept, and the new version is what they edited */
     int stopped;
@@ -2873,6 +2925,9 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     keep = calloc(m->nfiles ? m->nfiles : 1, 1);
     if (keep == NULL)
         return refuse("out of memory");
+    adopted = 0;
+    others.m = NULL;
+    others.n = 0;
     for (i = 0; i < m->nfiles; i++) {
         const struct pkg_file *of = old ? find_file(old, m->files[i].path) : NULL;
         if (m->files[i].config) {
@@ -2888,20 +2943,52 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             char *t = pkg_join(root, m->files[i].path);
             int there = t ? pkg_fs_exists(t) : 1;
             free(t);
+            if (there && file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size) == 0) {
+                /* Already there with the package's own bytes, as an AROS set up
+                 * with InstallAROS holds its files: the package takes it over,
+                 * unless another installed package lists it. */
+                const char *owner = NULL;
+                size_t k;
+                if (!others_loaded) {
+                    if (load_all(root, &others) != 0) { free(keep); return 1; }
+                    others_loaded = 1;
+                }
+                for (k = 0; k < others.n && owner == NULL; k++)
+                    if (strcmp(others.m[k].name, m->name) != 0
+                        && find_file(&others.m[k], m->files[i].path) != NULL)
+                        owner = others.m[k].name;
+                if (owner == NULL) {
+                    adopted++;
+                    continue;
+                }
+                refuse_c(15, "\"%s\" belongs to %s, which is installed; %s %s ships it too, and "
+                         "nothing was changed. One file has one owner: the publisher of one of "
+                         "the two leaves it out", m->files[i].path, owner, m->name, m->version);
+                installed_free(&others);
+                free(keep);
+                return 1;
+            }
             if (there) {
                 free(keep);
+                installed_free(&others);
                 return refuse_c(15, "\"%s\" already exists in %s and belongs to no installed version "
                               "of %s; nothing was changed. It may be the requester's own file",
                               m->files[i].path, root, m->name);
             }
         } else if (file_state(root, of->path, of->digest, of->size) == 1) {
             free(keep);
+            installed_free(&others);
             return refuse_c(15, "\"%s\" was edited since %s %s was installed, and %s %s ships it too; "
                           "nothing was changed. The edit belongs to whoever made it: the requester decides whether "
                           "to keep it elsewhere first. A publisher who means it to be edited declares it "
                           "with CONFIG, and Pkg then keeps the edit", of->path, old->name, old->version,
                           m->name, m->version);
         }
+    }
+    if (adopted) {
+        if (machine) kv("adopted", "%lu", adopted);
+        else say("  adopted  %lu file%s already there, identical to %s %s's\n", adopted,
+                 adopted == 1 ? "" : "s", m->name, m->version);
     }
     for (i = 0; i < m->nfiles; i++)
         if (keep[i]) {
@@ -2918,6 +3005,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             }
         }
 
+    installed_free(&others);
     tr("%s %s: every file checked against the container, nothing in the way", m->name, m->version);
     if (dryrun) {
         /* Every check above has passed; say what would move, move nothing. */
@@ -3049,55 +3137,6 @@ static void set_auto(const char *root, const char *name, int on)
         pkg_fs_unlink(p);
     }
     free(p);
-}
-
-struct installed {
-    struct pkg_manifest *m;
-    size_t               n;
-};
-
-static void installed_free(struct installed *in)
-{
-    size_t i;
-    for (i = 0; i < in->n; i++)
-        pkg_manifest_free(&in->m[i]);
-    free(in->m);
-    in->m = NULL;
-    in->n = 0;
-}
-
-/* Every package in the root's database. */
-static int load_all(const char *root, struct installed *in)
-{
-    char *dir = pkg_join(root, ".pkg/db"), **names;
-    size_t n, i;
-
-    in->m = NULL;
-    in->n = 0;
-    if (dir == NULL)
-        return refuse("out of memory");
-    if (!pkg_fs_exists(dir)) {
-        free(dir);
-        return 0;
-    }
-    if (pkg_fs_list(dir, &names, &n) != 0) {
-        free(dir);
-        return refuse_c(17, "cannot read the database of %s", root);
-    }
-    free(dir);
-    in->m = calloc(n ? n : 1, sizeof *in->m);
-    if (in->m == NULL) {
-        for (i = 0; i < n; i++) free(names[i]);
-        free(names);
-        return refuse("out of memory");
-    }
-    for (i = 0; i < n; i++) {
-        if (load_installed(root, names[i], &in->m[in->n], 1) == 0)
-            in->n++;
-        free(names[i]);
-    }
-    free(names);
-    return 0;
 }
 
 /* The installed packages that name `name` among their Depends, comma-joined. */

@@ -799,6 +799,28 @@ $PKG UPGRADE sys ROOT "$CF/r3" CHANNEL "$CF/ch3" MACHINE > "$T/cf6" 2>&1
 [ $? -eq 15 ] && grep -q 'declares it with CONFIG' "$T/cf6"
                                                       ok $? "without CONFIG an edit still stops the upgrade, and the refusal names CONFIG"
 
+echo "adopt"
+# An AROS set up with InstallAROS: the files are there, no package owns them.
+AD="$T/ad"; mkdir -p "$AD/d1/C" "$AD/d1/Libs" "$AD/d2/C" "$AD/d2/Libs" "$AD/o/Libs"
+printf 'x\000$VER: base 1.0 (1.1.2026)\000' > "$AD/d1/C/Base"; printf 'lib1' > "$AD/d1/Libs/b.library"
+printf 'x\000$VER: base 1.1 (1.1.2026)\000' > "$AD/d2/C/Base"; printf 'lib2' > "$AD/d2/Libs/b.library"
+printf 'lib1' > "$AD/o/Libs/b.library"
+$PKG PUBLISH "$AD/d1" CHANNEL "$AD/ch" KIND application > /dev/null 2>&1
+$PKG PUBLISH "$AD/d2" CHANNEL "$AD/ch" > /dev/null 2>&1
+$PKG PUBLISH "$AD/o" CHANNEL "$AD/ch" NAME other VERSION 1 KIND library > /dev/null 2>&1
+mkdir -p "$AD/r"; cp -R "$AD/d1/" "$AD/r/"
+$PKG INSTALL base VERSION 1.0 ROOT "$AD/r" CHANNEL "$AD/ch" MACHINE > "$T/ad1" 2>&1
+[ $? -eq 0 ] && grep -q '^adopted: 2$' "$T/ad1"; ok $? "files already there, identical to the package's, are adopted"
+$PKG UPGRADE base ROOT "$AD/r" CHANNEL "$AD/ch" > /dev/null 2>&1 && $PKG ROLLBACK base ROOT "$AD/r" CHANNEL "$AD/ch" > /dev/null 2>&1
+[ $? -eq 0 ] && cmp -s "$AD/r/C/Base" "$AD/d1/C/Base" && cmp -s "$AD/r/Libs/b.library" "$AD/d1/Libs/b.library"
+                                                      ok $? "an adopted system upgrades and rolls back"
+$PKG INSTALL other ROOT "$AD/r" CHANNEL "$AD/ch" MACHINE > "$T/ad2" 2>&1
+[ $? -eq 15 ] && grep -q 'belongs to base, which is installed' "$T/ad2"
+                                                      ok $? "a file another installed package owns is never adopted"
+mkdir -p "$AD/r2/C"; printf 'not the same' > "$AD/r2/C/Base"
+$PKG INSTALL base ROOT "$AD/r2" CHANNEL "$AD/ch" MACHINE > "$T/ad3" 2>&1
+[ $? -eq 15 ] && grep -q 'not the same' "$AD/r2/C/Base"; ok $? "a different file already there is still refused, and left alone"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]
