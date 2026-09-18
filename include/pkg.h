@@ -131,6 +131,10 @@ struct pkg_options {
     const char *build;      /* publish: the build the files come from, such as a nightly's
                                date; the version becomes <version or $VER or 0>+<build>, and
                                a build whose files equal the last version's is not published */
+    const char *config;     /* publish: the configuration files, paths or folders, comma-
+                               separated: a person's edit of one survives an upgrade, the new
+                               version set down beside it as <file>.pkgnew. Inherited from the
+                               last version published when not given */
     const char *archive;    /* show: only the entries whose files are in this archive of the
                                channel (its name in archives/), that archive read once */
     const char *to;         /* push: the channel's URL on the portal (https, or http to this

@@ -211,6 +211,14 @@ link the archive into the channel as `archives/<name>` first. Keep the
 archive's own layout: files install at the paths the archive gives them. A
 nightly's version is the component's `$VER` plus the date: `2.1+20260918`.
 
+**Files people edit** (S/Startup-Sequence, Prefs/Env-Archive): declare
+them at the first publish with `CONFIG "S/Startup-Sequence,Prefs/Env-Archive"`;
+later versions inherit the list. An upgrade then keeps a person's edit and
+sets the new copy beside it as `<path>.pkgnew`, reported as `config-new:`.
+Tell the requester about each `.pkgnew`: merging it is their call. An
+UPGRADE refused with 15 because a file "was edited" means that file was not
+declared: never overwrite the edit, report it.
+
 **Protection bits and comments.** On AROS, Pkg publishes each file's own.
 On a Mac, Linux or Windows, the files have none, so they come from a text
 file named `.ameta` in each drawer directory (one per directory, the format

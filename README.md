@@ -446,6 +446,21 @@ with `pip install amitools`; `tests/image.sh` and `tools/ffs-validate.py` say
 so when it is missing) validates and unpacks every image in `tests/image.sh`, and the AROS FFS handler mounts them
 in `tests/goal2.sh`.
 
+### Configuration files
+
+`CONFIG "S/Startup-Sequence,Prefs/Env-Archive"` at publish names the files
+people edit, one by one or by folder; each becomes a `Config: <path>` line
+in the signed manifest, and a new version inherits the list, as it does
+KIND. A name that matches none of the package's files is refused, and so is
+CONFIG on an image, which is never edited in place. When INSTALL, UPGRADE or
+ROLLBACK finds a configuration file edited, it leaves the edit where it is:
+the new version's copy goes beside it as `<path>.pkgnew` (`config-new:`),
+or nowhere when the new version ships the file unchanged (`config-kept:`),
+and the rest of the package is placed. A first install over a system that
+already has the file keeps it the same way. Any other edited file still
+stops the upgrade with 15, and the refusal names CONFIG. `tests/e2e.sh`,
+section `config_files`.
+
 ### Dependencies
 
 `Depends: <name>` or `Depends: <name> >= <version>` in the manifest, set with

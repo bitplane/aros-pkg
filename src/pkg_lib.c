@@ -1219,7 +1219,7 @@ struct index;
 static const struct index *inherit_ix;
 static const char *inherit_channel;
 static int inherited(const char *name, const char *arch, char *kind, size_t kl,
-                     char *deps, size_t dl, char *from, size_t fl);
+                     char *deps, size_t dl, char *from, size_t fl, char *conf, size_t cl);
 
 struct built {
     struct pkg_manifest m;
@@ -1234,6 +1234,8 @@ struct built {
     char           arch_from[512];
     char           kind_from[160];  /* KIND taken from this published version */
     char           deps_from[160];  /* DEPENDS too */
+    char           config_from[160]; /* CONFIG too */
+    size_t         nconfig;         /* configuration files */
     unsigned       skipped;
     char         **left_out;
     size_t         nleft;
@@ -1444,6 +1446,42 @@ static int ascii_casecmp(const char *x, const char *y)
     return (unsigned char)*x - (unsigned char)*y;
 }
 
+/* Marks the configuration files: each comma-separated entry of `list` is a
+ * file of the package or a folder holding some. A name that matches nothing
+ * is refused when the command gave it (`strict`), and let go when it came
+ * from the last version, whose file may be gone. */
+static int mark_config(struct pkg_manifest *m, const char *list, int strict)
+{
+    const char *p = list;
+    while (*p) {
+        size_t n, i, hits = 0;
+        char pat[1024];
+        while (*p == ' ' || *p == ',') p++;
+        n = strcspn(p, ",");
+        while (n > 0 && p[n - 1] == ' ') n--;
+        if (n == 0) break;
+        if (n >= sizeof pat)
+            return refuse_c(20, "CONFIG holds a name longer than %u characters", (unsigned)sizeof pat - 1);
+        memcpy(pat, p, n);
+        pat[n] = '\0';
+        while (n > 1 && pat[n - 1] == '/') pat[--n] = '\0';
+        for (i = 0; i < m->nfiles; i++) {
+            const char *f = m->files[i].path;
+            if (strcmp(f, pat) == 0 || (strncmp(f, pat, n) == 0 && f[n] == '/')) {
+                m->files[i].config = 1;
+                hits++;
+            }
+        }
+        if (hits == 0 && strict)
+            return refuse_c(20, "CONFIG names \"%s\", which is no file or folder of this package; "
+                            "give paths as the package installs them, such as S/Startup-Sequence "
+                            "or Prefs/Env-Archive", pat);
+        tr("config %s: %lu file%s", pat, (unsigned long)hits, hits == 1 ? "" : "s");
+        p += strcspn(p, ",");
+    }
+    return 0;
+}
+
 static int build(const struct pkg_options *a, struct built *out)
 {
     struct drawer d;
@@ -1452,7 +1490,8 @@ static int build(const struct pkg_options *a, struct built *out)
     const char *from = NULL, *name, *version, *arch, *kind, *why;
     const char *kind_src = a->kind, *deps_src = a->depends;
     char arch_file[1024], arch_prefix[1024];
-    char ikind[32], ideps[1024], ifrom[160];
+    char ikind[32], ideps[1024], ifrom[160], iconf[4096];
+    const char *conf_src = a->config;
     char payload[PKG_SHA256_HEXLEN + 1];
     size_t i;
 
@@ -1569,8 +1608,9 @@ static int build(const struct pkg_options *a, struct built *out)
         if (a->arch == NULL && got > 0)
             snprintf(out->arch_from, sizeof out->arch_from, "%s", afrom);
     }
-    if (inherit_ix != NULL && name != NULL && (a->kind == NULL || a->depends == NULL)
-        && inherited(name, arch, ikind, sizeof ikind, ideps, sizeof ideps, ifrom, sizeof ifrom)) {
+    if (inherit_ix != NULL && name != NULL && (a->kind == NULL || a->depends == NULL || a->config == NULL)
+        && inherited(name, arch, ikind, sizeof ikind, ideps, sizeof ideps, ifrom, sizeof ifrom,
+                     iconf, sizeof iconf)) {
         /* A new version is the same package: what it is and what it needs
          * come from the last one published, unless the command says. */
         if (a->kind == NULL) {
@@ -1580,6 +1620,10 @@ static int build(const struct pkg_options *a, struct built *out)
         if (a->depends == NULL) {
             deps_src = ideps;
             snprintf(out->deps_from, sizeof out->deps_from, "%s", ifrom);
+        }
+        if (a->config == NULL && iconf[0]) {
+            conf_src = iconf;
+            snprintf(out->config_from, sizeof out->config_from, "%s", ifrom);
         }
     }
     if (kind_src == NULL && strcmp(verb_name, "publish") == 0) {
@@ -1653,6 +1697,11 @@ static int build(const struct pkg_options *a, struct built *out)
         drawer_free(&d);
         return 1;
     }
+    if (a->config != NULL && strcmp(kind, "image") == 0 && ascii_casecmp(a->config, "none") != 0) {
+        drawer_free(&d);
+        return refuse_c(20, "CONFIG is for files installed loose, which a person may edit; an "
+                        "image is mounted read-only and never edited in place");
+    }
     if (strcmp(kind, "image") == 0) {
         /* The manifest names what is inside the image too, so that a new
          * version can be compared with the last one file by file. */
@@ -1690,6 +1739,13 @@ static int build(const struct pkg_options *a, struct built *out)
             out->m.files[out->m.nfiles - 1].comment = pkg_strdup(d.v[i].comment);
     }
     drawer_free(&d);
+    if (conf_src != NULL && strcmp(kind, "image") != 0 && ascii_casecmp(conf_src, "none") != 0
+        && mark_config(&out->m, conf_src, out->config_from[0] == '\0') != 0) {
+        pkg_writer_free(w);
+        return 1;
+    }
+    for (i = 0; i < out->m.nfiles; i++)
+        out->nconfig += out->m.files[i].config ? 1 : 0;
     if (pkg_writer_finish(w, &out->pkg, &out->pkg_len) != PKG_OK) {
         pkg_writer_free(w);
         return refuse_c(17, "cannot assemble the container");
@@ -1893,7 +1949,7 @@ static char *archive_path(const char *channel, const char *name)
 /* The kind and dependencies of the highest version of a package published in
  * the channel, for the CPU given when it has one there. */
 static int inherited(const char *name, const char *arch, char *kind, size_t kl,
-                     char *deps, size_t dl, char *from, size_t fl)
+                     char *deps, size_t dl, char *from, size_t fl, char *conf, size_t cl)
 {
     const struct entry *best = NULL;
     size_t o, d, at = 0;
@@ -1926,7 +1982,12 @@ static int inherited(const char *name, const char *arch, char *kind, size_t kl,
     if (em.ndeps == 0)
         snprintf(deps, dl, "none");
     snprintf(from, fl, "%s %s", em.name, em.version);
-    tr("inherited from %s %s: kind %s, depends %s", em.name, em.version, kind, deps);
+    conf[0] = '\0';
+    for (d = 0, at = 0; d < em.nfiles; d++)
+        if (em.files[d].config && at + strlen(em.files[d].path) + 2 < cl)
+            at += (size_t)snprintf(conf + at, cl - at, "%s%s", at ? "," : "", em.files[d].path);
+    tr("inherited from %s %s: kind %s, depends %s, config %s", em.name, em.version, kind, deps,
+       conf[0] ? conf : "none");
     pkg_manifest_free(&em);
     return 1;
 }
@@ -2795,6 +2856,8 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     struct walk_ctx wc;
     struct stage_ctx sc;
     char *staging, *dbp;
+    unsigned char *keep;    /* per file: 1 a person's configuration kept, the new one set
+                               beside it; 2 kept, and the new version is what they edited */
     int stopped;
     size_t i;
     enum pkg_status st;
@@ -2807,30 +2870,62 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
                       st == PKG_E_STOPPED ? wc.err
                       : st != PKG_OK ? pkg_strstatus(st) : "the manifest lists files the container lacks");
 
+    keep = calloc(m->nfiles ? m->nfiles : 1, 1);
+    if (keep == NULL)
+        return refuse("out of memory");
     for (i = 0; i < m->nfiles; i++) {
         const struct pkg_file *of = old ? find_file(old, m->files[i].path) : NULL;
+        if (m->files[i].config) {
+            /* A configuration file: a person's version stays where it is. */
+            if (of != NULL && file_state(root, of->path, of->digest, of->size) == 1)
+                keep[i] = strcmp(of->digest, m->files[i].digest) == 0 ? 2 : 1;
+            else if (of == NULL && file_state(root, m->files[i].path, m->files[i].digest,
+                                              m->files[i].size) == 1)
+                keep[i] = 1;
+            continue;
+        }
         if (of == NULL) {
             char *t = pkg_join(root, m->files[i].path);
             int there = t ? pkg_fs_exists(t) : 1;
             free(t);
-            if (there)
+            if (there) {
+                free(keep);
                 return refuse_c(15, "\"%s\" already exists in %s and belongs to no installed version "
                               "of %s; nothing was changed. It may be the requester's own file",
                               m->files[i].path, root, m->name);
+            }
         } else if (file_state(root, of->path, of->digest, of->size) == 1) {
+            free(keep);
             return refuse_c(15, "\"%s\" was edited since %s %s was installed, and %s %s ships it too; "
                           "nothing was changed. The edit belongs to whoever made it: the requester decides whether "
-                          "to keep it elsewhere first", of->path, old->name, old->version, m->name, m->version);
+                          "to keep it elsewhere first. A publisher who means it to be edited declares it "
+                          "with CONFIG, and Pkg then keeps the edit", of->path, old->name, old->version,
+                          m->name, m->version);
         }
     }
+    for (i = 0; i < m->nfiles; i++)
+        if (keep[i]) {
+            (*kept)++;
+            if (machine) {
+                kv("config-kept", "%s", m->files[i].path);
+                if (keep[i] == 1) kv("config-new", "%s.pkgnew", m->files[i].path);
+            } else if (keep[i] == 1) {
+                say("  kept     %s (edited; %s %s's version is beside it as %s.pkgnew)\n",
+                    m->files[i].path, m->name, m->version, m->files[i].path);
+            } else {
+                say("  kept     %s (edited; %s %s ships it unchanged)\n", m->files[i].path,
+                    m->name, m->version);
+            }
+        }
 
     tr("%s %s: every file checked against the container, nothing in the way", m->name, m->version);
     if (dryrun) {
         /* Every check above has passed; say what would move, move nothing. */
-        *placed = (unsigned long)m->nfiles;
+        *placed = (unsigned long)m->nfiles - (unsigned long)*kept;
         for (i = 0; old != NULL && i < old->nfiles; i++)
             if (find_file(m, old->files[i].path) == NULL)
                 (*dropped)++;
+        free(keep);
         return 0;
     }
     {
@@ -2840,6 +2935,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     }
     if (staging == NULL || pkg_fs_rmtree(staging) != 0) {
         free(staging);
+        free(keep);
         return refuse_c(17, "cannot prepare staging in %s", root);
     }
     sc.staging = staging; sc.err[0] = '\0';
@@ -2847,6 +2943,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         refuse_c(PKGRC_IO, "%s; nothing was changed", sc.err);
         pkg_fs_rmtree(staging);
         free(staging);
+        free(keep);
         return 1;
     }
 
@@ -2854,6 +2951,18 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         char *from = pkg_join(staging, m->files[i].path);
         char *to = pkg_join(root, m->files[i].path);
         int good;
+        if (keep[i] == 2) {
+            free(from);
+            free(to);
+            continue;
+        }
+        if (keep[i] == 1 && to != NULL) {
+            size_t tl = strlen(to);
+            char *nw = malloc(tl + 8);
+            if (nw != NULL) memcpy(nw, to, tl), memcpy(nw + tl, ".pkgnew", 8);
+            free(to);
+            to = nw;
+        }
         if (to != NULL && pkg_fs_exists(to))
             pkg_fs_unprotect(to);           /* the version it replaces may forbid Delete */
         good = from && to && pkg_fs_rename(from, to) == 0;
@@ -2863,10 +2972,12 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             refuse_c(17, "cannot place \"%s\": %s. %lu of %lu files were placed",
                    m->files[i].path, strerror(errno), (unsigned long)i, (unsigned long)m->nfiles);
             free(staging);
+            free(keep);
             return 1;
         }
-        (*placed)++;
+        if (!keep[i]) (*placed)++;
     }
+    free(keep);
 
     if (old != NULL) {
         for (i = 0; i < old->nfiles; i++) {
@@ -4159,6 +4270,8 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
         if (b.name_from[0]) kv("name-from", "%s", b.name_from);
         if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
+        if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
+        if (b.config_from[0]) kv("config-from", "%s", b.config_from);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
         if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
         for (d = 0; d < b.nleft; d++)
@@ -4236,6 +4349,8 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
         if (b.name_from[0]) kv("name-from", "%s", b.name_from);
         if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
+        if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
+        if (b.config_from[0]) kv("config-from", "%s", b.config_from);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
     } else if (b.ver_from[0] || b.name_from[0]) {
         say("  %s taken from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
@@ -5333,7 +5448,8 @@ static int options_clean(const struct pkg_options *o)
         { "DEPENDS", o->depends }, { "SIGN", o->sign }, { "FILE", o->file }, { "KEY", o->key },
         { "OUT", o->out }, { "ACCEPTKEY", o->acceptkey }, { "UNIT", o->unit },
         { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build },
-        { "ARCHIVE", o->archive }, { "TO", o->to }, { "PKG_PUSHKEY", o->pushkey }
+        { "ARCHIVE", o->archive }, { "TO", o->to }, { "PKG_PUSHKEY", o->pushkey },
+        { "CONFIG", o->config }
     };
     size_t i, j;
     for (i = 0; i < sizeof f / sizeof f[0]; i++)

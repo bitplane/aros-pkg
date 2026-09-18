@@ -760,6 +760,45 @@ TM=$(ls "$T/treech/objects/"*.manifest)
 [ $? -eq 0 ] && grep -q ' C/Dir$' $TM && grep -q ' Libs/a.library$' $TM && ! grep -q 'Fonts' $TM
                                                       ok $? "FILES takes only the paths it names out of a directory tree"
 
+echo "config_files"
+# A package declares the files people edit; an upgrade keeps their edit and
+# sets the new version down beside it.
+CF="$T/cf"; mkdir -p "$CF/d1/S" "$CF/d1/Prefs/Env-Archive" "$CF/d1/C" "$CF/d2/S" "$CF/d2/Prefs/Env-Archive" "$CF/d2/C"
+printf 'x\000$VER: sys 1.0 (1.1.2026)\000' > "$CF/d1/C/Sys"
+printf 'x\000$VER: sys 1.1 (1.1.2026)\000' > "$CF/d2/C/Sys"
+printf 'Assign Old: SYS:\n' > "$CF/d1/S/Startup-Sequence"; printf 'Assign New: SYS:\n' > "$CF/d2/S/Startup-Sequence"
+printf 'screen 1\n' > "$CF/d1/Prefs/Env-Archive/screenmode.prefs"; cp "$CF/d1/Prefs/Env-Archive/screenmode.prefs" "$CF/d2/Prefs/Env-Archive/"
+$PKG PUBLISH "$CF/d1" CHANNEL "$CF/ch" KIND application CONFIG "S/Startup-Sequence, Prefs/Env-Archive/" MACHINE > "$T/cf1" 2>&1
+[ $? -eq 0 ] && grep -q '^config-files: 2$' "$T/cf1" && grep -q '^Config: S/Startup-Sequence$' "$CF/ch/objects/"*.manifest
+                                                      ok $? "CONFIG marks a file and a folder's files in the signed manifest"
+$PKG PUBLISH "$CF/d2" CHANNEL "$CF/ch" MACHINE > "$T/cf2" 2>&1
+[ $? -eq 0 ] && grep -q '^config-from: sys 1.0$' "$T/cf2" && grep -q '^config-files: 2$' "$T/cf2"
+                                                      ok $? "a new version inherits its configuration files"
+$PKG PUBLISH "$CF/d1" CHANNEL "$CF/ch2" KIND application CONFIG "S/Startup-Sequnce" MACHINE > "$T/cf3" 2>&1
+[ $? -eq 20 ] && grep -q 'no file or folder of this package' "$T/cf3"
+                                                      ok $? "a CONFIG name that matches nothing is refused, saying why"
+$PKG INSTALL sys VERSION 1.0 ROOT "$CF/r" CHANNEL "$CF/ch" > /dev/null 2>&1
+printf 'Assign Old: SYS:\nAssign Mine: Work:\n' > "$CF/r/S/Startup-Sequence"
+printf 'screen 2\n' > "$CF/r/Prefs/Env-Archive/screenmode.prefs"
+$PKG UPGRADE sys ROOT "$CF/r" CHANNEL "$CF/ch" MACHINE > "$T/cf4" 2>&1
+[ $? -eq 0 ] && grep -q '^version: 1.1$' "$T/cf4" && grep -q 'Assign Mine' "$CF/r/S/Startup-Sequence" \
+  && cmp -s "$CF/r/S/Startup-Sequence.pkgnew" "$CF/d2/S/Startup-Sequence" && cmp -s "$CF/r/C/Sys" "$CF/d2/C/Sys"
+                                                      ok $? "an edited configuration file is kept, the new one set beside it, the rest upgraded"
+grep -q '^config-new: S/Startup-Sequence.pkgnew$' "$T/cf4" && grep -q '^config-kept: Prefs/Env-Archive/screenmode.prefs$' "$T/cf4" \
+  && [ ! -e "$CF/r/Prefs/Env-Archive/screenmode.prefs.pkgnew" ] && grep -q 'screen 2' "$CF/r/Prefs/Env-Archive/screenmode.prefs"
+                                                      ok $? "an edit of a file the new version leaves unchanged is kept, with nothing beside it"
+mkdir -p "$CF/r2/S"; printf 'mine\n' > "$CF/r2/S/Startup-Sequence"
+$PKG INSTALL sys ROOT "$CF/r2" CHANNEL "$CF/ch" MACHINE > "$T/cf5" 2>&1
+[ $? -eq 0 ] && grep -q mine "$CF/r2/S/Startup-Sequence" && [ -f "$CF/r2/S/Startup-Sequence.pkgnew" ]
+                                                      ok $? "a first install keeps a configuration file already there"
+$PKG PUBLISH "$CF/d1" CHANNEL "$CF/ch3" KIND application MACHINE > /dev/null 2>&1
+$PKG INSTALL sys ROOT "$CF/r3" CHANNEL "$CF/ch3" > /dev/null 2>&1
+printf 'edit\n' > "$CF/r3/S/Startup-Sequence"
+$PKG PUBLISH "$CF/d2" CHANNEL "$CF/ch3" MACHINE > /dev/null 2>&1
+$PKG UPGRADE sys ROOT "$CF/r3" CHANNEL "$CF/ch3" MACHINE > "$T/cf6" 2>&1
+[ $? -eq 15 ] && grep -q 'declares it with CONFIG' "$T/cf6"
+                                                      ok $? "without CONFIG an edit still stops the upgrade, and the refusal names CONFIG"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]

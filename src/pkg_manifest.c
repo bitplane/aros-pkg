@@ -78,6 +78,7 @@ static int add_to(struct pkg_file **v, size_t *n, size_t *cap, const char *path,
     f->size = size;
     f->prot = 0;
     f->comment = NULL;
+    f->config = 0;
     (*n)++;
     return 0;
 }
@@ -427,6 +428,9 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
                 }
         }
     }
+    for (i = 0; i < m->nfiles; i++)
+        if (m->files[i].config)
+            sb_printf(&b, "Config: %s\n", m->files[i].path);
     if (b.bad) {
         free(b.p);
         return -1;
@@ -606,6 +610,17 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
                 seterr(err, errlen, line, "out of memory");
                 free(val); goto fail;
             }
+            free(val);
+        } else if (strcmp(key, "Config") == 0) {
+            /* a configuration file of the package: a File line above names it */
+            size_t k2;
+            for (k2 = 0; k2 < m->nfiles && strcmp(m->files[k2].path, val) != 0; k2++)
+                ;
+            if (k2 == m->nfiles || m->files[k2].config) {
+                seterr(err, errlen, line, "Config names \"%s\", which no File line lists, or twice", val);
+                free(val); goto fail;
+            }
+            m->files[k2].config = 1;
             free(val);
         } else if (strcmp(key, "Protect") == 0 || strcmp(key, "Comment") == 0) {
             /* "<value> <path>": an Amiga attribute of a file listed above. */

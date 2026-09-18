@@ -38,6 +38,7 @@ struct pkg_file {
     unsigned long long  size;
     unsigned long long  prot;       /* the AROS protection word; 0 is the default, rwed */
     char               *comment;    /* the AROS file comment, UTF-8; NULL for none */
+    int                 config;     /* a configuration file: a person's edit survives upgrades */
 };
 
 struct pkg_dep {

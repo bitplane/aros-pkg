@@ -108,7 +108,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "FILES",     offsetof(struct pkg_options, files) },
         { "BUILD",     offsetof(struct pkg_options, build) },
         { "ARCHIVE",   offsetof(struct pkg_options, archive) },
-        { "TO",        offsetof(struct pkg_options, to) }
+        { "TO",        offsetof(struct pkg_options, to) },
+        { "CONFIG",    offsetof(struct pkg_options, config) }
 };
 
 static int takes_value(const char *w)
@@ -238,7 +239,8 @@ static int usage(void)
         "  pkg KEYGEN   FILE <keyfile>\n"
         "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]\n"
         "  pkg PUBLISH  <drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a]\n"
-        "               [DEPENDS \"a >= 1, b\"] [ACCEPTKEY <hex>]\n"
+        "               [DEPENDS \"a >= 1, b\"] [CONFIG \"S/Startup-Sequence,Prefs/Env-Archive\"]\n"
+        "               [FILES \"C,Libs\"] [BUILD <date>] [ACCEPTKEY <hex>]\n"
         "               KIND: image (a program people run, one volume to mount), application\n"
         "               (a program as loose files), library, device (handlers too), class, font,\n"
         "               catalog, startup, boot, data, sdk, slave. PUBLISH creates the channel.\n"
