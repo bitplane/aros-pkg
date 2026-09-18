@@ -220,6 +220,7 @@ static int usage(void)
         "  pkg MOUNTLIST <image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]\n"
         "  pkg SHOW     [<name>] CHANNEL <dir> [ROOT <dir>]\n"
         "Every verb that changes something takes DRYRUN: all checks, no write.\n"
+        "Exit code: 0 done, 10 to 18 refused (the number is the class), 20 a wrong command.\n"
         "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
         "  pkg HELP\n"
         "SIGN defaults to $PKG_SIGNKEY. Any verb takes MACHINE, or PKG_OUTPUT=machine:\n"

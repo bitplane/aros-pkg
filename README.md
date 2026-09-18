@@ -303,8 +303,9 @@ revision 15 image. Every AmigaOS, AROS and MorphOS FFS reads a `DOS\3`
 volume, and UAE mounts it as a hardfile. Block compression, the other open
 question, is not done: the image is stored whole.
 
-The writer is judged by readers written apart from it: amitools validates and
-unpacks every image in `tests/image.sh`, and the AROS FFS handler mounts them
+The writer is judged by readers written apart from it: amitools (installed
+with `pip install amitools`; `tests/image.sh` and `tools/ffs-validate.py` say
+so when it is missing) validates and unpacks every image in `tests/image.sh`, and the AROS FFS handler mounts them
 in `tests/goal2.sh`.
 
 ### Dependencies

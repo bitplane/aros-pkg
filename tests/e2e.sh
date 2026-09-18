@@ -511,6 +511,22 @@ $PKG MOUNTLIST himg ROOT "$T/groot" MACHINE > "$T/g11" 2>&1
 has "$T/g11" '^hint: Mount reads the entry from a file' && has "$T/g11" '^hint: no FFS handler';
                                                       ok $? "MOUNTLIST without OUT says to save it, and warns of the missing handler"
 
+echo "wrong_program"
+# A game drawer holding another program by mistake: its cookie names that program.
+mkdir -p "$T/game/C" "$T/wch"
+cp "$D/C/Hello" "$T/game/C/Asteroids"
+$PKG PUBLISH "$T/game" CHANNEL "$T/wch" KIND image NAME asteroids VERSION 1.0 DRYRUN MACHINE > "$T/w1" 2>&1
+has "$T/w1" '^warning: C/Asteroids carries the \$VER cookie of hello'
+                                                      ok $? "an executable whose cookie names another program is warned about"
+$PKG PUBLISH "$D" CHANNEL "$T/wch" KIND application MACHINE > /dev/null 2>&1
+$PKG PUBLISH "$T/game" CHANNEL "$T/wch" KIND image VERSION 9 MACHINE > "$T/w2" 2>&1
+[ $? -eq 20 ] && has "$T/w2" 'comes from the \$VER cookie in C/Asteroids' && has "$T/w2" 'add NAME' \
+    && [ "$(grep -c . "$T/wch/index")" = 1 ]; ok $? "a cookie name that would replace a package of another kind is refused"
+$PKG PUBLISH "$D" CHANNEL "$T/wch" KIND application NAME hello2 VERSION 1 DRYRUN MACHINE > "$T/w3" 2>&1
+! has "$T/w3" '^warning: C/Hello carries';            ok $? "a cookie that matches its file name raises nothing"
+$PKG SHOW nosuch CHANNEL "$T/wch" MACHINE > "$T/w4" 2>&1
+[ $? -eq 0 ] && has "$T/w4" '^hint: no package is published as nosuch'; ok $? "SHOW of a name not published says so"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]

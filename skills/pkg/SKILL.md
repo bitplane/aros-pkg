@@ -33,6 +33,10 @@ person, or a startup script, runs `Execute <ch>/Install-Pkg <ch>` with that
 name, `Execute DEPOT:Install-Pkg DEPOT:` for a volume root. Never tell the
 person a host path to type on AROS. Never copy a Pkg binary into C: by hand:
 installed through its channel, it is verified and can upgrade itself.
+Pkg in a channel is signed like any package, by whoever makes that
+channel; a machine that installs it from there trusts that key for `pkg`.
+Putting Pkg and the person's programs in the same channel is the simple
+case: one location for the friend, one key.
 Programs that link Pkg instead of running it use `include/pkg.h`, which
 lists every field each operation answers; its `item` callback gives the
 multi-field records with their fields apart; `examples/basic.c` and
@@ -105,8 +109,9 @@ version to the next: Pkg warns when it changes.
 **Several CPUs.** One version may be published for several CPUs (aarch64
 for hosted AROS, x86_64 for native, m68k); the architecture is read from
 the binaries. When installing from a host into a root for an AROS machine,
-pass `ARCH <cpu>` the first time; the root remembers it. A refusal "offered
-for several CPUs" means exactly that. Publish each CPU's build separately,
+pass `ARCH <cpu>` the first time; the root remembers it. Pkg running on
+AROS knows its own CPU and needs no `ARCH` (so `Install-Pkg` passes none).
+A refusal "offered for several CPUs" means exactly that. Publish each CPU's build separately,
 same name and version.
 
 **Two routes.** A system component (library, device or handler, class, font) is
@@ -182,6 +187,14 @@ find itself when mounted; its own helpers, icons and documents go inside,
 and only what other programs share goes into `DEPENDS`, by package name.
 The dry run lists the files that go into the image as `content:` lines.
 On macOS the filesystem ignores case: never create `GURU` beside `Guru`.
+
+**The wrong program in the drawer** is the commonest slip: an old build, or
+another program copied under the new one's name. Pkg warns when a file's
+`$VER` names another program than its file name says, and refuses a name
+taken from a cookie that would replace a published package of another kind.
+Read the dry run's `name:`, `version:` and `version-from:` against what the
+person said, and ask when they disagree; `NAME` silences nothing, it only
+names the package.
 
 **A new version** starts from nothing: `KIND`, `DEPENDS` and `ARCH` are not
 carried over from the previous one; pass them again. Before publishing it,
@@ -279,8 +292,12 @@ writes the mount entry with the image's own geometry, and its `step:` lines
 are the commands to run, in order: make a directory for `FDSK:`, link the
 image there as `UnitN`, write-protect it, add the root's `Libs` to `LIBS:`
 when its dependencies live there, and `Mount RAM:GURU`. The device is named
-after the mountlist file: `GURU:`. Run the program as `GURU:C/Guru`, or
-`Path GURU:C ADD`. If the program then cannot open a library its package
+after the mountlist file: `GURU:`, and the volume is the drawer as it was
+published. Run the program as `GURU:C/Guru`, or `Path GURU:C ADD`; for the
+program, `PROGDIR:` is `GURU:C`, so data it finds beside itself must be in
+`C/` in the drawer, and data it finds by a path from the volume
+(`GURU:Data/levels`) must be where that path says. Only the program's
+author knows which; ask when the drawer does not make it clear. If the program then cannot open a library its package
 brought (seen on a native system booted from CD, where a RAM: directory added
 to `LIBS:` is not searched), `CD <root>` before running it: the library loader
 also looks in `libs/` under the current directory. Before an upgrade or

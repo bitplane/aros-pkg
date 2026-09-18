@@ -907,6 +907,37 @@ static void built_free(struct built *b)
     b->ncontent = 0;
 }
 
+/* Letters and digits only, lower case: "afs.handler" and "afs-handler" agree. */
+static void squash(const char *in, char *out, size_t ol)
+{
+    size_t o = 0;
+    for (; *in && o + 1 < ol; in++)
+        if ((*in >= 'a' && *in <= 'z') || (*in >= '0' && *in <= '9'))
+            out[o++] = *in;
+        else if (*in >= 'A' && *in <= 'Z')
+            out[o++] = (char)(*in + 32);
+    out[o] = '\0';
+}
+
+/* A file whose $VER names another program than its file name is usually
+ * the wrong file copied into the drawer. */
+static void check_cookie_names(const struct drawer *d)
+{
+    size_t i;
+    char n[65], v[64], sn[65], sf[80];
+    for (i = 0; i < d->n; i++) {
+        const char *base = strrchr(d->v[i].rel, '/');
+        base = base ? base + 1 : d->v[i].rel;
+        if (!cookie(&d->v[i], n, sizeof n, v, sizeof v))
+            continue;
+        squash(n, sn, sizeof sn);
+        squash(base, sf, sizeof sf);
+        if (sn[0] && sf[0] && strstr(sf, sn) == NULL && strstr(sn, sf) == NULL)
+            warn("%s carries the $VER cookie of %s %s, another program than its file name "
+                 "says: is it the file you meant to publish?", d->v[i].rel, n, v);
+    }
+}
+
 static int ascii_casecmp(const char *x, const char *y)
 {
     for (; *x && *y; x++, y++) {
@@ -958,6 +989,7 @@ static int build(const struct pkg_options *a, struct built *out)
 
     name = a->name;
     version = a->version;
+    check_cookie_names(&d);
     {
         char seen[600];
         int got = find_ver(&d, name, vname, sizeof vname, vver, sizeof vver, &from,
@@ -2560,6 +2592,9 @@ static int cmd_show(const struct pkg_options *a)
     if (!machine && shown == 0)
         say("%s%s offers nothing%s%s\n", a->channel, "", a->target ? " named " : "",
                 a->target ? a->target : "");
+    if (shown == 0 && a->target != NULL)
+        hint("no package is published as %s in this channel: before a first publish, the "
+             "name is free; otherwise check the spelling with SHOW CHANNEL alone", a->target);
     free(ix.e);
     refused_class = first_bad;
     if (bad == 0)
@@ -2828,6 +2863,23 @@ static int cmd_publish(const struct pkg_options *a)
             struct pkg_manifest em;
             if (mp != NULL && pkg_fs_read(mp, &mbuf, &mlen) == 0) {
                 if (pkg_manifest_parse((const char *)mbuf, mlen, &em, err, sizeof err) == 0) {
+                    if (strcmp(em.kind, b.m.kind) != 0 && a->name == NULL) {
+                        /* The name came from a $VER cookie: another program's
+                         * cookie would make this package replace that one. */
+                        refuse_c(20, "the name %s comes from the $VER cookie in %s, and %s is "
+                                 "already published as kind %s, not %s: this would replace it "
+                                 "wherever it is installed. If the drawer holds the right "
+                                 "program, add NAME <its package name>; nothing was published",
+                                 b.m.name, b.ver_from[0] ? b.ver_from : "the drawer",
+                                 em.name, em.kind, b.m.kind);
+                        pkg_manifest_free(&em);
+                        free(mbuf);
+                        free(mp);
+                        free(ix.e);
+                        built_free(&b);
+                        memset(&k, 0, sizeof k);
+                        return 1;
+                    }
                     if (strcmp(em.kind, b.m.kind) != 0)
                         warn("%s %s was published as kind %s, and this version is kind %s",
                              em.name, em.version, em.kind, b.m.kind);

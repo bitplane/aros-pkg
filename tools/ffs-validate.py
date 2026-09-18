@@ -10,9 +10,14 @@
 #   python3 tools/ffs-validate.py <image>     (with amitools importable)
 
 import sys
-from amitools.fs.blkdev.BlkDevFactory import BlkDevFactory
-from amitools.fs.validate.Validator import Validator
-from amitools.fs.validate.Log import Log
+try:
+    from amitools.fs.blkdev.BlkDevFactory import BlkDevFactory
+    from amitools.fs.validate.Validator import Validator
+    from amitools.fs.validate.Log import Log
+except ImportError:
+    sys.stderr.write("ffs-validate: amitools is not importable; install it with "
+                     "`pip install amitools`, or put its checkout on PYTHONPATH\n")
+    sys.exit(69)
 
 path = sys.argv[1]
 blkdev = BlkDevFactory().open(path, read_only=True)

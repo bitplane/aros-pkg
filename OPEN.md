@@ -78,4 +78,8 @@ after KEYGEN, a publish that creates its channel, an image install and
 MOUNTLIST, `content:` lines in an image's dry run, and a warning when a
 program kind holds no executable. Still to watch in the next rounds: whether
 agents choose a root (`SYS:` or another) without asking, and whether they
-make a new key when the person's cannot be found.
+make a new key when the person's cannot be found. Round 6 put another program
+in a game's drawer; the agent caught it from a version warning, and since
+then a file whose `$VER` names another program is warned about, and a name
+taken from such a cookie that would replace a published package of another
+kind is refused.
