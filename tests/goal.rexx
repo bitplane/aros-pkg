@@ -45,10 +45,10 @@ call expect_version 14
 
 /* Negative controls, inside the same sequence. */
 'INSTALL afsplus-handler VERSION 15 ROOT MacRW:other CHANNEL MacRW:tampered'
-call expect_refused 'a tampered payload', 'does not match its signed manifest'
+call expect_refused 'a tampered payload', 12, 'does not match its signed manifest'
 
 'UPGRADE afsplus-handler VERSION 16 ROOT' root 'CHANNEL' ch
-call expect_refused 'a substituted publisher key', 'different key'
+call expect_refused 'a substituted publisher key', 14, 'different key'
 call expect_version 14
 
 'QUIT'
@@ -67,12 +67,14 @@ expect_ok: procedure expose rc result
     return
 
 expect_refused: procedure expose rc result
-    parse arg what, reason
+    parse arg what, code, reason
     if rc = 0 then call fail what 'was accepted'
+    /* RC is the class code, the number the command line exits with. */
+    if rc ~= code then call fail what 'was refused with RC' rc', not' code
     'LASTERROR'
     if pos(reason, result) = 0 then
         call fail what 'was refused for another reason: "'result'"'
-    say 'ok' what 'refused with RC 10:' reason
+    say 'ok' what 'refused with RC' code':' reason
     return
 
 expect_version: procedure expose rc result root

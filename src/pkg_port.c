@@ -7,9 +7,10 @@
  * A command string is split into words and run through exactly the path the
  * command line takes, so the port adds no second implementation of any verb.
  * Its output is captured and becomes RESULT when the caller asked for one. A
- * refusal sets RC to 10 (20 for a usage error) and leaves RESULT unset, which
- * is what ARexx does with a failing command anyway; LASTERROR then returns the
- * refusal's text, so an agent reads the reason a person would have read.
+ * refusal sets RC to its class code, the same number the command line exits
+ * with on every host (10 to 18, and 20 for usage), and leaves RESULT unset,
+ * which is what ARexx does with a failing command anyway; LASTERROR then
+ * returns the refusal's text, so an agent reads what a person would read.
  */
 
 #include "pkg_port.h"
@@ -115,7 +116,7 @@ int pkg_port_serve(const char *name, pkg_run_fn run)
             argv[argc] = NULL;
 
             if (argc < 2) {
-                rc = 2;
+                rc = 20;
             } else if (word_is(argv[1], "QUIT")) {
                 running = 0;
             } else if (word_is(argv[1], "LASTERROR")) {
@@ -145,7 +146,7 @@ int pkg_port_serve(const char *name, pkg_run_fn run)
                 if ((msg->rm_Action & RXFF_RESULT) && result != NULL)
                     msg->rm_Result2 = (IPTR)CreateArgstring((CONST_STRPTR)result, (ULONG)result_len);
             } else {
-                msg->rm_Result1 = rc == 2 ? RC_FATAL : RC_ERROR;
+                msg->rm_Result1 = rc;          /* the class code, as on the command line */
             }
             ReplyMsg((struct Message *)msg);
             free(out);

@@ -38,7 +38,7 @@ echo "keys"
                                                       ok $? "key file readable by the owner alone"
 has "$T/kg" "public key $PUB";                        ok $? "keygen prints the public key"
 $PKG KEYGEN FILE "$KEY" > "$T/kg2" 2>&1
-[ $? -eq 1 ];                                         ok $? "an existing key is never overwritten"
+[ $? -eq 15 ];                                         ok $? "an existing key is never overwritten"
 [ "$(awk '/^Public:/{print $2}' "$KEY")" = "$PUB" ];  ok $? "and the key is unchanged"
 
 echo "publish_install_verify_remove"
@@ -101,7 +101,7 @@ has "$T/ver" 'all intact';                            ok $? "and says so"
 
 printf 'edited by the user\n' > "$R/Libs/data.txt"
 $PKG VERIFY hello ROOT "$R" > "$T/ver2" 2>&1
-[ $? -eq 1 ];                                         ok $? "verify fails after an edit"
+[ $? -eq 12 ];                                         ok $? "verify fails after an edit"
 has "$T/ver2" 'changed  Libs/data.txt';               ok $? "and names the file"
 
 $PKG REMOVE hello ROOT "$R" > "$T/rm" 2>&1;           ok $? "remove succeeds"
@@ -115,12 +115,12 @@ echo "refusals"
 
 printf 'different\n' > "$D/Libs/data.txt"
 $PKG PUBLISH "$D" CHANNEL "$CH" > "$T/rep" 2>&1
-[ $? -eq 1 ];                                         ok $? "republishing a version with new bytes refused"
+[ $? -eq 15 ];                                         ok $? "republishing a version with new bytes refused"
 has "$T/rep" 'never changes';                         ok $? "and says why"
 printf 'library data\n' > "$D/Libs/data.txt"
 
 env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/ch-nokey" > "$T/nokey" 2>&1
-[ $? -eq 1 ];                                         ok $? "publishing without a key refused"
+[ $? -eq 20 ];                                         ok $? "publishing without a key refused"
 has "$T/nokey" 'Every package is signed';             ok $? "and says why"
 [ ! -e "$T/ch-nokey/index" ];                         ok $? "and nothing was published"
 
@@ -130,28 +130,28 @@ import sys
 p=sys.argv[1]; b=bytearray(open(p,'rb').read()); b[-1]^=1; open(p,'wb').write(b)
 " "$CH/objects/$payload.pkg"
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/tamper" 2>&1
-[ $? -eq 1 ];                                         ok $? "tampered payload refused"
+[ $? -eq 12 ];                                         ok $? "tampered payload refused"
 has "$T/tamper" "expected $payload";                  ok $? "the refusal names the expected digest"
 [ ! -e "$R/C/Hello" ];                                ok $? "and nothing was installed"
 cp "$T/good.pkg" "$CH/objects/$payload.pkg"
 
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/twice" 2>&1
-[ $? -eq 1 ];                                         ok $? "second install refused"
+[ $? -eq 15 ];                                         ok $? "second install refused"
 has "$T/twice" 'already installed';                   ok $? "and points to UPGRADE"
 $PKG REMOVE hello ROOT "$R" > /dev/null 2>&1
 
 mkdir -p "$R/C"; printf 'mine' > "$R/C/Hello"
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/clash" 2>&1
-[ $? -eq 1 ];                                         ok $? "overwrite refused"
+[ $? -eq 15 ];                                         ok $? "overwrite refused"
 [ "$(cat "$R/C/Hello")" = "mine" ];                   ok $? "the existing file is untouched"
 [ ! -e "$R/.pkg/db/hello" ];                          ok $? "and nothing is recorded"
 rm -rf "$R"
 
 $PKG INSTALL nosuch ROOT "$R" CHANNEL "$CH" > "$T/none" 2>&1
-[ $? -eq 1 ];                                         ok $? "unknown package refused"
+[ $? -eq 11 ];                                         ok $? "unknown package refused"
 $PKG INSTALL hello VERSION 9 ROOT "$R" CHANNEL "$CH" > "$T/v9" 2>&1
-[ $? -eq 1 ];                                         ok $? "absent version refused"
+[ $? -eq 11 ];                                         ok $? "absent version refused"
 has "$T/v9" 'versions offered: 1.2';                  ok $? "and the versions on offer are listed"
 
 # Forged entries, written by Python and signed with the development key, so
@@ -179,18 +179,18 @@ PY
 
 forge evil-a "../evil" "../evil"
 $PKG INSTALL evil-a ROOT "$R" CHANNEL "$CH" > "$T/ea" 2>&1
-[ $? -eq 1 ];                                         ok $? "traversal in the manifest refused"
+[ $? -eq 12 ];                                         ok $? "traversal in the manifest refused"
 has "$T/ea" "'\.\.' component";                       ok $? "for the traversal, not the signature"
 
 forge evil-b "../evil" "evil"
 $PKG INSTALL evil-b ROOT "$R" CHANNEL "$CH" > "$T/eb" 2>&1
-[ $? -eq 1 ];                                         ok $? "container disagreeing with its manifest refused"
+[ $? -eq 12 ];                                         ok $? "container disagreeing with its manifest refused"
 has "$T/eb" 'where the manifest lists';               ok $? "for the disagreement, not the signature"
 [ ! -e "$T/evil" ] && [ ! -e "$R/evil" ];             ok $? "nothing written inside or outside the root"
 
 forge evil-c ".pkg/db/hello" ".pkg/db/hello"
 $PKG INSTALL evil-c ROOT "$R" CHANNEL "$CH" > "$T/ec" 2>&1
-[ $? -eq 1 ];                                         ok $? "a payload writing into the database refused"
+[ $? -eq 12 ];                                         ok $? "a payload writing into the database refused"
 has "$T/ec" 'inside .pkg';                            ok $? "for the database path, not the signature"
 
 echo "identical_payloads"
@@ -222,13 +222,13 @@ p=sys.argv[1]; s=open(p).read(); i=s.index('Signature: ')+11
 c='0' if s[i]!='0' else '1'; open(p,'w').write(s[:i]+c+s[i+1:])
 " "$CH/objects/$digest.sig"
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/sigt" 2>&1
-[ $? -eq 1 ];                                         ok $? "an altered signature refused"
+[ $? -eq 13 ];                                         ok $? "an altered signature refused"
 has "$T/sigt" 'does not verify';                      ok $? "and says why"
 cp "$T/good.sig" "$CH/objects/$digest.sig"
 
 rm "$CH/objects/$digest.sig"
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/unsig" 2>&1
-[ $? -eq 1 ];                                         ok $? "an unsigned package refused"
+[ $? -eq 13 ];                                         ok $? "an unsigned package refused"
 has "$T/unsig" 'is not signed';                       ok $? "and says why"
 cp "$T/good.sig" "$CH/objects/$digest.sig"
 [ ! -e "$R/.pkg/db/hello" ];                          ok $? "and nothing was installed by either"
@@ -265,7 +265,7 @@ $PKG VERIFY hello ROOT "$R" > /dev/null 2>&1;         ok $? "verify passes on 1.
 
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG UPGRADE hello VERSION 1.2 ROOT "$R" CHANNEL "$CH" > "$T/dg" 2>&1
-[ $? -eq 1 ];                                         ok $? "EXACT to an older version refused without DOWNGRADE"
+[ $? -eq 18 ];                                         ok $? "EXACT to an older version refused without DOWNGRADE"
 has "$T/dg" 'add DOWNGRADE';                          ok $? "and the way through is named"
 $PKG UPGRADE hello VERSION 1.2 DOWNGRADE ROOT "$R" CHANNEL "$CH" > "$T/dg2" 2>&1
                                                       ok $? "EXACT with DOWNGRADE succeeds"
@@ -273,7 +273,7 @@ has "$T/dg2" 'downgraded hello from 1.3 to 1.2';      ok $? "and calls it a down
 
 printf 'my own edit\n' > "$R/C/Hello"
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > "$T/conf" 2>&1
-[ $? -eq 1 ];                                         ok $? "upgrade over an edited file both versions ship refused"
+[ $? -eq 15 ];                                         ok $? "upgrade over an edited file both versions ship refused"
 [ "$(cat "$R/C/Hello")" = "my own edit" ];            ok $? "the edit is untouched"
 has "$T/conf" 'was edited since';                     ok $? "and the refusal names the file"
 cp "$D/C/Hello" "$R/C/Hello"
@@ -285,17 +285,75 @@ printf 'binary 3\000$VER: Hello 1.4 (20.9.2026)\000tail' > "$T/v14/C/Hello"
 PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" > /dev/null 2>&1
                                                       ok $? "a second key can publish 1.4 into the channel"
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > "$T/sub" 2>&1
-[ $? -eq 1 ];                                         ok $? "an upgrade signed by a substituted key refused"
+[ $? -eq 14 ];                                         ok $? "an upgrade signed by a substituted key refused"
 has "$T/sub" "pinned $PUB";                           ok $? "the refusal prints the pinned key"
 has "$T/sub" "signer $EVILPUB";                       ok $? "and the new signer"
 cmp -s "$D/C/Hello" "$R/C/Hello";                     ok $? "and nothing was changed"
 
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" ACCEPTKEY "$PUB" > "$T/sub2" 2>&1
-[ $? -eq 1 ];                                         ok $? "ACCEPTKEY naming the wrong key does not open the door"
+[ $? -eq 14 ];                                         ok $? "ACCEPTKEY naming the wrong key does not open the door"
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" ACCEPTKEY "$EVILPUB" > "$T/sub3" 2>&1
                                                       ok $? "ACCEPTKEY naming the new key in full accepts it"
 has "$T/sub3" 'changed by explicit ACCEPTKEY';        ok $? "and says so"
 [ "$(head -c 64 "$R/.pkg/keys/hello")" = "$EVILPUB" ]; ok $? "and the new key is now the pinned one"
+
+echo "machine_contract"
+
+# The contract an agent reads on every host: stdout holds only "key: value"
+# lines, stderr stays empty, and a refusal's code field equals the exit status.
+# The format check is shown able to fail on the human output of the same verb.
+M="$T/mroot"
+only_kv() { ! LC_ALL=C grep -a -v -E '^[a-z][a-z-]*: ' "$1" > /dev/null; }
+mrun() {  # mrun <name> <args...>: stdout to $T/<name>.o, stderr to $T/<name>.e
+    n=$1; shift
+    $PKG "$@" > "$T/$n.o" 2> "$T/$n.e"
+}
+
+mrun mi INSTALL hello VERSION 1.2 ROOT "$M" CHANNEL "$CH" MACHINE
+                                                      ok $? "MACHINE install exits 0"
+only_kv "$T/mi.o" && [ ! -s "$T/mi.e" ];              ok $? "and prints only key: value lines, nothing on stderr"
+has "$T/mi.o" '^result: installed$' && has "$T/mi.o" '^version: 1.2$' \
+    && has "$T/mi.o" "^signer: $PUB\$";               ok $? "with the result, the version and the full signer key"
+$PKG REMOVE hello ROOT "$M" > /dev/null 2>&1
+$PKG INSTALL hello VERSION 1.2 ROOT "$M" CHANNEL "$CH" > "$T/human.o" 2>&1
+! only_kv "$T/human.o";                               ok $? "control: the human output fails the same format check"
+
+PKG_OUTPUT=machine $PKG LIST ROOT "$M" > "$T/ml.o" 2> "$T/ml.e"
+                                                      ok $? "PKG_OUTPUT=machine list exits 0"
+only_kv "$T/ml.o" && has "$T/ml.o" '^result: listed$' && has "$T/ml.o" '^package: hello 1.2 ' \
+    && has "$T/ml.o" '^count: 1$'
+                                                      ok $? "the environment variable selects the same contract"
+mrun mv VERIFY hello ROOT "$M" MACHINE
+has "$T/mv.o" '^result: intact$';                     ok $? "verify reports intact"
+mrun mu UPGRADE hello VERSION 1.3 ROOT "$M" CHANNEL "$CH" MACHINE
+has "$T/mu.o" '^result: upgraded$' && has "$T/mu.o" '^from: 1.2$' && has "$T/mu.o" '^version: 1.3$'
+                                                      ok $? "upgrade reports from and to"
+mrun mr ROLLBACK hello ROOT "$M" CHANNEL "$CH" MACHINE
+has "$T/mr.o" '^result: rolled-back$' && has "$T/mr.o" '^version: 1.2$'
+                                                      ok $? "rollback reports rolled-back"
+
+refusal() {  # refusal <name> <code> <class> <what>
+    rc=$3; name=$1
+    only_kv "$T/$name.o" && [ ! -s "$T/$name.e" ] && has "$T/$name.o" '^result: refused$' \
+        && has "$T/$name.o" "^class: $4\$" && has "$T/$name.o" "^code: $2\$" \
+        && has "$T/$name.o" '^reason: .' && [ "$rc" -eq "$2" ]
+    ok $? "$5 exits $2 and says class $4, code $2"
+}
+mrun x1 INSTALL hello ROOT "$M" CHANNEL "$CH" MACHINE;          refusal x1 15 $? conflict "a second install"
+mrun x2 INSTALL nosuch ROOT "$M" CHANNEL "$CH" MACHINE;         refusal x2 11 $? not-found "an unknown package"
+mrun x3 UPGRADE hello ROOT "$M" CHANNEL "$CH" MACHINE;          refusal x3 14 $? key "1.4 from another key"
+has "$T/x3.o" "^reason: .*$EVILPUB";                  ok $? "the one-line reason still names the new signer"
+mrun x4 FROB MACHINE;                                           refusal x4 20 $? usage "an unknown verb"
+mrun x6 INSTALL a b MACHINE;                                    refusal x6 20 $? usage "a usage error found before MACHINE"
+$PKG LIST ROOT "$M" NAME machine > "$T/nm.o" 2>&1
+has "$T/nm.o" 'hello';                                ok $? "NAME machine is a value, and leaves the human output alone"
+printf 'edited\n' > "$M/C/Hello"
+mrun x5 VERIFY hello ROOT "$M" MACHINE
+[ $? -eq 12 ] && has "$T/x5.o" '^result: damaged$' && has "$T/x5.o" '^changed: C/Hello$'
+                                                      ok $? "a damaged install exits 12 and names the file"
+mrun mx REMOVE hello ROOT "$M" MACHINE
+has "$T/mx.o" '^result: removed$' && has "$T/mx.o" '^kept: C/Hello$'
+                                                      ok $? "remove reports the edited file it kept"
 
 echo
 echo "$checks checks, $fails failures"

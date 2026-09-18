@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 John Knipper -->
 
-# Goal: Pkg delivers the platform to itself, and an agent watches
+# Goal 1: Pkg delivers the platform to itself, and an agent watches
 
 Set 2026-09-18. **Met 2026-09-18**: `tests/goal.sh`, 25 checks, 0 failures, including a sabotaged control run that must fail and does. One sequence that passes or fails as a whole:
 
@@ -40,3 +40,28 @@ follows.
 Gates touched: `[PKG1]`, `[PKG6]`, `[PKG10]`, `[PKG11]`, `[PKG17]`, `[PKG18]`,
 `[PKG19]`, `[PKG21]`, `[PKG22]`, `[PKG23]`, and the first component of
 `[PKG9]`, all in the planning repository's `docs/features/packaging/spec.md`.
+
+# Goal 2: an application arrives, its dependencies arrive by Pkg, it runs, and it is checked from outside, with no ARexx anywhere
+
+Set 2026-09-18. ARexx is never a requirement: hosted AROS installs none by
+default, and macOS and Windows have none at all.
+
+1. **macOS publishes** a real AROS application as a signed mountable image,
+   with `Depends` on a system library published as a component.
+2. **On hosted AROS with no ARexx installed**, an AmigaDOS script installs it
+   with dependency resolution, places and mounts the image, runs the
+   application from it with its output compared on the host, upgrades, rolls
+   back, and removes the library once it is an orphan.
+3. **One command-line contract**, machine-readable output and exit codes by
+   class of failure, is identical on AROS, macOS and Windows.
+4. **A tampered image and a badly signed dependency are refused**, and the
+   application still runs once Pkg is removed.
+5. Where Regina is installed by Pkg, the same sequence through the `PKG` port
+   gives identical results.
+
+| | Milestone | Done when |
+|---|---|---|
+| **M1 ✓** | **The contract.** Done 2026-09-18. Exit codes by class, `MACHINE` output, the port's RC equal to the class code | `tests/e2e.sh` on macOS, `tests/aros-contract.sh` identical on macOS and hosted AROS, `tests/goal.sh` with RC 12 and 14 |
+| M2 | **Image route and dependencies on macOS.** An `image` kind, a mountable read-only image, `Depends` resolution `[PKG2]`, orphans | Publish and install with a dependency on macOS, and its refusals |
+| M3 | **The sequence on hosted AROS, without ARexx.** | Steps 2 and 4 pass from an AmigaDOS script |
+| M4 | **Windows.** A Win32 host layer and a cross-compiled binary with a test kit the owner runs; the optional ARexx equivalence | Step 3 on Windows when the owner runs the kit, step 5 on AROS |

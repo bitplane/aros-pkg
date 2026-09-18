@@ -14,7 +14,7 @@ directory of signed index snapshots and content-addressed objects.
 
 ## State
 
-Goal and milestones: [GOAL.md](GOAL.md). **The goal is met**: all four milestones, and the whole sequence passes as one run, `tests/goal.sh`, 25 checks.
+Goals and milestones: [GOAL.md](GOAL.md). **Goal 1 is met**: all four milestones, and the whole sequence passes as one run, `tests/goal.sh`, 25 checks. **Goal 2 is under way**: an application arrives with its dependencies and runs, checked from outside, with no ARexx anywhere. Its M1, the contract below, is done.
 
 | Piece | State |
 |---|---|
@@ -28,7 +28,8 @@ Goal and milestones: [GOAL.md](GOAL.md). **The goal is met**: all four milestone
 | `KEYGEN`, `SIGN`, signed `PUBLISH`, key pinned per package in the root | Built, end-to-end test |
 | `UPGRADE`, `ROLLBACK`, `DOWNGRADE`, `EXACT` and `COMPATIBLE` selection | Built, end-to-end test |
 | AROS client | Built with `tools/build-aros.sh`; `make check-aros` and `tests/aros-handler.sh` on hosted AROS |
-| ARexx port `PKG` | Built: `Pkg PORT` on AROS, every verb, RESULT on success, RC 10 and `LASTERROR` on refusal |
+| ARexx port `PKG` | Built: `Pkg PORT` on AROS, every verb, RESULT on success, RC the class code and `LASTERROR` on refusal |
+| Machine contract, `MACHINE` or `PKG_OUTPUT=machine` | Built: `tests/e2e.sh` on macOS, `tests/aros-contract.sh` compares macOS and hosted AROS line for line |
 
 ## On hosted AROS
 
@@ -72,6 +73,48 @@ Four things the hosted runs established, none of them guessed beforehand:
   ROLLBACK has to honour that declaration. Not built yet; recorded as the next
   piece of the version model.
 
+## The contract an agent reads
+
+The same on every host, and the same for a shell script, an AmigaDOS script,
+an agent or the ARexx port. No verb needs ARexx.
+
+The exit code names the class of a refusal. On AROS every refusal is at least
+10, so `If ERROR` catches all of them, and `$RC` holds the exact number.
+
+| Code | Class | Examples |
+|---|---|---|
+| 0 | ok | |
+| 10 | refused | a refusal that fits no class below |
+| 11 | not-found | no such package, no such version in the channel |
+| 12 | integrity | a payload or file that does not match its digest, an unsafe path |
+| 13 | signature | unsigned, or a signature that does not verify |
+| 14 | key | signed by another key than the one pinned |
+| 15 | conflict | already installed, a file already present, an edited file an upgrade would replace |
+| 16 | dependency | reserved for dependency resolution |
+| 17 | io | the filesystem refused |
+| 18 | policy | a downgrade without `DOWNGRADE` |
+| 20 | usage | an unknown verb, a missing keyword or value |
+
+With `MACHINE` on the line, or `PKG_OUTPUT=machine` in the environment, stdout
+carries only `key: value` lines, the manifest's syntax, and stderr stays empty.
+Every answer has a `result:` line: `installed`, `upgraded`, `downgraded`,
+`rolled-back`, `unchanged`, `listed`, `intact`, `damaged`, `removed`,
+`published`, `created`, `signed` or `refused`. A refusal reads:
+
+```
+result: refused
+class: key
+code: 14
+reason: hello is signed by a different key than the one pinned ...
+```
+
+`tests/aros-contract.sh` runs one sequence, with every class among its
+refusals, on macOS and then from the AmigaDOS startup of hosted AROS against
+the same channel. It checks each code both ways, `$RC` on AROS, and finds the
+outputs identical line for line once the root and channel paths are
+normalised: 85 checks. A deliberately altered line shows the comparison can
+fail.
+
 ## The goal sequence
 
 `tests/goal.sh` runs the goal as one sequence that passes or fails:
@@ -87,7 +130,8 @@ Four things the hosted runs established, none of them guessed beforehand:
    verify, rollback 14 through the port, checking RC and the database at every
    step, and exits 10 at the first disagreement.
 4. Inside that script the tampered payload and the substituted key are refused
-   with RC 10, each for its own reason, read back with `LASTERROR`.
+   with RC 12 and RC 14, their class codes, each for its own reason, read back
+   with `LASTERROR`.
 
 Afterwards AROS mounts the volume with the handler Pkg left in place and it
 reports revision 14. A second boot runs the same script with one expectation
