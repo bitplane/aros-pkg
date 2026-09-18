@@ -1,0 +1,6 @@
+bzip2/libbzip2 1.0.8 (13 July 2019), by Julian R Seward, unmodified.
+Source: https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz
+SHA-256 of that archive: ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
+Licence: LICENSE in this directory (BSD-style). Only the library files are
+kept; Pkg uses its decompression, to read the .tar.bz2 archives of the AROS
+nightly builds. Compiled with BZ_NO_STDIO.

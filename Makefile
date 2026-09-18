@@ -3,12 +3,12 @@
 
 CC       ?= cc
 CFLAGS   ?= -std=c99 -Wall -Wextra -Werror -O2
-CPPFLAGS  = -Iinclude
+CPPFLAGS  = -Iinclude -Ithird_party/bzip2
 
 # Portable C99: everything except the host filesystem layer.
 LIB  = src/pkg_lib.c
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
-       src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c
+       src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c
 # The host layer. POSIX covers macOS and Linux; AROS gets its own.
 HOST = src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c
 HDR  = $(wildcard include/*.h)
@@ -101,6 +101,10 @@ test:
 	@PKG=./build/pkg sh tests/deps.sh
 	@echo "== crossarch"
 	@PKG=./build/pkg sh tests/crossarch.sh
+	@echo "== archive"
+	@rm -f build/test_archive
+	@$(MAKE) --no-print-directory build/test_archive
+	@sh tests/archive.sh
 	@echo "== examples"
 	@rm -f build/libpkg.a build/example-basic build/example-browse
 	@$(MAKE) --no-print-directory build/example-basic build/example-browse

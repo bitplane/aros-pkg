@@ -41,10 +41,10 @@ COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
     -isystem "$developer/include/aros/stdc" \
     -nostartfiles -nodefaultlibs \
     -L "$developer/lib" -L "$aros_cross_lib" \
-    -I include \
+    -I include -I third_party/bzip2 \
     "$developer/lib/startup.o" \
     src/pkg_main.c src/pkg_lib.c src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c \
-    src/pkg_ed25519.c src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c \
+    src/pkg_ed25519.c src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c \
     -o "$out/Pkg" \
     -Wl,--allow-multiple-definition -Wl,--start-group \
     -lrexxsyslib -lpthread -lposixc -lstdc -lstdcio -ldos -lexec -laros \
