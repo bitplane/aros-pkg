@@ -2285,6 +2285,8 @@ done:
     return rc;
 }
 
+static int show_defers_archives;    /* set by SHOW, which checks archives in one pass each */
+
 static int fetch(const char *channel, const struct entry *e, struct fetched *f)
 {
     char *mo = object_path(channel, e->digest, "manifest");
@@ -2328,7 +2330,8 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
     /* 4. The payload the signed manifest names, or its files in the archive
      *    it names, each checked against the manifest when it is placed. */
     if (f->m.source != NULL) {
-        rc = fetch_from_archive(channel, f, what);
+        /* SHOW checks archives afterwards, each read once for all its entries */
+        rc = show_defers_archives ? 0 : fetch_from_archive(channel, f, what);
         goto out;
     }
     po = object_path(channel, f->m.payload, "pkg");
@@ -3412,35 +3415,214 @@ static int cmd_mountlist(const struct pkg_options *a)
 /* What a channel offers, each version checked the way INSTALL would check
  * it: manifest against the index, signature, payload against the manifest.
  * Nothing is installed. Exits with the class of the first bad entry. */
+/* One row of SHOW: an entry, its checks, and what was found. */
+struct show_row {
+    struct fetched f;
+    int            rc;          /* 0, or 1 with cls and reason */
+    int            cls;
+    char           reason[2048];
+    const char    *here;
+    int            selected;
+    int            archive_checked;
+};
+
+/* One file an archive must hold, for one row. */
+struct expect {
+    const char *path;           /* inside the archive: <prefix>/<file> */
+    char       *owned;          /* the string path points into */
+    const char *digest;
+    unsigned long long size;
+    size_t      row;
+    int         seen;
+};
+
+static int by_expect(const void *x, const void *y)
+{
+    return strcmp(((const struct expect *)x)->path, ((const struct expect *)y)->path);
+}
+
+struct arch_check {
+    struct expect     *ex;
+    size_t             n;
+    long               cur, last;   /* every entry claiming this path: cur .. last */
+    struct pkg_sha256  sha;
+    unsigned long long got;
+};
+
+static int ac_want(const struct pkg_archive_entry *e, void *ctx)
+{
+    struct arch_check *ac = (struct arch_check *)ctx;
+    struct expect key, *hit;
+    if (e->is_dir) return 0;
+    key.path = e->path;
+    hit = (struct expect *)bsearch(&key, ac->ex, ac->n, sizeof *ac->ex, by_expect);
+    if (hit == NULL) return 0;
+    ac->cur = ac->last = (long)(hit - ac->ex);
+    /* two packages may list the same file: all of them get this one read */
+    while (ac->cur > 0 && strcmp(ac->ex[ac->cur - 1].path, e->path) == 0) ac->cur--;
+    while (ac->last + 1 < (long)ac->n && strcmp(ac->ex[ac->last + 1].path, e->path) == 0) ac->last++;
+    pkg_sha256_init(&ac->sha);
+    ac->got = 0;
+    return 1;
+}
+
+static int ac_data(const struct pkg_archive_entry *e, const unsigned char *buf, size_t len, void *ctx)
+{
+    struct arch_check *ac = (struct arch_check *)ctx;
+    struct expect *x = &ac->ex[ac->cur];
+    (void)e;
+    if (len > 0) {
+        ac->got += len;
+        if (ac->got <= 0xFFFFFFFFFFFFull)   /* the sizes are compared at the end */
+            pkg_sha256_update(&ac->sha, buf, len);
+        return 0;
+    }
+    {
+        unsigned char dg[PKG_SHA256_LEN];
+        char hex[PKG_SHA256_HEXLEN + 1];
+        size_t k;
+        long c;
+        pkg_sha256_final(&ac->sha, dg);
+        for (k = 0; k < PKG_SHA256_LEN; k++) snprintf(hex + 2 * k, 3, "%02x", dg[k]);
+        for (c = ac->cur; c <= ac->last; c++)
+            ac->ex[c].seen = (ac->got == ac->ex[c].size && strcmp(hex, ac->ex[c].digest) == 0) ? 1 : 2;
+        (void)x;
+    }
+    return 0;
+}
+
 static int cmd_show(const struct pkg_options *a)
 {
     struct index ix;
+    struct show_row *row = NULL;
     size_t i, shown = 0, bad = 0;
     int first_bad = 0;
 
     if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
     if (read_index(a->channel, &ix) != 0) return 1;
+    row = (struct show_row *)calloc(ix.n ? ix.n : 1, sizeof *row);
+    if (row == NULL) { free(ix.e); return refuse("out of memory"); }
     kv("result", "shown");
+
+    /* 1. Each entry: manifest against the index, signature, withdrawal, and
+     *    the payload of a .pkg package. */
+    show_defers_archives = 1;
     for (i = 0; i < ix.n; i++) {
-        struct fetched f;
-        const char *status = "ok", *here = NULL;
-        int rc;
+        struct show_row *r = &row[i];
         if (a->target != NULL && strcmp(ix.e[i].name, a->target) != 0)
             continue;
         if (cancelled("while checking the channel, which was not changed")) {
-            free(ix.e);
+            show_defers_archives = 0;
+            for (i = 0; i < ix.n; i++) if (row[i].selected) fetched_free(&row[i].f);
+            free(row); free(ix.e);
             return 1;
         }
-        shown++;
         quiet = 1;
         refused_class = 0;
         quiet_reason[0] = '\0';
-        rc = fetch(a->channel, &ix.e[i], &f);
+        r->rc = fetch(a->channel, &ix.e[i], &r->f);
         quiet = 0;
+        r->cls = refused_class;
+        snprintf(r->reason, sizeof r->reason, "%s", quiet_reason);
+        refused_class = 0;
+        r->selected = 1;
+        if (a->archive != NULL) {
+            /* only what this archive holds */
+            char an[1024], ap[1024];
+            if (r->rc != 0 || r->f.m.source == NULL
+                || !pkg_archive_split(r->f.m.source, an, sizeof an, ap, sizeof ap)
+                || strcmp(an, a->archive) != 0) {
+                fetched_free(&r->f);
+                r->selected = 0;
+            }
+        }
+    }
+    show_defers_archives = 0;
+
+    /* 2. Each archive once: every file of every entry that names it. */
+    if (!a->metadata) {
+        size_t r0;
+        for (r0 = 0; r0 < ix.n; r0++) {
+            char an[1024], ap[1024], *path;
+            struct arch_check ac;
+            size_t n = 0, cap = 0, r1, fl;
+            char err[300];
+            if (!row[r0].selected || row[r0].rc != 0 || row[r0].f.m.source == NULL
+                || row[r0].archive_checked)
+                continue;
+            pkg_archive_split(row[r0].f.m.source, an, sizeof an, ap, sizeof ap);
+            memset(&ac, 0, sizeof ac);
+            for (r1 = r0; r1 < ix.n; r1++) {
+                char bn[1024], bp[1024];
+                struct pkg_manifest *m = &row[r1].f.m;
+                if (!row[r1].selected || row[r1].rc != 0 || m->source == NULL
+                    || !pkg_archive_split(m->source, bn, sizeof bn, bp, sizeof bp) || strcmp(bn, an) != 0)
+                    continue;
+                row[r1].archive_checked = 1;
+                for (fl = 0; fl < m->nfiles; fl++) {
+                    size_t pl = strlen(bp) + strlen(m->files[fl].path) + 2;
+                    if (n == cap) {
+                        struct expect *g;
+                        cap = cap ? cap * 2 : 256;
+                        g = (struct expect *)realloc(ac.ex, cap * sizeof *g);
+                        if (g == NULL) break;
+                        ac.ex = g;
+                    }
+                    ac.ex[n].owned = (char *)malloc(pl);
+                    if (ac.ex[n].owned == NULL) break;
+                    snprintf(ac.ex[n].owned, pl, "%s%s%s", bp, bp[0] ? "/" : "", m->files[fl].path);
+                    ac.ex[n].path = ac.ex[n].owned;
+                    ac.ex[n].digest = m->files[fl].digest;
+                    ac.ex[n].size = m->files[fl].size;
+                    ac.ex[n].row = r1;
+                    ac.ex[n].seen = 0;
+                    n++;
+                }
+            }
+            ac.n = n;
+            qsort(ac.ex, n, sizeof *ac.ex, by_expect);
+            path = archive_path(a->channel, an);
+            tr("checking %lu files of %s in one read", (unsigned long)n, an);
+            if (path == NULL || !pkg_fs_exists(path)) {
+                for (fl = 0; fl < n; fl++) ac.ex[fl].seen = 3;
+            } else if (pkg_archive_walk(path, ac_want, ac_data, &ac, err, sizeof err) != 0) {
+                for (fl = 0; fl < n; fl++) if (ac.ex[fl].seen == 0) ac.ex[fl].seen = 4;
+            }
+            for (fl = 0; fl < n; fl++) {
+                struct show_row *r = &row[ac.ex[fl].row];
+                if (ac.ex[fl].seen == 1 || r->rc != 0)
+                    continue;
+                r->rc = 1;
+                if (ac.ex[fl].seen == 3) {
+                    r->cls = 11;
+                    snprintf(r->reason, sizeof r->reason, "it comes from the archive %s, which the "
+                             "channel does not have", an);
+                } else {
+                    r->cls = 12;
+                    snprintf(r->reason, sizeof r->reason, "the archive %s %s %s, which the signed "
+                             "manifest lists", an, ac.ex[fl].seen == 2 ? "holds a different" :
+                             ac.ex[fl].seen == 4 ? "could not be read for" : "lacks", ac.ex[fl].path);
+                }
+            }
+            for (fl = 0; fl < n; fl++) free(ac.ex[fl].owned);
+            free(ac.ex);
+            free(path);
+        }
+    }
+
+    /* 3. What was found, entry by entry. */
+    for (i = 0; i < ix.n; i++) {
+        struct show_row *r = &row[i];
+        struct fetched *fp = &r->f;
+        const char *status = "ok", *here = NULL;
+        int rc = r->rc;
+        if (!r->selected)
+            continue;
+        shown++;
         if (rc != 0) {
-            status = class_name(refused_class);
+            status = class_name(r->cls);
             bad++;
-            if (!first_bad) first_bad = refused_class;
+            if (!first_bad) first_bad = r->cls;
         } else if (ix.e[i].withdrawn) {
             status = "withdrawn";
         }
@@ -3459,41 +3641,49 @@ static int cmd_show(const struct pkg_options *a)
                 here = "no";
             }
             quiet = q;
+            refused_class = 0;
         }
         if (machine) {
             char j[400];
             snprintf(j, sizeof j, "%s %s %s %s %s %s%s%s", ix.e[i].name, ix.e[i].version,
-                     rc == 0 ? f.m.kind : "-", rc == 0 ? f.m.architecture : "-", status,
-                     rc == 0 ? f.signer : "-", here ? " " : "", here ? here : "");
+                     rc == 0 ? fp->m.kind : "-", rc == 0 ? fp->m.architecture : "-", status,
+                     rc == 0 ? fp->signer : "-", here ? " " : "", here ? here : "");
             rec_item("entry", j, "name", ix.e[i].name, "version", ix.e[i].version,
-                     "kind", rc == 0 ? f.m.kind : "-", "architecture", rc == 0 ? f.m.architecture : "-",
-                     "status", status, "signer", rc == 0 ? f.signer : "-",
+                     "kind", rc == 0 ? fp->m.kind : "-", "architecture", rc == 0 ? fp->m.architecture : "-",
+                     "status", status, "signer", rc == 0 ? fp->signer : "-",
                      here ? "installed" : NULL, here, NULL);
+            if (rc == 0 && fp->m.source != NULL && a->metadata) {
+                snprintf(j, sizeof j, "%s %s unchecked", ix.e[i].name, ix.e[i].version);
+                rec_item("archive", j, "package", ix.e[i].name, "version", ix.e[i].version,
+                         "state", "unchecked", NULL);
+            }
             if (rc == 0) {
                 size_t d;
-                for (d = 0; d < f.m.ndeps; d++) {
+                for (d = 0; d < fp->m.ndeps; d++) {
                     snprintf(j, sizeof j, "%s %s %s%s%s", ix.e[i].name, ix.e[i].version,
-                             f.m.deps[d].name, f.m.deps[d].min ? " >= " : "",
-                             f.m.deps[d].min ? f.m.deps[d].min : "");
+                             fp->m.deps[d].name, fp->m.deps[d].min ? " >= " : "",
+                             fp->m.deps[d].min ? fp->m.deps[d].min : "");
                     rec_item("depends", j, "package", ix.e[i].name, "version", ix.e[i].version,
-                             "needs", f.m.deps[d].name, "min", f.m.deps[d].min ? f.m.deps[d].min : "",
+                             "needs", fp->m.deps[d].name, "min", fp->m.deps[d].min ? fp->m.deps[d].min : "",
                              NULL);
                 }
             } else {
-                char jp[700];
-                snprintf(jp, sizeof jp, "%s %s %s", ix.e[i].name, ix.e[i].version, quiet_reason);
+                char jp[2600];
+                snprintf(jp, sizeof jp, "%s %s %s", ix.e[i].name, ix.e[i].version, r->reason);
                 rec_item("problem", jp, "package", ix.e[i].name, "version", ix.e[i].version,
-                         "reason", quiet_reason, NULL);
+                         "reason", r->reason, NULL);
             }
         } else {
-            say("%-20s %-8s %-11s %-8s %-10s %.16s\n", ix.e[i].name, ix.e[i].version,
-                    rc == 0 ? f.m.kind : "-", rc == 0 ? f.m.architecture : "-", status,
-                    rc == 0 ? f.signer : "-");
+            say("%-20s %-8s %-11s %-8s %-10s %.16s%s\n", ix.e[i].name, ix.e[i].version,
+                    rc == 0 ? fp->m.kind : "-", rc == 0 ? fp->m.architecture : "-", status,
+                    rc == 0 ? fp->signer : "-",
+                    rc == 0 && fp->m.source != NULL && a->metadata ? "  (archive not checked)" : "");
             if (rc != 0)
-                say("  %s\n", quiet_reason);
+                say("  %s\n", r->reason);
         }
-        fetched_free(&f);
+        fetched_free(fp);
     }
+    free(row);
     for (i = 0; i < ix.n; i++) {
         char others[600], claim[65];
         size_t j;
@@ -5138,7 +5328,8 @@ static int options_clean(const struct pkg_options *o)
         { "NAME", o->name }, { "VERSION", o->version }, { "ARCH", o->arch }, { "KIND", o->kind },
         { "DEPENDS", o->depends }, { "SIGN", o->sign }, { "FILE", o->file }, { "KEY", o->key },
         { "OUT", o->out }, { "ACCEPTKEY", o->acceptkey }, { "UNIT", o->unit },
-        { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build }
+        { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build },
+        { "ARCHIVE", o->archive }
     };
     size_t i, j;
     for (i = 0; i < sizeof f / sizeof f[0]; i++)

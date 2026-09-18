@@ -702,6 +702,25 @@ touch -t 202001010000 "$FA/ch/archives/nightly.tar.bz2"
 $PKG PUBLISH "$FA/ch/archives/nightly.tar.bz2!/Top" FILES "Extras/Other" CHANNEL "$FA/ch" NAME other2 BUILD 1 KIND data \
     TRACE "$T/fb3.trace" MACHINE > /dev/null 2>&1
 grep -q 'indexing ' "$T/fb3.trace";                   ok $? "an archive changed since its index was made is indexed again"
+# SHOW checks each archive once for all its entries; METADATA reads no
+# archive and says so; ARCHIVE keeps only that archive's entries.
+$PKG SHOW CHANNEL "$FA/ch" TRACE "$T/fs1.trace" MACHINE > "$T/fs1" 2>&1
+[ "$(grep -c 'in one read' "$T/fs1.trace")" = 1 ] && has "$T/fs1" '^bad: 0$'
+                                                      ok $? "SHOW reads the archive once for every entry drawing on it"
+$PKG SHOW CHANNEL "$FA/ch" METADATA MACHINE > "$T/fs2" 2>&1
+[ $? -eq 0 ] && has "$T/fs2" '^archive: app 2.1+20260918 unchecked$' && ! grep -q 'in one read' "$T/fs2"
+                                                      ok $? "METADATA checks signatures only, and marks archive entries unchecked"
+cp "$FA/ch/archives/nightly.tar.bz2" "$T/fs.keep"
+mkdir -p "$T/fsx/Top/Extras/App/C" && printf 'x\000$VER: app 2.1 (1.1.2026)\000!' > "$T/fsx/Top/Extras/App/C/App"
+(cd "$T/fsx" && tar -cjf "$FA/ch/archives/nightly.tar.bz2" Top)
+$PKG PUBLISH "$D" CHANNEL "$FA/ch" KIND application > /dev/null 2>&1   # a package with a payload of its own
+$PKG SHOW CHANNEL "$FA/ch" ARCHIVE nightly.tar.bz2 MACHINE > "$T/fs3" 2>&1
+[ $? -eq 12 ] && has "$T/fs3" '^problem: app .*holds a different Top/Extras/App/C/App' \
+    && has "$T/fs3" '^entry: other2 ' && ! has "$T/fs3" '^entry: hello '
+                                                      ok $? "ARCHIVE checks only that archive's entries, and names the file that differs"
+cp "$T/fs.keep" "$FA/ch/archives/nightly.tar.bz2"
+$PKG SHOW CHANNEL "$FA/ch" ARCHIVE other.tar.bz2 MACHINE > "$T/fs4" 2>&1
+has "$T/fs4" '^count: 0$';                            ok $? "and another archive's name selects none of them"
 rm "$FA/ch/archives/nightly.tar.bz2"
 $PKG INSTALL app ROOT "$FA/r3" CHANNEL "$FA/ch" MACHINE > "$T/fa5" 2>&1
 [ $? -eq 11 ] && has "$T/fa5" 'which the channel does not have'; ok $? "an archive missing from the channel is said so"

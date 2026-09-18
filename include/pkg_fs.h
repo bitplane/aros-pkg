@@ -102,6 +102,15 @@ void  pkg_fs_unlock_dir(void *lock);
  * reason in err. Redirects are followed. */
 int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen);
 
+/* Send a request through the system's curl: method (POST or PUT), the body
+ * from body_file (NULL: none), extra headers one per line in header_file
+ * (NULL: none; a file, so a secret never shows in a process list), the
+ * answer into out_file. *code is the HTTP status. 0 when a status came back,
+ * -1 with a reason when none did. */
+int pkg_net_send(const char *method, const char *url, const char *body_file,
+                 const char *header_file, const char *out_file, int *code,
+                 char *err, size_t errlen);
+
 /* Where downloaded channel files are kept: PKG_CACHE, or the host's usual
  * cache directory. Caller frees. */
 char *pkg_cache_dir(void);

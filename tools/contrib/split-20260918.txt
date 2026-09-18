@@ -20,7 +20,7 @@ newvox application Extras/Demos/NewVox
 parallax application Extras/Demos/Parallax
 powerzoom application Extras/Demos/PowerZoom
 rubberstrings application Extras/Demos/RubberStrings
-demos application Extras/Demos
+demos application Extras/Demos/StartGLDemos,Extras/Demos/StartSomeDemos,Extras/Demos/StartSomeDemos2
 tunnel application Extras/Demos/Tunnel
 voxel application Extras/Demos/Voxel
 kdp application Extras/Demos/kdp
@@ -50,10 +50,10 @@ inv application Extras/Games/Misc/Inv
 kiel application Extras/Games/Misc/Kiel
 cxhextris application Extras/Games/Puzzle/CXHextris
 madmatrix application Extras/Games/Puzzle/MadMatrix
-misc application Extras/Misc
+misc application Extras/Misc/DDemo7,Extras/Misc/Linie12,Extras/Misc/SWitch,Extras/Misc/SortCopy
 aminet-collection application Extras/Misc/aminet
 fish-collection application Extras/Misc/fish
-amp2 application Extras/MultiMedia/AMP2
+amp2 application Extras/MultiMedia/AMP2/AMP
 plugin application Extras/MultiMedia/AMP2/Plugin
 madahi application Extras/MultiMedia/Audio/MadAHI
 playcdda application Extras/MultiMedia/Audio/PlayCDDA

@@ -82,6 +82,30 @@ def main():
                     target = u
         add(target or nm, units.get(target, ["application"])[0] if target else "application", r)
         claimed.add(r)
+    # No file in two packages: a prefix that contains another unit's prefix
+    # is either a category folder, which keeps only its loose files, or an
+    # application folder, which takes the other unit in (AMP2 and its plugins).
+    def is_category(prefix):
+        q = prefix.split("/")
+        return q[0] == "Extras" and (len(q) == 2 or (len(q) == 3 and q[1] in DEEPER))
+    changed = True
+    while changed:
+        changed = False
+        for n, (k, ps) in list(units.items()):
+            for other, (k2, ps2) in list(units.items()):
+                if other == n or other not in units or n not in units:
+                    continue
+                for p in list(ps):
+                    if any(q.startswith(p + "/") for q in ps2):
+                        if is_category(p):
+                            ps.remove(p)
+                            ps.extend(x for x in paths if x.startswith(p + "/") and x.count("/") == p.count("/") + 1
+                                      and x not in ps)
+                        else:
+                            ps.extend(q for q in ps2 if q not in ps)
+                            del units[other]
+                        changed = True
+                        break
     for n, (k, ps) in units.items():
         print(n, k, ",".join(ps))
     rest = [p for p in paths if p not in claimed and p not in ("LICENSE", "ACKNOWLEDGEMENTS")]

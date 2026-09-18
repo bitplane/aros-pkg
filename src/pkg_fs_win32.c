@@ -630,3 +630,40 @@ char *pkg_cache_dir(void)
     else snprintf(p, n, "pkg-cache");
     return p;
 }
+
+int pkg_net_send(const char *method, const char *url, const char *body_file,
+                 const char *header_file, const char *out_file, int *code,
+                 char *err, size_t errlen)
+{
+    char data[1100], hdr[1100], codefile[1100];
+    const char *argv[20];
+    int n = 0;
+    intptr_t rc;
+    FILE *f;
+    snprintf(codefile, sizeof codefile, "%s.code", out_file);
+    argv[n++] = "curl.exe"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = method;
+    if (body_file) {
+        snprintf(data, sizeof data, "@%s", body_file);
+        argv[n++] = "--data-binary"; argv[n++] = data;
+        argv[n++] = "-H"; argv[n++] = "Content-Type: application/octet-stream";
+    }
+    if (header_file) { snprintf(hdr, sizeof hdr, "@%s", header_file); argv[n++] = "-H"; argv[n++] = hdr; }
+    argv[n++] = "-o"; argv[n++] = out_file;
+    argv[n++] = "-w"; argv[n++] = "%{http_code}";
+    argv[n++] = url;
+    argv[n] = NULL;
+    {
+        /* the status code goes to stdout: send it to a file */
+        FILE *saved = freopen(codefile, "w", stdout);
+        rc = _spawnvp(_P_WAIT, "curl.exe", argv);
+        (void)saved;
+        fflush(stdout);
+    }
+    if (rc == -1) { snprintf(err, errlen, "PUSH needs curl.exe, part of Windows 10 and later"); return -1; }
+    f = fopen(codefile, "r");
+    *code = 0;
+    if (f) { if (fscanf(f, "%d", code) != 1) *code = 0; fclose(f); }
+    pkg_fs_unlink(codefile);
+    if (*code == 0) { snprintf(err, errlen, "no answer from %s", url); return -1; }
+    return 0;
+}

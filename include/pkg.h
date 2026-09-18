@@ -131,6 +131,10 @@ struct pkg_options {
     const char *build;      /* publish: the build the files come from, such as a nightly's
                                date; the version becomes <version or $VER or 0>+<build>, and
                                a build whose files equal the last version's is not published */
+    const char *archive;    /* show: only the entries whose files are in this archive of the
+                               channel (its name in archives/), that archive read once */
+    int metadata;           /* show: manifests, signatures and payloads only; source archives
+                               are not read, and their entries say archive: unchecked */
     int downgrade;          /* upgrade: moving to an older version was asked for */
     int orphans;            /* remove: remove what nothing needs, instead of target */
     int dryrun;             /* every check, no write; results read would-... */

@@ -106,7 +106,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "UNIT",      offsetof(struct pkg_options, unit) },
         { "HANDLER",   offsetof(struct pkg_options, handler) },
         { "FILES",     offsetof(struct pkg_options, files) },
-        { "BUILD",     offsetof(struct pkg_options, build) }
+        { "BUILD",     offsetof(struct pkg_options, build) },
+        { "ARCHIVE",   offsetof(struct pkg_options, archive) }
 };
 
 static int takes_value(const char *w)
@@ -170,6 +171,10 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
         }
         if (ieq(argv[i], "DRYRUN")) {
             a->dryrun = 1;
+            continue;
+        }
+        if (strcmp(verb_name, "show") == 0 && ieq(argv[i], "METADATA")) {
+            a->metadata = 1;
             continue;
         }
         /* A switch for UPGRADE only, so INSTALL all still names a package. */

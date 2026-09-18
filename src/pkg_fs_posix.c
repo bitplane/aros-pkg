@@ -531,6 +531,15 @@ void pkg_fs_unlock_dir(void *lock)
 /* ---- the network ------------------------------------------------------ */
 
 #if defined(__AROS__)
+int pkg_net_send(const char *method, const char *url, const char *body_file,
+                 const char *header_file, const char *out_file, int *code,
+                 char *err, size_t errlen)
+{
+    (void)method; (void)url; (void)body_file; (void)header_file; (void)out_file; (void)code;
+    snprintf(err, errlen, "PUSH runs on the machine that publishes, not on AROS yet");
+    return -1;
+}
+
 int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
 {
     (void)url; (void)dest;
@@ -564,6 +573,53 @@ char *pkg_cache_dir(void)
     else if (h && *h) snprintf(p, n, "%s/.cache/pkg", h);
     else snprintf(p, n, "/tmp/pkg-cache");
     return p;
+}
+
+int pkg_net_send(const char *method, const char *url, const char *body_file,
+                 const char *header_file, const char *out_file, int *code,
+                 char *err, size_t errlen)
+{
+    char data[1100], hdr[1100], codebuf[32];
+    char *argv[20];
+    int n = 0, st, fd, saved;
+    pid_t pid;
+    posix_spawn_file_actions_t fa;
+    char codefile[] = "/tmp/pkg-code.XXXXXX";
+
+    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = (char *)method;
+    if (body_file) {
+        snprintf(data, sizeof data, "@%s", body_file);
+        argv[n++] = "--data-binary"; argv[n++] = data;
+        argv[n++] = "-H"; argv[n++] = "Content-Type: application/octet-stream";
+    }
+    if (header_file) {
+        snprintf(hdr, sizeof hdr, "@%s", header_file);
+        argv[n++] = "-H"; argv[n++] = hdr;
+    }
+    argv[n++] = "-o"; argv[n++] = (char *)out_file;
+    argv[n++] = "-w"; argv[n++] = "%{http_code}";
+    argv[n++] = (char *)url;
+    argv[n] = NULL;
+    fd = mkstemp(codefile);
+    if (fd < 0) { snprintf(err, errlen, "cannot make a temporary file"); return -1; }
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, fd, 1);
+    saved = posix_spawnp(&pid, "curl", &fa, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(fd);
+    if (saved != 0) { unlink(codefile); snprintf(err, errlen, "PUSH needs curl, which is not on this machine's PATH"); return -1; }
+    if (waitpid(pid, &st, 0) < 0 || !WIFEXITED(st)) { unlink(codefile); snprintf(err, errlen, "curl did not finish"); return -1; }
+    fd = open(codefile, O_RDONLY);
+    n = fd >= 0 ? (int)read(fd, codebuf, sizeof codebuf - 1) : 0;
+    if (fd >= 0) close(fd);
+    unlink(codefile);
+    codebuf[n > 0 ? n : 0] = '\0';
+    *code = atoi(codebuf);
+    if (*code == 0) {
+        snprintf(err, errlen, "no answer from %s (curl exit %d)", url, WEXITSTATUS(st));
+        return -1;
+    }
+    return 0;
 }
 
 /* https: the system's curl, with no shell in between. */

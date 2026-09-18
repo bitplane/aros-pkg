@@ -387,6 +387,15 @@ over libbzip2 1.0.8, vendored unmodified in `third_party/bzip2`;
 `tests/archive.sh` checks it against archives the system's tar and bzip2
 write and, given `PKG_NIGHTLY_CONTRIB`, against a whole nightly.
 
+`SHOW` checks each archive once, for every entry whose files it holds (the
+2026-09-18 contrib channel: 104 entries in one 80-second read, where one read
+per entry took over five minutes). `SHOW CHANNEL <dir> METADATA` checks
+manifests, signatures, withdrawals and payloads without reading archives,
+and marks those entries `archive: unchecked` (one second on the same
+channel); `SHOW CHANNEL <dir> ARCHIVE <name>` checks only the entries whose
+files are in that archive. A portal accepts a push on the first and checks
+archives with the second afterwards.
+
 A version may carry a build after `+`, such as the date of the nightly a
 component was taken from: `41.7+20260918`. It orders after the version, so
 `41.7 < 41.7+20260917 < 41.7+20260918 < 41.8`, and it is not compared with
