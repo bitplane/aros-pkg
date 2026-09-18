@@ -129,7 +129,7 @@ $PKG INSTALL needs2 ROOT "$R" CHANNEL "$CH" > "$T/c1" 2>&1
 $PKG INSTALL base ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 pub base 2.0 library - > /dev/null
 $PKG INSTALL needs2 ROOT "$R" CHANNEL "$CH" > "$T/c2" 2>&1
-[ $? -eq 16 ] && has "$T/c2" 'change it for everything that uses it' && has "$T/c2" 'next: ask the person'
+[ $? -eq 16 ] && has "$T/c2" 'change it for everything that uses it' && has "$T/c2" 'next: ask whoever requested this'
                                                         ok $? "an installed version too old refused with 16, leaving the upgrade to the person"
 $PKG UPGRADE base ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG INSTALL needs2 ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
@@ -216,6 +216,50 @@ blocks=$(( $(wc -c < "$MR/app.hdf") / 512 ))
                                                         ok $? "MOUNTLIST writes the entry with the image's own geometry, and the LIBS step"
 $PKG MOUNTLIST mid ROOT "$MR" > "$T/ml2" 2>&1
 [ $? -eq 20 ] && has "$T/ml2" 'not an image';           ok $? "MOUNTLIST of a library is refused"
+
+echo "withdraw_and_repair"
+WR="$T/wroot"
+pub wtool 1.0 application - > /dev/null
+pub wtool 1.1 application - > /dev/null
+$PKG WITHDRAW wtool VERSION 1.1 CHANNEL "$CH" MACHINE > "$T/wd" 2>&1
+[ $? -eq 0 ] && has "$T/wd" '^result: withdrawn$';    ok $? "the publisher withdraws wtool 1.1"
+[ -f "$CH/objects/$(awk '$1=="wtool" && $2=="1.1"{print $3}' "$CH/index").manifest" ]
+                                                        ok $? "and it stays in the channel"
+$PKG INSTALL wtool ROOT "$WR" CHANNEL "$CH" MACHINE > "$T/wi" 2>&1
+[ $? -eq 0 ] && has "$T/wi" '^version: 1.0$';         ok $? "INSTALL without VERSION skips the withdrawn 1.1"
+$PKG INSTALL wtool VERSION 1.1 ROOT "$T/wr2" CHANNEL "$CH" MACHINE > "$T/wi2" 2>&1
+[ $? -eq 18 ] && has "$T/wi2" '^next: ask-requester$';   ok $? "asking for the withdrawn version is refused, ask-requester"
+$PKG SHOW wtool CHANNEL "$CH" MACHINE > "$T/ws" 2>&1
+has "$T/ws" '^entry: wtool 1.1 application generic withdrawn '
+                                                        ok $? "SHOW marks it withdrawn"
+PKG_SIGNKEY="$T/other.key" $PKG WITHDRAW wtool VERSION 1.0 CHANNEL "$CH" MACHINE > "$T/wo" 2>&1
+[ $? -eq 14 ];                                          ok $? "another key cannot withdraw it"
+wm=$(awk '$1=="wtool" && $2=="1.0"{print $3}' "$CH/index")
+printf 'forged\n' > "$CH/objects/$wm.withdrawn"; cp "$CH/objects/$(awk '$1=="wtool" && $2=="1.1"{print $3}' "$CH/index").withdrawn.sig" "$CH/objects/$wm.withdrawn.sig"
+$PKG INSTALL wtool ROOT "$T/wr3" CHANNEL "$CH" MACHINE > "$T/wi3" 2>&1
+[ $? -eq 0 ] && has "$T/wi3" '^version: 1.0$';        ok $? "a forged withdrawal of 1.0 is ignored"
+rm -f "$CH/objects/$wm.withdrawn" "$CH/objects/$wm.withdrawn.sig"
+
+# The same drawer published again repairs a damaged payload.
+pub fix 1.0 library - > /dev/null
+fm=$(awk '$1=="fix"{print $3}' "$CH/index")
+fp=$(awk '/^Payload:/{print $2}' "$CH/objects/$fm.manifest")
+printf 'x' >> "$CH/objects/$fp.pkg"
+$PKG SHOW fix CHANNEL "$CH" > /dev/null 2>&1
+[ $? -eq 12 ];                                          ok $? "a damaged payload shows as integrity"
+pub fix 1.0 library - MACHINE > "$T/fx" 2>&1
+[ $? -eq 0 ] && has "$T/fx" '^result: repaired$' && has "$T/fx" '^repaired: payload$'
+                                                        ok $? "publishing the same drawer again repairs it"
+$PKG SHOW fix CHANNEL "$CH" > /dev/null 2>&1;           ok $? "and the channel checks clean"
+printf 'x' >> "$CH/objects/$fp.pkg"
+PKG_SIGNKEY="$T/other.key" $PKG PUBLISH "$T/src" CHANNEL "$CH" NAME fix VERSION 1.0 KIND library MACHINE > "$T/fx2" 2>&1
+[ $? -eq 14 ];                                          ok $? "another key cannot repair it"
+pub fix 1.0 library - > /dev/null
+
+mkdir -p "$T/vw/C"; printf 'b\000$VER: vw 1.1 (1.1.2026)\000' > "$T/vw/C/vw"
+$PKG MANIFEST "$T/vw" VERSION 1.3 MACHINE > "$T/vwm" 2>&1
+has "$T/vwm" '^warning: VERSION 1.3, but the \$VER cookie in C/vw says 1.1$' && ! has "$T/vwm" 'version-from'
+                                                        ok $? "VERSION contradicting the cookie is warned about, and not reported as from the cookie"
 
 echo "dry_runs"
 DR="$T/dryroot"

@@ -19,7 +19,7 @@
  *                    same keys and values as the command line's MACHINE
  *                    output: a `result` field in every answer, and for a
  *                    refusal `result: refused`, `class`, `code`, `reason`,
- *                    and `next`, what to do now (stop, ask-person,
+ *                    and `next`, what to do now (stop, ask-requester,
  *                    fix-command, check-name, use-upgrade, use-install,
  *                    report). This is the form for programs.
  *   structured = 0   `text` is called with lines written for a person,
@@ -36,10 +36,21 @@
  * refusal as it happens. It is for finding out why an operation did what it
  * did; nothing in it is part of the contract, and its wording may change.
  *
- * A decision that belongs to a person is never taken here. A refusal whose
- * `next` is ask-person (a new signing key, a downgrade, a file the person
- * edited) is shown to the person; if they agree, the caller repeats the
+ * A decision that belongs to whoever requested the operation (a person, or
+ * a supervising agent that holds the authority) is never taken here. A
+ * refusal whose `next` is ask-requester (a new signing key, a downgrade, a
+ * file someone edited) goes to them; if they agree, the caller repeats the
  * operation with the option that expresses it (acceptkey, downgrade).
+ *
+ * Trust: a root pins, per package, the key that signed it the first time it
+ * was installed there, and refuses another key later (14, ask-requester). The
+ * key of a package's first version in a channel is presumed its
+ * publisher's: a first install, or a publish, signed by another key is
+ * refused the same way. `acceptkey`, with the other key in full, is how the
+ * person's confirmation is passed.
+ *
+ * Linking: `make build/libpkg.a` builds everything, host layer included; a
+ * program links that archive and nothing else.
  *
  * One operation runs at a time in a process: the library keeps the state of
  * the running operation in static storage, as the AmigaDOS tools it sits
@@ -81,12 +92,17 @@ struct pkg_sink {
     /* Optional, structured form: a record that has several fields also
      * arrives here with its fields apart, so nothing has to split strings.
      * `kind` is the record's key; `keys` and `values` hold `n` fields, in the
-     * order the joined value lists them. The records concerned, and their
-     * fields, are listed below. */
+     * order the joined value lists them. Each item arrives right after its
+     * joined `record`, in the same order. The records concerned, and their
+     * fields, are listed below; pkg_field finds one by name. */
     void (*item)(void *user, const char *kind, int n,
                  const char *const *keys, const char *const *values);
     /* Optional: asked between steps; non-zero stops the operation, which is
-     * refused (10, next report) with anything it had placed taken back out. */
+     * refused (10, next report) with anything it had placed taken back out,
+     * files, records and the keys it pinned alike. It is asked once per
+     * package while resolving, once before each package is placed, and once
+     * per entry while SHOW checks a channel; placing one package's files is
+     * not interrupted. */
     int  (*cancel)(void *user);
 };
 
@@ -126,13 +142,24 @@ struct pkg_options {
  *   publish    result published: name, version, channel, manifest, payload,
  *              signer, files, [arch-from], [version-from], left-out per file.
  *              result unchanged: name, version (that exact content is there).
+ *              result repaired: name, version, repaired per object written
+ *              again (manifest, payload, signature), when that version's
+ *              objects were damaged and the key is its publisher's.
+ *   withdraw   result withdrawn (or unchanged): name, version, channel. The
+ *              version stays; nothing picks it by default, asking for it
+ *              is refused (18, ask-requester), and SHOW gives status
+ *              withdrawn.
  *              dryrun: result would-publish, name, version, kind,
  *              architecture, channel, depends (or "none"), file per file,
  *              signer, left-out.
  *   install    result installed: name, version, root, files, payload, signer,
  *              and image, blocks for an image; before it, one [item]
  *              dependency (name version) per dependency this install
- *              placed; those already there are not listed.
+ *              placed; those already there are not listed. Dependency
+ *              items are sent only once every package is in place, so a
+ *              refused or cancelled install sends none. A refused install
+ *              into a root that did not exist may leave the root with an
+ *              empty .pkg directory.
  *              result unchanged or kept: name, version.
  *   upgrade,   result upgraded, downgraded, rolled-back or unchanged: name,
  *   rollback   from, version, root, placed, removed, signer, with
@@ -150,16 +177,20 @@ struct pkg_options {
  *   image      result created: file, volume, blocks
  *   mountlist  result created (with out) or shown: name, image, blocks,
  *              highcyl, unit, handler, file, step per AmigaDOS command.
- *   show       result shown; [item] entry (name version kind architecture
- *              status signer [installed]) per channel entry, status ok or
- *              a class name, installed (installed, other-version or no)
- *              when root is given; [item] depends (package version needs
- *              min) per dependency; [item] problem (package version reason)
+ *   show       result shown; [item] entry per channel entry, fields name,
+ *              version, kind, architecture, status, signer, and, only when
+ *              root is given, installed. status is ok, withdrawn or a class
+ *              name; installed is installed, other-version or no; kind,
+ *              architecture and signer are "-" when the entry cannot be
+ *              read. [item] depends (package version needs min) per
+ *              dependency, min empty when any version will do; [item] problem (package version reason)
  *              per bad entry; warning when a package has several signers;
  *              count; bad. A name the channel lacks shows count 0.
- *   any        [item] suggest (name), before a not-found refusal.
+ *   any        [item] suggest (name), before a not-found refusal. The
+ *              refusal's reason names the same suggestions: it is complete
+ *              by itself; the items are for offering them as choices.
  *
- * `next` takes the values stop, ask-person, fix-command, check-name,
+ * `next` takes the values stop, ask-requester, fix-command, check-name,
  * use-upgrade, use-install and report; a value added later is shown with
  * pkg_next_words. dryrun turns results into would-publish, would-install,
  * would-upgrade, would-downgrade, would-roll-back, would-remove,
@@ -170,6 +201,7 @@ int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_keyinfo  (const struct pkg_sink *s, const struct pkg_options *o);  /* file: the public key it holds */
 int pkg_manifest (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_publish  (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_withdraw (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_install  (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_upgrade  (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_rollback (const struct pkg_sink *s, const struct pkg_options *o);
@@ -188,8 +220,12 @@ int pkg_usage_error(const struct pkg_sink *s, const char *verb, const char *reas
 /* "not-found" for 11, and so on; "ok" for 0. */
 const char *pkg_class_name(int code);
 
-/* A sentence for a person, for a `next` value, naming no command, so any
- * front end can show it. (The command line's text form has its own.) */
+/* A sentence addressed to the person, for a `next` value, naming no command,
+ * so any front end can show it; NULL or an unknown value gives the one for
+ * report. (The command line's text form has its own wording.) */
 const char *pkg_next_words(const char *next);
+
+/* The value of field `key` among an item's fields, or NULL. */
+const char *pkg_field(int n, const char *const *keys, const char *const *values, const char *key);
 
 #endif

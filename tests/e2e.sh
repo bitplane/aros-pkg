@@ -309,8 +309,8 @@ $PKG VERIFY hello ROOT "$R" > /dev/null 2>&1;         ok $? "verify passes on 1.
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG UPGRADE hello VERSION 1.2 ROOT "$R" CHANNEL "$CH" > "$T/dg" 2>&1
 [ $? -eq 18 ];                                         ok $? "EXACT to an older version refused without DOWNGRADE"
-has "$T/dg" "person's decision" && ! has "$T/dg" 'add DOWNGRADE'
-                                                      ok $? "and leaves the choice to the person, with no keyword to paste"
+has "$T/dg" "requester's decision" && ! has "$T/dg" 'add DOWNGRADE'
+                                                      ok $? "and leaves the choice to the requester, with no keyword to paste"
 $PKG UPGRADE hello VERSION 1.2 DOWNGRADE ROOT "$R" CHANNEL "$CH" > "$T/dg2" 2>&1
                                                       ok $? "EXACT with DOWNGRADE succeeds"
 has "$T/dg2" 'downgraded hello from 1.3 to 1.2';      ok $? "and calls it a downgrade"
@@ -328,8 +328,8 @@ cp -R "$T/v13" "$T/v14"
 printf 'binary 3\000$VER: Hello 1.4 (20.9.2026)\000tail' > "$T/v14/C/Hello"
 before=$(cat "$CH/index")
 PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" MACHINE > "$T/p14" 2>&1
-[ $? -eq 14 ] && has "$T/p14" '^next: ask-person$' && [ "$(cat "$CH/index")" = "$before" ]
-                                                      ok $? "publishing hello with another key than its earlier versions: 14, ask-person, nothing published"
+[ $? -eq 14 ] && has "$T/p14" '^next: ask-requester$' && [ "$(cat "$CH/index")" = "$before" ]
+                                                      ok $? "publishing hello with another key than its earlier versions: 14, ask-requester, nothing published"
 PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" ACCEPTKEY "$EVILPUB" > /dev/null 2>&1
                                                       ok $? "a second key can publish 1.4 when ACCEPTKEY names it"
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > "$T/sub" 2>&1
@@ -411,11 +411,11 @@ echo "agent_safety"
 A="$T/aroot"
 $PKG INSTALL hello VERSION 1.2 ROOT "$A" CHANNEL "$CH" > /dev/null 2>&1
 $PKG UPGRADE hello ROOT "$A" CHANNEL "$CH" MACHINE > "$T/k14" 2>&1
-[ $? -eq 14 ] && has "$T/k14" '^next: ask-person$' && has "$T/k14" "^signer: $EVILPUB\$" \
-    && has "$T/k14" "^pinned: $PUB\$";                ok $? "a key refusal: next ask-person, pinned and signer as their own fields"
+[ $? -eq 14 ] && has "$T/k14" '^next: ask-requester$' && has "$T/k14" "^signer: $EVILPUB\$" \
+    && has "$T/k14" "^pinned: $PUB\$";                ok $? "a key refusal: next ask-requester, pinned and signer as their own fields"
 ! has "$T/k14" "ACCEPTKEY $EVILPUB";                  ok $? "and no ACCEPTKEY with the key filled in to paste"
 $PKG UPGRADE hello ROOT "$A" CHANNEL "$CH" > "$T/k14h" 2>&1
-has "$T/k14h" 'next: ask the person';                ok $? "the human refusal ends with the same next step"
+has "$T/k14h" 'next: ask whoever requested this';                ok $? "the human refusal ends with the same next step"
 $PKG INSTALL hello VERSION 1.2 ROOT "$A" CHANNEL "$CH" MACHINE > "$T/again" 2>&1
 [ $? -eq 0 ] && has "$T/again" '^result: unchanged$'; ok $? "a retried INSTALL of the same version succeeds, unchanged"
 $PKG INSTALL hello VERSION 1.3 ROOT "$A" CHANNEL "$CH" MACHINE > "$T/other" 2>&1
@@ -453,7 +453,7 @@ echo "first_trust"
 # A fresh root trusts no key for hello. The channel's first hello was signed
 # by PUB; the highest, 1.4, by EVIL. Trusting EVIL is the person's decision.
 $PKG INSTALL hello ROOT "$T/fresh" CHANNEL "$CH" MACHINE > "$T/ft" 2>&1
-[ $? -eq 14 ] && has "$T/ft" '^next: ask-person$' && has "$T/ft" "^first-signer: $PUB\$" \
+[ $? -eq 14 ] && has "$T/ft" '^next: ask-requester$' && has "$T/ft" "^first-signer: $PUB\$" \
     && [ ! -e "$T/fresh/C/Hello" ];                  ok $? "a first install signed by another key than the first version: 14, nothing placed"
 $PKG INSTALL hello VERSION 1.2 ROOT "$T/fresh" CHANNEL "$CH" MACHINE > "$T/ft2" 2>&1
                                                       ok $? "the version signed by the first version's key installs"
@@ -463,7 +463,7 @@ $PKG SHOW hello CHANNEL "$CH" MACHINE > "$T/fts" 2>&1
 has "$T/fts" '^warning: hello is signed by more than one key';
                                                       ok $? "SHOW warns that hello has more than one signer"
 env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/nokeych" MACHINE > "$T/nk" 2>&1
-[ $? -eq 20 ] && has "$T/nk" '^next: ask-person$' && has "$T/nk" 'same key';
+[ $? -eq 20 ] && has "$T/nk" '^next: ask-requester$' && has "$T/nk" 'same key';
                                                       ok $? "no signing key: the refusal says to find the publisher's key, not make one"
 $PKG KEYINFO FILE "$KEY" MACHINE > "$T/ki" 2>&1
 [ $? -eq 0 ] && has "$T/ki" "^public: $PUB\$" && ! has "$T/ki" 'Seed';

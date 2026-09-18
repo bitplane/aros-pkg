@@ -6,7 +6,9 @@ description: Drive Pkg, the AROS package tool, on behalf of a person - publish a
 # Pkg, for agents
 
 Pkg moves AROS software from where it is built to where it runs, signed at
-every step. Most people will never type its commands; you will. The tool is
+every step. Most people will never type its commands; you will. Decisions that belong to whoever requested the work (called the requester
+below: a person, or a supervising agent that holds the authority) are never
+taken by the tool, and must not be taken by you. The tool is
 built so that the safe path is the easy one: every refusal tells you what to
 do next, every changing command can be tried first with `DRYRUN`, and nothing
 it prints hands you a command that overrides a safeguard. Follow what it says.
@@ -19,7 +21,8 @@ tools/build-aros.sh` (`build/aros/Pkg`). A `build/pkg` older than the
 sources is rebuilt by `make`. `pkg HELP` lists every verb and keyword.
 Programs that link Pkg instead of running it use `include/pkg.h`, which
 lists every field each operation answers; its `item` callback gives the
-multi-field records with their fields apart.
+multi-field records with their fields apart; `examples/basic.c` and
+`examples/browse.c` show both uses.
 
 ## The three habits
 
@@ -33,7 +36,7 @@ multi-field records with their fields apart.
 | `next:` | What you do |
 |---|---|
 | `stop` | Stop. Report the `reason:` to the person as it is. The bytes or signatures are not what was published; no keyword, copy or other channel makes that safe |
-| `ask-person` | Show the person the `reason:` and wait. It is their decision: a new publisher key, going back a version, a file of theirs where the package installs (move it, or choose another root), a file they edited, removing something others need |
+| `ask-requester` | Take the `reason:` to whoever requested this: the person, or the agent that gave you the task, if it holds the authority. Wait for their answer. It is their decision: a new publisher key, going back a version, a file of theirs where the package installs (move it, or choose another root), a file they edited, removing something others need |
 | `fix-command` | Your command is wrong; `pkg HELP` has the spelling. Keywords have no dashes: `ROOT <dir>`, not `--root` |
 | `check-name` | The name is not there. Near names come as `suggest:` fields; `pkg SHOW CHANNEL <dir>` lists a channel, `pkg LIST ROOT <dir>` a root |
 | `use-upgrade` | Another version is installed; `UPGRADE` moves it, if that is what the person asked for |

@@ -222,17 +222,18 @@ static int cancelled(const char *before);
  * so the answer to "what now?" never has to be guessed from the reason's
  * wording. The reasons themselves never hand over a ready-made command that
  * overrides a safeguard (ACCEPTKEY, DOWNGRADE, removing something): those
- * steps are the person's, and `ask-person` says so. */
+ * steps belong to whoever requested the operation, a person or the agent
+ * that launched this one, and `ask-requester` says so. */
 static const char *next_default(int cls)
 {
     switch (cls) {
     case PKGRC_NOTFOUND:   return "check-name";
     case PKGRC_INTEGRITY:  return "stop";
     case PKGRC_SIGNATURE:  return "stop";
-    case PKGRC_KEY:        return "ask-person";
-    case PKGRC_CONFLICT:   return "ask-person";
-    case PKGRC_DEPENDENCY: return "ask-person";
-    case PKGRC_POLICY:     return "ask-person";
+    case PKGRC_KEY:        return "ask-requester";
+    case PKGRC_CONFLICT:   return "ask-requester";
+    case PKGRC_DEPENDENCY: return "ask-requester";
+    case PKGRC_POLICY:     return "ask-requester";
     case PKGRC_USAGE:      return "fix-command";
     default:               return "report";
     }
@@ -242,12 +243,13 @@ static const char *next_default(int cls)
 static const char *next_cli_words(const char *next)
 {
     if (next == NULL)
-        return "report this to the person";
+        return "report this to whoever requested it";
     if (strcmp(next, "stop") == 0)
         return "stop here: the bytes or signatures are not what was published, and "
                "no keyword or other channel makes that safe";
-    if (strcmp(next, "ask-person") == 0)
-        return "ask the person; this is their decision, not a step to take for them";
+    if (strcmp(next, "ask-requester") == 0)
+        return "ask whoever requested this (the person, or the agent that launched you); "
+               "it is their decision, not a step to take for them";
     if (strcmp(next, "fix-command") == 0)
         return "fix the command; pkg HELP lists the verbs and keywords";
     if (strcmp(next, "check-name") == 0)
@@ -257,7 +259,7 @@ static const char *next_cli_words(const char *next)
         return "to move to that version, UPGRADE instead of INSTALL";
     if (strcmp(next, "use-install") == 0)
         return "it is not installed there; INSTALL it instead";
-    return "report this to the person";
+    return "report this to whoever requested it";
 }
 #define next_words next_cli_words
 
@@ -265,23 +267,22 @@ static const char *next_cli_words(const char *next)
 const char *pkg_next_words(const char *next)
 {
     if (next == NULL || strcmp(next, "report") == 0)
-        return "Tell the person what happened; there is nothing to retry.";
+        return "Nothing more can be done from here.";
     if (strcmp(next, "stop") == 0)
-        return "Do not go on. What the channel holds is not what its publisher published; "
-               "no option or other copy makes it safe.";
-    if (strcmp(next, "ask-person") == 0)
-        return "This is the person's decision. Show them the reason; if they agree, repeat "
-               "the operation with the option that says so.";
+        return "Do not go on: this is not what its publisher published, and no other copy "
+               "or option makes it safe.";
+    if (strcmp(next, "ask-requester") == 0)
+        return "This is your decision. Read the reason; if you agree, confirm and it will "
+               "be done that way.";
     if (strcmp(next, "fix-command") == 0)
-        return "The request was malformed; correct it and try again.";
+        return "Something in the request was wrong; correct it and try again.";
     if (strcmp(next, "check-name") == 0)
-        return "That name is not there. Choose from what is offered; near names are given "
-               "as suggestions.";
+        return "That name is not there. Choose from what is offered.";
     if (strcmp(next, "use-upgrade") == 0)
-        return "Another version is installed; upgrading moves it to this one.";
+        return "Another version is installed; upgrade it to this one instead.";
     if (strcmp(next, "use-install") == 0)
         return "It is not installed yet; install it instead.";
-    return "Tell the person what happened.";
+    return "Nothing more can be done from here.";
 }
 
 static const char *pending_next;   /* set by refuse_n for the next refusal */
@@ -485,10 +486,10 @@ static int load_key(const char *path, struct key *k)
     char seedhex[65], pubhex[65];
 
     if (path == NULL)
-        return refuse_n(20, "ask-person", "no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY. "
+        return refuse_n(20, "ask-requester", "no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY. "
                         "A publisher who has published before must sign with the same key, or "
                         "every machine that installed their packages refuses the new ones: ask "
-                        "the person where theirs is before creating one with KEYGEN");
+                        "whoever requested this where theirs is before creating one with KEYGEN");
     if (pkg_fs_read(path, &buf, &len) != 0)
         return refuse_c(17, "cannot read the key \"%s\": %s", path, strerror(errno));
     if (len > 512u
@@ -924,10 +925,13 @@ static int build(const struct pkg_options *a, struct built *out)
 
     name = a->name;
     version = a->version;
-    if (name == NULL || version == NULL) {
+    {
         char seen[600];
         int got = find_ver(&d, name, vname, sizeof vname, vver, sizeof vver, &from,
                            seen, sizeof seen);
+        int needed = name == NULL || version == NULL;
+        if (!needed && got < 0)
+            got = 0;
         if (got < 0 && name != NULL) {
             drawer_free(&d);
             return refuse_c(20, "none of the drawer's $VER cookies is %s: %s. Add VERSION",
@@ -939,9 +943,12 @@ static int build(const struct pkg_options *a, struct built *out)
                             "versions: %s. Say which this package is with NAME and VERSION", seen);
         }
         if (got > 0) {
+            if (version != NULL && pkg_version_cmp(version, vver) != 0)
+                warn("VERSION %s, but the $VER cookie in %s says %s", version, from, vver);
+            if (needed)
+                snprintf(out->ver_from, sizeof out->ver_from, "%s", from);
             if (name == NULL) name = vname;
             if (version == NULL) version = vver;
-            snprintf(out->ver_from, sizeof out->ver_from, "%s", from);
         }
     }
     {
@@ -1023,12 +1030,15 @@ struct entry {
     char name[65];
     char version[64];
     char digest[PKG_SHA256_HEXLEN + 1];
+    int  withdrawn;     /* its publisher signed a withdrawal */
 };
 
 struct index {
     struct entry *e;
     size_t        n;
 };
+
+static void mark_withdrawn(const char *channel, struct index *ix);
 
 static int read_index(const char *channel, struct index *ix)
 {
@@ -1077,9 +1087,11 @@ static int read_index(const char *channel, struct index *ix)
         w = (struct entry *)realloc(ix->e, (ix->n + 1u) * sizeof *w);
         if (w == NULL) { free(buf); return refuse("out of memory"); }
         ix->e = w;
+        en.withdrawn = 0;
         ix->e[ix->n++] = en;
     }
     free(buf);
+    mark_withdrawn(channel, ix);
     return 0;
 }
 
@@ -1128,6 +1140,8 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
         if (version) {
             if (pkg_version_cmp(ix->e[i].version, version) == 0)
                 p = &ix->e[i];
+        } else if (ix->e[i].withdrawn) {
+            tr("skipping %s %s: withdrawn by its publisher", ix->e[i].name, ix->e[i].version);
         } else if (p == NULL || pkg_version_cmp(ix->e[i].version, p->version) > 0) {
             p = &ix->e[i];
         }
@@ -1369,6 +1383,117 @@ static int other_signers(const char *channel, const struct index *ix, const char
     return n;
 }
 
+/* The text a withdrawal signs: the entry it names, exactly. */
+static int withdrawal_text(const struct entry *e, char *out, size_t len)
+{
+    return snprintf(out, len, "Withdrawn: %s %s %s\n", e->name, e->version, e->digest);
+}
+
+/* A withdrawal counts when its text names this entry and its signature
+ * verifies with the key that signed the entry: only the publisher of a
+ * version can withdraw it. */
+static int withdrawal_valid(const char *channel, const struct entry *e)
+{
+    char *wo = object_path(channel, e->digest, "withdrawn");
+    char *ws = object_path(channel, e->digest, "withdrawn.sig");
+    char want[300], signer[65], entry_signer[65];
+    unsigned char *buf = NULL;
+    size_t len;
+    int n = withdrawal_text(e, want, sizeof want), ok = 0, q = quiet, rc = refused_class;
+    const char *nx = refused_next;
+
+    if (wo != NULL && ws != NULL && pkg_fs_exists(wo) && pkg_fs_read(wo, &buf, &len) == 0
+        && len == (size_t)n && memcmp(buf, want, len) == 0) {
+        quiet = 1;
+        ok = check_sig(ws, buf, len, signer, "") == 0
+             && claimed_signer(channel, e->digest, entry_signer)
+             && strcmp(signer, entry_signer) == 0;
+        quiet = q;
+        refused_class = rc;
+        refused_next = nx;
+        if (!ok)
+            tr("a withdrawal of %s %s is present but not signed by its publisher: ignored",
+               e->name, e->version);
+    }
+    free(buf); free(wo); free(ws);
+    return ok;
+}
+
+static void mark_withdrawn(const char *channel, struct index *ix)
+{
+    size_t i;
+    for (i = 0; i < ix->n; i++)
+        ix->e[i].withdrawn = withdrawal_valid(channel, &ix->e[i]);
+}
+
+/* Withdraw a published version: it stays in the channel, as everything
+ * published does, but INSTALL and UPGRADE no longer pick it, asking for it
+ * by version is refused, and SHOW marks it. Signed by the key that signed
+ * the version, so only its publisher can. */
+static int cmd_withdraw(const struct pkg_options *a)
+{
+    struct index ix;
+    struct key k;
+    const struct entry *e = NULL;
+    char text[300], signer[65], *wo = NULL, *ws = NULL;
+    size_t i;
+    int n, rc = 1;
+
+    if (a->target == NULL)  return refuse_c(20, "name the package to withdraw");
+    if (a->version == NULL) return refuse_c(20, "name the version with VERSION <v>: a withdrawal names one version");
+    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
+    if (load_key(a->sign, &k) != 0) return 1;
+    if (read_index(a->channel, &ix) != 0) { memset(&k, 0, sizeof k); return 1; }
+    for (i = 0; i < ix.n; i++)
+        if (strcmp(ix.e[i].name, a->target) == 0 && pkg_version_cmp(ix.e[i].version, a->version) == 0)
+            e = &ix.e[i];
+    if (e == NULL) {
+        say_not_found(&ix, a->target, a->version, a->channel);
+        goto out;
+    }
+    if (e->withdrawn) {
+        kv("result", "unchanged");
+        kv("name", "%s", e->name);
+        kv("version", "%s", e->version);
+        if (!machine)
+            say("%s %s is already withdrawn from %s\n", e->name, e->version, a->channel);
+        rc = 0;
+        goto out;
+    }
+    if (!claimed_signer(a->channel, e->digest, signer) || strcmp(signer, k.pkhex) != 0) {
+        kv("signer", "%s", k.pkhex);
+        refuse_n(14, "ask-requester", "%s %s was signed by %s, and only that key can withdraw it; "
+                 "this key is %s. Nothing was changed", e->name, e->version,
+                 signer, k.pkhex);
+        goto out;
+    }
+    n = withdrawal_text(e, text, sizeof text);
+    if (dryrun) {
+        kv("result", "would-withdraw");
+    } else {
+        wo = object_path(a->channel, e->digest, "withdrawn");
+        ws = object_path(a->channel, e->digest, "withdrawn.sig");
+        if (wo == NULL || ws == NULL || pkg_fs_write_atomic(wo, text, (size_t)n) != 0
+            || write_sig(ws, &k, (const unsigned char *)text, (size_t)n) != 0) {
+            refuse_c(17, "cannot write into the channel \"%s\": %s", a->channel, strerror(errno));
+            goto out;
+        }
+        kv("result", "withdrawn");
+    }
+    kv("name", "%s", e->name);
+    kv("version", "%s", e->version);
+    kv("channel", "%s", a->channel);
+    if (!machine)
+        say("%s %s %s from %s: it stays in the channel, and nothing installs it any more\n",
+            dryrun ? "would withdraw" : "withdrew", e->name, e->version, a->channel);
+    rc = 0;
+out:
+    memset(&k, 0, sizeof k);
+    free(wo); free(ws);
+    free(ix.e);
+    return rc;
+}
+
 /* The key pinned for a package in this root, and the rule that governs it. */
 static int check_pin(const char *root, const char *name, const char *signer,
                      const char *acceptkey)
@@ -1407,7 +1532,7 @@ static int check_pin(const char *root, const char *name, const char *signer,
     return refuse_c(14, "%s is signed by a different key from the one pinned in %s.\n"
                   "  pinned %s\n  signer %s\n"
                   "Nothing was changed. Either the publisher changed keys or someone else "
-                  "signed this; only the person can tell, by asking the publisher by another "
+                  "signed this; only whoever requested this can tell, by asking the publisher by another "
                   "route than this channel. If they confirm the new key, it is accepted with "
                   "ACCEPTKEY and the key in full", name, root, pinned, signer);
 }
@@ -1536,11 +1661,11 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             free(t);
             if (there)
                 return refuse_c(15, "\"%s\" already exists in %s and belongs to no installed version "
-                              "of %s; nothing was changed. It may be the person's own file",
+                              "of %s; nothing was changed. It may be the requester's own file",
                               m->files[i].path, root, m->name);
         } else if (file_state(root, of->path, of->digest, of->size) == 1) {
             return refuse_c(15, "\"%s\" was edited since %s %s was installed, and %s %s ships it too; "
-                          "nothing was changed. The edit is the person's: they decide whether "
+                          "nothing was changed. The edit belongs to whoever made it: the requester decides whether "
                           "to keep it elsewhere first", of->path, old->name, old->version, m->name, m->version);
         }
     }
@@ -1757,7 +1882,7 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
     struct pkg_manifest cur;
     size_t i;
 
-    if (cancelled("while resolving"))
+    if (cancelled("while resolving, before anything was placed"))
         return 1;
     for (i = 0; i < p->depth; i++) {
         if (strcmp(p->stack[i], name) == 0) {
@@ -1802,6 +1927,10 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
                         "nothing was changed", from, name, min ? " >= " : "", min ? min : "",
                         p->channel);
     }
+    if (e->withdrawn)
+        return refuse_n(18, "ask-requester", "%s %s was withdrawn by its publisher in %s; nothing "
+                        "was changed. Installing it anyway is the requester's decision, and Pkg "
+                        "does not take it", e->name, e->version, p->channel);
     if (min != NULL && pkg_version_cmp(e->version, min) < 0)
         return refuse_c(16, "%s needs %s >= %s, and the highest the channel offers is %s; "
                         "nothing was changed", from ? from : "the request", name, min, e->version);
@@ -1821,7 +1950,7 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
          * now on. The key that signed the channel's first version of the
          * package is presumed the publisher's; a first install signed by
          * another key is the case a key added later by someone else would
-         * make, and trusting it is the person's decision. */
+         * make, and trusting it is the requester's decision. */
         char *kp = root_path(p->root, "keys", e->name), first_signer[65];
         const struct entry *oldest = NULL;
         int first = kp != NULL && !pkg_fs_exists(kp);
@@ -1837,9 +1966,9 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
             && (p->acceptkey == NULL || strcmp(p->acceptkey, f.signer) != 0)) {
             kv("signer", "%s", f.signer);
             kv("first-signer", "%s", first_signer);
-            refuse_n(14, "ask-person", "%s %s is signed by %s, but %s %s, the first version in "
+            refuse_n(14, "ask-requester", "%s %s is signed by %s, but %s %s, the first version in "
                      "this channel, was signed by %s. This root trusts no key for %s yet, and "
-                     "the first install would trust this one from now on; only the person can "
+                     "the first install would trust this one from now on; only the requester can "
                      "say which key is the publisher's. Nothing was changed", e->name, e->version,
                      f.signer, e->name, oldest->version, first_signer, e->name);
             fetched_free(&f);
@@ -1923,32 +2052,53 @@ static int run_plan(struct plan *p, const struct pkg_manifest *cur,
                     unsigned long *placed, unsigned long *dropped, unsigned long *kept)
 {
     size_t i;
+    int *had_pin = calloc(p->n ? p->n : 1, sizeof *had_pin);
+    if (had_pin == NULL)
+        return refuse("out of memory");
     for (i = 0; i < p->n; i++) {
         int last = i + 1 == p->n;
         unsigned long pl, dr, ke;
-        if (cancelled("before placing files") || apply(p->root, last ? cur : NULL, &p->f[i], &pl, &dr, &ke) != 0) {
+        char when[200], *kp = root_path(p->root, "keys", p->f[i].m.name);
+        had_pin[i] = kp != NULL && pkg_fs_exists(kp);
+        free(kp);
+        snprintf(when, sizeof when, "before placing %s %s%s", p->f[i].m.name, p->f[i].m.version,
+                 i > 0 ? "; what this operation had placed was taken back out" : "");
+        if (cancelled(when) || apply(p->root, last ? cur : NULL, &p->f[i], &pl, &dr, &ke) != 0) {
+            /* Undo in reverse: files, records, and the keys this operation
+             * pinned, so the root is as it was. */
             while (!dryrun && i-- > 0) {
                 size_t r, k, g;
                 remove_files(p->root, &p->f[i].m, &r, &k, &g, 0);
+                if (!had_pin[i]) {
+                    char *pin = root_path(p->root, "keys", p->f[i].m.name);
+                    if (pin != NULL) pkg_fs_unlink(pin);
+                    free(pin);
+                }
+                tr("took %s %s back out", p->f[i].m.name, p->f[i].m.version);
             }
+            free(had_pin);
             return 1;
         }
         if (!last) {
             if (!dryrun)
                 set_auto(p->root, p->f[i].m.name, 1);
-            if (machine)
-            {
-                char j[140];
-                snprintf(j, sizeof j, "%s %s", p->f[i].m.name, p->f[i].m.version);
-                rec_item("dependency", j, "name", p->f[i].m.name, "version", p->f[i].m.version, NULL);
-            }
-            else
-                say("  %s %s %s, a dependency\n", dryrun ? "would add" : "added   ",
-                        p->f[i].m.name, p->f[i].m.version);
         } else {
             *placed = pl;
             *dropped = dr;
             *kept = ke;
+        }
+    }
+    free(had_pin);
+    /* Only now, with every package in place, say which dependencies came in:
+     * a front end never shows a package that is about to be taken out. */
+    for (i = 0; i + 1 < p->n; i++) {
+        if (machine) {
+            char j[140];
+            snprintf(j, sizeof j, "%s %s", p->f[i].m.name, p->f[i].m.version);
+            rec_item("dependency", j, "name", p->f[i].m.name, "version", p->f[i].m.version, NULL);
+        } else {
+            say("  %s %s %s, a dependency\n", dryrun ? "would add" : "added   ",
+                p->f[i].m.name, p->f[i].m.version);
         }
     }
     return 0;
@@ -2108,7 +2258,7 @@ static int cmd_show(const struct pkg_options *a)
         int rc;
         if (a->target != NULL && strcmp(ix.e[i].name, a->target) != 0)
             continue;
-        if (cancelled("while checking the channel")) {
+        if (cancelled("while checking the channel, which was not changed")) {
             free(ix.e);
             return 1;
         }
@@ -2122,6 +2272,8 @@ static int cmd_show(const struct pkg_options *a)
             status = class_name(refused_class);
             bad++;
             if (!first_bad) first_bad = refused_class;
+        } else if (ix.e[i].withdrawn) {
+            status = "withdrawn";
         }
         if (a->root != NULL) {
             /* Against a root: is this the version installed there? */
@@ -2277,6 +2429,92 @@ static int cmd_manifest(const struct pkg_options *a)
     return 0;
 }
 
+/* 1 when the file at `path` holds exactly the bytes whose SHA-256 is `digest`. */
+static int object_good(const char *path, const char *digest)
+{
+    unsigned char *buf;
+    size_t len;
+    char hex[PKG_SHA256_HEXLEN + 1];
+    if (path == NULL || pkg_fs_read(path, &buf, &len) != 0)
+        return 0;
+    pkg_sha256_hex(buf, len, hex);
+    free(buf);
+    return strcmp(hex, digest) == 0;
+}
+
+/* The same drawer published again as the same version. Nothing to do when
+ * the channel holds it intact; when its manifest, payload or signature is
+ * missing or damaged, and the key is the publisher's (the key of the
+ * package's first version here), those objects are written again: the bytes
+ * are the ones the index already names, so nothing published changes. */
+static int republish(const struct pkg_options *a, const struct index *ix, const struct built *b,
+                     const struct key *k, const char *mdigest)
+{
+    char *mo = object_path(a->channel, mdigest, "manifest");
+    char *po = object_path(a->channel, b->m.payload, "pkg");
+    char *so = object_path(a->channel, mdigest, "sig");
+    char signer[65], first_signer[65];
+    const struct entry *oldest = NULL;
+    int good_m, good_p, good_s = 0, rc = 0;
+    size_t o;
+
+    good_m = object_good(mo, mdigest);
+    good_p = object_good(po, b->m.payload);
+    if (so != NULL) {
+        int q = quiet;
+        quiet = 1;
+        good_s = check_sig(so, (const unsigned char *)b->text, b->text_len, signer, "") == 0;
+        quiet = q;
+        refused_class = 0;
+        refused_next = NULL;
+    }
+    if (good_m && good_p && good_s) {
+        kv("result", "unchanged");
+        kv("name", "%s", b->m.name);
+        kv("version", "%s", b->m.version);
+        if (!machine)
+            say("%s %s is already published with this exact content; nothing to do\n",
+                b->m.name, b->m.version);
+        goto out;
+    }
+    for (o = 0; o < ix->n; o++)
+        if (strcmp(ix->e[o].name, b->m.name) == 0
+            && (oldest == NULL || pkg_version_cmp(ix->e[o].version, oldest->version) < 0))
+            oldest = &ix->e[o];
+    if (oldest == NULL || !claimed_signer(a->channel, oldest->digest, first_signer)
+        || strcmp(first_signer, k->pkhex) != 0) {
+        rc = refuse_n(14, "ask-requester", "%s %s in %s is damaged, and only its publisher's key "
+                      "(the key of its first version here) may write it again; this key is %s. "
+                      "Nothing was changed", b->m.name, b->m.version, a->channel, k->pkhex);
+        goto out;
+    }
+    tr("repairing %s %s: manifest %s, payload %s, signature %s", b->m.name, b->m.version,
+       good_m ? "intact" : "damaged", good_p ? "intact" : "damaged", good_s ? "intact" : "damaged");
+    if (dryrun) {
+        kv("result", "would-repair");
+    } else {
+        if ((!good_m && pkg_fs_write_atomic(mo, b->text, b->text_len) != 0)
+            || (!good_p && pkg_fs_write_atomic(po, b->pkg, b->pkg_len) != 0)
+            || (!good_s && write_sig(so, k, (const unsigned char *)b->text, b->text_len) != 0)) {
+            rc = refuse_c(17, "cannot write into the channel \"%s\": %s", a->channel, strerror(errno));
+            goto out;
+        }
+        kv("result", "repaired");
+    }
+    kv("name", "%s", b->m.name);
+    kv("version", "%s", b->m.version);
+    if (!good_m) kv("repaired", "manifest");
+    if (!good_p) kv("repaired", "payload");
+    if (!good_s) kv("repaired", "signature");
+    if (!machine)
+        say("%s %s %s in %s:%s%s%s written again from the same bytes\n",
+            dryrun ? "would repair" : "repaired", b->m.name, b->m.version, a->channel,
+            good_m ? "" : " manifest", good_p ? "" : " payload", good_s ? "" : " signature");
+out:
+    free(mo); free(po); free(so);
+    return rc;
+}
+
 static int cmd_publish(const struct pkg_options *a)
 {
     struct built b;
@@ -2300,13 +2538,7 @@ static int cmd_publish(const struct pkg_options *a)
         if (strcmp(ix.e[i].name, b.m.name) == 0
             && pkg_version_cmp(ix.e[i].version, b.m.version) == 0) {
             if (strcmp(ix.e[i].digest, mdigest) == 0) {
-                kv("result", "unchanged");
-                kv("name", "%s", b.m.name);
-                kv("version", "%s", b.m.version);
-                if (!machine)
-                say("%s %s is already published with this exact content; nothing to do\n",
-                       b.m.name, b.m.version);
-                rc = 0;
+                rc = republish(a, &ix, &b, &k, mdigest);
             } else {
                 refuse_c(15, "%s %s is already published with a different payload; a published "
                        "version never changes, so publish this as a new version",
@@ -2335,9 +2567,9 @@ static int cmd_publish(const struct pkg_options *a)
             && (a->acceptkey == NULL || strcmp(a->acceptkey, k.pkhex) != 0)) {
             kv("signer", "%s", k.pkhex);
             kv("first-signer", "%s", first_signer);
-            refuse_n(14, "ask-person", "%s %s, the first version in %s, is signed by %s, and this "
+            refuse_n(14, "ask-requester", "%s %s, the first version in %s, is signed by %s, and this "
                      "key is %s: every machine that trusts the first key would refuse this "
-                     "version. Sign it with the publisher's key; changing keys is the person's "
+                     "version. Sign it with the publisher's key; changing keys is the requester's "
                      "decision. Nothing was published", b.m.name, oldest->version, a->channel,
                      first_signer, k.pkhex);
             free(ix.e);
@@ -2493,7 +2725,7 @@ static int cmd_install(const struct pkg_options *a)
             free(ix.e);
             return 0;
         }
-        refuse_n(15, pkg_version_cmp(e->version, cur.version) > 0 ? "use-upgrade" : "ask-person",
+        refuse_n(15, pkg_version_cmp(e->version, cur.version) > 0 ? "use-upgrade" : "ask-requester",
                  "%s %s is installed in %s, not %s; nothing was changed",
                  cur.name, cur.version, a->root, e->version);
         pkg_manifest_free(&cur);
@@ -2591,7 +2823,7 @@ static int cmd_upgrade(const struct pkg_options *a)
     }
     if (c < 0 && !a->downgrade) {
         refuse_c(18, "%s %s is older than the installed %s; nothing was changed. Going back "
-               "a version is the person's decision", e->name, e->version, cur.version);
+               "a version is the requester's decision", e->name, e->version, cur.version);
         goto out;
     }
     rc = move_to(a, &ix, e, &cur, c < 0 ? "downgraded" : "upgraded");
@@ -2867,7 +3099,7 @@ static int cancelled(const char *when)
 {
     if (sink == NULL || sink->cancel == NULL || !sink->cancel(sink->user))
         return 0;
-    refuse_n(PKGRC_REFUSED, "report", "cancelled by the caller %s; nothing was changed", when);
+    refuse_n(PKGRC_REFUSED, "report", "cancelled by the caller %s", when);
     return 1;
 }
 
@@ -2895,6 +3127,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
 int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "keygen", cmd_keygen, o); }
 int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "sign", cmd_sign, o); }
 int pkg_keyinfo  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "keyinfo", cmd_keyinfo, o); }
+int pkg_withdraw (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "withdraw", cmd_withdraw, o); }
 int pkg_manifest (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "manifest", cmd_manifest, o); }
 int pkg_publish  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "publish", cmd_publish, o); }
 int pkg_install  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "install", cmd_install, o); }
@@ -2912,6 +3145,15 @@ static int usage_op(const struct pkg_options *o)
 {
     (void)o;
     return refuse_c(PKGRC_USAGE, "%s", usage_reason);
+}
+
+const char *pkg_field(int n, const char *const *keys, const char *const *values, const char *key)
+{
+    int i;
+    for (i = 0; i < n; i++)
+        if (strcmp(keys[i], key) == 0)
+            return values[i];
+    return NULL;
 }
 
 int pkg_usage_error(const struct pkg_sink *s, const char *verb, const char *reason)

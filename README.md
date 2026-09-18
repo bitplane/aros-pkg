@@ -86,6 +86,17 @@ the command line prints with `MACHINE`; otherwise sentences for a person; and,
 if it asks, a trace of every step. The library writes nothing to stdout and
 reads no environment. `tests/test_api.c` drives it as a front end would.
 
+## Examples
+
+`examples/basic.c` is the shortest useful program on libpkg: a key, a
+publish, an install, a listing, and a refusal read with its `next`.
+`examples/browse.c` is a package browser in the shape a graphical front end
+takes: items with their fields apart, whether each version is installed,
+suggestions for a mistyped name, a Cancel button, the trace. It was first
+written by an agent from `pkg.h` alone, as a test of that header, then
+adopted. Both build against `build/libpkg.a` and run in `make test`
+(`tests/examples.sh`).
+
 ## Diagnosing
 
 `TRACE <file>` on any command, or `PKG_TRACE=<file>` (`-` for stderr), writes

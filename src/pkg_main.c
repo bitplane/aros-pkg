@@ -199,6 +199,7 @@ static int usage(void)
         "  pkg PUBLISH  <drawer> CHANNEL <dir> [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a] [KIND k]\n"
         "               [DEPENDS \"a >= 1, b\"] [ACCEPTKEY <hex>]\n"
         "  pkg KEYINFO  FILE <keyfile>    (the public key it holds)\n"
+        "  pkg WITHDRAW <name> VERSION v CHANNEL <dir> [SIGN <keyfile>]\n"
         "  pkg SIGN     <file> KEY <keyfile> OUT <sigfile>\n"
         "  pkg INSTALL  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ACCEPTKEY <hex>]\n"
         "  pkg UPGRADE  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [DOWNGRADE] [ACCEPTKEY <hex>]\n"
@@ -209,7 +210,7 @@ static int usage(void)
         "  pkg REMOVE   ORPHANS ROOT <dir>\n"
         "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
         "  pkg MOUNTLIST <image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]\n"
-        "  pkg SHOW     [<name>] CHANNEL <dir>\n"
+        "  pkg SHOW     [<name>] CHANNEL <dir> [ROOT <dir>]\n"
         "Every verb that changes something takes DRYRUN: all checks, no write.\n"
         "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
         "  pkg HELP\n"
@@ -232,6 +233,7 @@ static int run_verb(int argc, char **argv)
         { "KEYGEN",    "keygen",    pkg_keygen },
         { "MANIFEST",  "manifest",  pkg_manifest },
         { "PUBLISH",   "publish",   pkg_publish },
+        { "WITHDRAW",  "withdraw",  pkg_withdraw },
         { "SIGN",      "sign",      pkg_sign },
         { "KEYINFO",   "keyinfo",   pkg_keyinfo },
         { "INSTALL",   "install",   pkg_install },

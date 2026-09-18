@@ -202,6 +202,40 @@ int main(void)
         ok(rc == PKG_RC_REFUSED && is(&s, "next", "report") && stat(p, &st) != 0,
            "cancel stops the install with nothing placed");
     }
+    {
+        /* A cancel after the dependency is placed takes it back out, with
+         * the key it pinned, and no dependency item is ever sent. */
+        char lib[600], app[600], root3[600];
+        snprintf(lib, sizeof lib, "%s/lib", dir);
+        snprintf(app, sizeof app, "%s/app", dir);
+        snprintf(root3, sizeof root3, "%s/root3", dir);
+        snprintf(p, sizeof p, "%s/Libs", lib); mkdir(lib, 0755); mkdir(p, 0755);
+        snprintf(p, sizeof p, "%s/Libs/t.library", lib); put(p, "lib\n");
+        snprintf(p, sizeof p, "%s/C", app); mkdir(app, 0755); mkdir(p, 0755);
+        snprintf(p, sizeof p, "%s/C/App", app); put(p, "app\n");
+        memset(&o, 0, sizeof o);
+        o.channel = channel; o.sign = key; o.kind = "library"; o.target = lib;
+        o.name = "tlib"; o.version = "1";
+        pkg_publish(&sink, &o);
+        o.kind = "application"; o.target = app; o.name = "tapp"; o.depends = "tlib";
+        pkg_publish(&sink, &o);
+        memset(&s, 0, sizeof s);
+        memset(&o, 0, sizeof o);
+        o.target = "tapp"; o.root = root3; o.channel = channel;
+        sink.cancel = stop_now;
+        cancel_after = 3;       /* resolving tapp, tlib; placing tlib; then stop */
+        asked = 0;
+        rc = pkg_install(&sink, &o);
+        sink.cancel = NULL;
+        snprintf(p, sizeof p, "%s/Libs/t.library", root3);
+        {
+            char pin[700];
+            snprintf(pin, sizeof pin, "%s/.pkg/keys/tlib", root3);
+            ok(rc == PKG_RC_REFUSED && stat(p, &st) != 0 && stat(pin, &st) != 0
+               && field(&s, "dependency") == NULL && strstr(field(&s, "reason"), "taken back out") != NULL,
+               "cancel after a dependency: file and pinned key taken back out, no dependency item sent");
+        }
+    }
     ok(strstr(pkg_next_words("check-name"), "pkg ") == NULL
        && strstr(pkg_next_words("use-upgrade"), "UPGRADE") == NULL,
        "pkg_next_words names no command, for any front end");
@@ -217,7 +251,13 @@ int main(void)
     printf("names\n");
     ok(strcmp(pkg_class_name(PKG_RC_KEY), "key") == 0 && strcmp(pkg_class_name(0), "ok") == 0,
        "pkg_class_name");
-    ok(strstr(pkg_next_words("ask-person"), "person") != NULL, "pkg_next_words");
+    ok(strstr(pkg_next_words("ask-requester"), "decision") != NULL
+       && strcmp(pkg_next_words(NULL), pkg_next_words("report")) == 0, "pkg_next_words");
+    {
+        const char *k[] = { "name", "version" }, *v[] = { "tool", "1.0" };
+        ok(strcmp(pkg_field(2, k, v, "version"), "1.0") == 0 && pkg_field(2, k, v, "kind") == NULL,
+           "pkg_field");
+    }
 
     snprintf(p, sizeof p, "rm -rf '%s'", dir);
     if (system(p) != 0) printf("  note: could not remove %s\n", dir);
