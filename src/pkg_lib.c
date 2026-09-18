@@ -1029,6 +1029,7 @@ static int build(const struct pkg_options *a, struct built *out)
 struct entry {
     char name[65];
     char version[64];
+    char arch[32];      /* one version may be published for several CPUs */
     char digest[PKG_SHA256_HEXLEN + 1];
     int  withdrawn;     /* its publisher signed a withdrawal */
 };
@@ -1078,9 +1079,9 @@ static int read_index(const char *channel, struct index *ix)
         }
         memcpy(tmp, ls, ll);
         tmp[ll] = '\0';
-        if (sscanf(tmp, "%64s %63s %64s", en.name, en.version, en.digest) != 3
+        if (sscanf(tmp, "%64s %63s %31s %64s", en.name, en.version, en.arch, en.digest) != 4
             || pkg_check_name(en.name) || pkg_check_version(en.version)
-            || strlen(en.digest) != PKG_SHA256_HEXLEN) {
+            || pkg_check_arch(en.arch) || strlen(en.digest) != PKG_SHA256_HEXLEN) {
             free(buf); free(ix->e);
             return refuse_c(12, "the channel index is malformed at line %u", line);
         }
@@ -1099,7 +1100,8 @@ static int by_entry(const void *a, const void *b)
 {
     const struct entry *x = (const struct entry *)a, *y = (const struct entry *)b;
     int c = strcmp(x->name, y->name);
-    return c ? c : pkg_version_cmp(x->version, y->version);
+    if (c == 0) c = pkg_version_cmp(x->version, y->version);
+    return c ? c : strcmp(x->arch, y->arch);
 }
 
 static int write_index(const char *channel, struct index *ix)
@@ -1112,8 +1114,8 @@ static int write_index(const char *channel, struct index *ix)
     if (path == NULL || buf == NULL) { free(path); free(buf); return -1; }
     qsort(ix->e, ix->n, sizeof ix->e[0], by_entry);
     for (i = 0; i < ix->n; i++)
-        len += (size_t)snprintf(buf + len, cap - len, "%s %s %s\n",
-                                ix->e[i].name, ix->e[i].version, ix->e[i].digest);
+        len += (size_t)snprintf(buf + len, cap - len, "%s %s %s %s\n",
+                                ix->e[i].name, ix->e[i].version, ix->e[i].arch, ix->e[i].digest);
     rc = pkg_fs_write_atomic(path, buf, len);
     free(path);
     free(buf);
@@ -1127,6 +1129,116 @@ static char *object_path(const char *channel, const char *digest, const char *ex
     return pkg_join(channel, rel);
 }
 
+/* ---- the machine a root is for ------------------------------------------ *
+ *
+ * A channel may hold one version of a program for several CPUs. The
+ * operation picks among the entries built for the root's machine, and
+ * `generic` ones. That machine is ARCH when given; else what the root
+ * recorded at its first install of a CPU-specific package; else, when Pkg
+ * runs on AROS, its own CPU; else unknown, and then a package offered for
+ * more than one CPU is refused until ARCH says which. */
+
+static const char *target_arch;    /* NULL: any */
+static char root_arch[32];
+
+static const char *native_arch(void)
+{
+#if defined(__AROS__)
+# if defined(__x86_64__)
+    return "x86_64";
+# elif defined(__aarch64__)
+    return "aarch64";
+# elif defined(__i386__)
+    return "i386";
+# elif defined(__arm__)
+    return "arm";
+# elif defined(__powerpc__) || defined(__PPC__)
+    return "ppc";
+# elif defined(__mc68000__) || defined(__m68k__)
+    return "m68k";
+# endif
+#endif
+    return NULL;
+}
+
+static int arch_matches(const struct entry *e)
+{
+    return target_arch == NULL || strcmp(e->arch, target_arch) == 0
+        || strcmp(e->arch, "generic") == 0;
+}
+
+static int resolve_arch(const struct pkg_options *a)
+{
+    char *p = pkg_join(a->root, ".pkg/arch");
+    unsigned char *buf;
+    size_t len;
+    root_arch[0] = '\0';
+    target_arch = NULL;
+    if (p != NULL && pkg_fs_exists(p) && pkg_fs_read(p, &buf, &len) == 0) {
+        sscanf((const char *)buf, "%31s", root_arch);
+        free(buf);
+    }
+    free(p);
+    if (a->arch != NULL) {
+        const char *why = pkg_check_arch(a->arch);
+        if (why != NULL)
+            return refuse_c(20, "ARCH \"%s\": %s", a->arch, why);
+        if (root_arch[0] && strcmp(root_arch, a->arch) != 0)
+            return refuse_c(20, "%s is a root for %s machines; ARCH %s names another", a->root,
+                            root_arch, a->arch);
+        target_arch = a->arch;
+        tr("for %s machines: ARCH says so", target_arch);
+    } else if (root_arch[0]) {
+        target_arch = root_arch;
+        tr("for %s machines: the root recorded it", target_arch);
+    } else {
+        target_arch = native_arch();
+        tr("for %s", target_arch ? "this machine's CPU" : "any CPU: none is known yet");
+    }
+    return 0;
+}
+
+/* Record the root's machine once a CPU-specific package is installed. */
+static void record_arch(const char *root, const char *arch)
+{
+    char *p;
+    if (root_arch[0] || strcmp(arch, "generic") == 0)
+        return;
+    p = pkg_join(root, ".pkg/arch");
+    if (p != NULL) {
+        char line[40];
+        int n = snprintf(line, sizeof line, "%s\n", arch);
+        if (pkg_fs_write_atomic(p, line, (size_t)n) == 0)
+            tr("%s is now a root for %s machines", root, arch);
+        free(p);
+    }
+}
+
+/* With no machine known, a package offered for more than one CPU cannot be
+ * chosen for. 1 when that is the case, the CPUs listed. */
+static int arch_ambiguous(const struct index *ix, const char *name, char *list, size_t len)
+{
+    size_t i, j, at = 0;
+    int n = 0;
+    list[0] = '\0';
+    if (target_arch != NULL)
+        return 0;
+    for (i = 0; i < ix->n; i++) {
+        int seen = 0;
+        if (strcmp(ix->e[i].name, name) != 0 || strcmp(ix->e[i].arch, "generic") == 0)
+            continue;
+        for (j = 0; j < i; j++)
+            if (strcmp(ix->e[j].name, name) == 0 && strcmp(ix->e[j].arch, ix->e[i].arch) == 0)
+                seen = 1;
+        if (seen)
+            continue;
+        n++;
+        if (at + 40 < len)
+            at += (size_t)snprintf(list + at, len - at, "%s%s", at ? ", " : "", ix->e[i].arch);
+    }
+    return n > 1;
+}
+
 /* Pick the entry for name: EXACT when version is given, else the highest. */
 static int pick_quiet;     /* the version was already chosen and traced */
 
@@ -1135,7 +1247,7 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
     const struct entry *p = NULL;
     size_t i;
     for (i = 0; i < ix->n; i++) {
-        if (strcmp(ix->e[i].name, name) != 0)
+        if (strcmp(ix->e[i].name, name) != 0 || !arch_matches(&ix->e[i]))
             continue;
         if (version) {
             if (pkg_version_cmp(ix->e[i].version, version) == 0)
@@ -1445,8 +1557,15 @@ static int cmd_withdraw(const struct pkg_options *a)
     if (load_key(a->sign, &k) != 0) return 1;
     if (read_index(a->channel, &ix) != 0) { memset(&k, 0, sizeof k); return 1; }
     for (i = 0; i < ix.n; i++)
-        if (strcmp(ix.e[i].name, a->target) == 0 && pkg_version_cmp(ix.e[i].version, a->version) == 0)
+        if (strcmp(ix.e[i].name, a->target) == 0 && pkg_version_cmp(ix.e[i].version, a->version) == 0
+            && (a->arch == NULL || strcmp(ix.e[i].arch, a->arch) == 0)) {
+            if (e != NULL && strcmp(e->arch, ix.e[i].arch) != 0) {
+                refuse_c(20, "%s %s is published for several CPUs; say which with ARCH",
+                         a->target, a->version);
+                goto out;
+            }
             e = &ix.e[i];
+        }
     if (e == NULL) {
         say_not_found(&ix, a->target, a->version, a->channel);
         goto out;
@@ -2536,7 +2655,8 @@ static int cmd_publish(const struct pkg_options *a)
 
     for (i = 0; i < ix.n; i++) {
         if (strcmp(ix.e[i].name, b.m.name) == 0
-            && pkg_version_cmp(ix.e[i].version, b.m.version) == 0) {
+            && pkg_version_cmp(ix.e[i].version, b.m.version) == 0
+            && strcmp(ix.e[i].arch, b.m.architecture) == 0) {
             if (strcmp(ix.e[i].digest, mdigest) == 0) {
                 rc = republish(a, &ix, &b, &k, mdigest);
             } else {
@@ -2632,6 +2752,7 @@ static int cmd_publish(const struct pkg_options *a)
         ix.e = w;
         snprintf(ix.e[ix.n].name, sizeof ix.e[ix.n].name, "%s", b.m.name);
         snprintf(ix.e[ix.n].version, sizeof ix.e[ix.n].version, "%s", b.m.version);
+        snprintf(ix.e[ix.n].arch, sizeof ix.e[ix.n].arch, "%s", b.m.architecture);
         snprintf(ix.e[ix.n].digest, sizeof ix.e[ix.n].digest, "%s", mdigest);
         ix.n++;
     }
@@ -2695,7 +2816,18 @@ static int cmd_install(const struct pkg_options *a)
     int rc = 1;
 
     if (need_root_channel(a) != 0) return 1;
+    if (resolve_arch(a) != 0) return 1;
     if (read_index(a->channel, &ix) != 0) return 1;
+    {
+        char cpus[200];
+        if (arch_ambiguous(&ix, a->target, cpus, sizeof cpus)) {
+            refuse_c(20, "%s is offered for several CPUs (%s), and nothing says which machine %s "
+                     "is for: add ARCH <cpu>; the root remembers it from then on", a->target,
+                     cpus, a->root);
+            free(ix.e);
+            return 1;
+        }
+    }
     e = pick(&ix, a->target, a->version);
     if (e == NULL) { say_not_found(&ix, a->target, a->version, a->channel); free(ix.e); return 1; }
     if (load_installed(a->root, e->name, &cur, 1) == 0) {
@@ -2737,6 +2869,8 @@ static int cmd_install(const struct pkg_options *a)
         const struct fetched *t = &p.f[p.n - 1];
         struct fetched f = *t;
         short12(f.m.payload, s12);
+        if (!dryrun)
+            record_arch(a->root, p.f[p.n - 1].m.architecture);
         kv("result", "%s", res("installed", "would-install"));
         kv("name", "%s", f.m.name);
         kv("version", "%s", f.m.version);
@@ -2804,7 +2938,10 @@ static int cmd_upgrade(const struct pkg_options *a)
     int rc = 1, c;
 
     if (need_root_channel(a) != 0) return 1;
+    if (resolve_arch(a) != 0) return 1;
     if (load_installed(a->root, a->target, &cur, 0) != 0) return 1;
+    if (target_arch == NULL && strcmp(cur.architecture, "generic") != 0)
+        target_arch = cur.architecture;       /* stay on the installed CPU */
     if (read_index(a->channel, &ix) != 0) { pkg_manifest_free(&cur); return 1; }
     e = pick(&ix, a->target, a->version);
     if (e == NULL) {
@@ -2845,7 +2982,10 @@ static int cmd_rollback(const struct pkg_options *a)
     int rc = 1;
 
     if (need_root_channel(a) != 0) return 1;
+    if (resolve_arch(a) != 0) return 1;
     if (load_installed(a->root, a->target, &cur, 0) != 0) return 1;
+    if (target_arch == NULL && strcmp(cur.architecture, "generic") != 0)
+        target_arch = cur.architecture;       /* back on the installed CPU */
     pp = root_path(a->root, "prev", a->target);
     if (pp == NULL || pkg_fs_read(pp, &buf, &len) != 0) {
         free(pp);
@@ -2868,7 +3008,8 @@ static int cmd_rollback(const struct pkg_options *a)
     }
     if (read_index(a->channel, &ix) != 0) { pkg_manifest_free(&cur); return 1; }
     for (i = 0; i < ix.n; i++)
-        if (strcmp(ix.e[i].name, a->target) == 0 && pkg_version_cmp(ix.e[i].version, prev.version) == 0)
+        if (strcmp(ix.e[i].name, a->target) == 0 && pkg_version_cmp(ix.e[i].version, prev.version) == 0
+            && (strcmp(ix.e[i].arch, cur.architecture) == 0 || strcmp(ix.e[i].arch, "generic") == 0))
             e = &ix.e[i];
     if (e == NULL)
         refuse_c(11, "the previous version of %s, %s, is no longer in the channel %s",
@@ -3118,6 +3259,8 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     refused_next = NULL;
     pending_next = NULL;
     quiet = 0;
+    target_arch = NULL;
+    root_arch[0] = '\0';
     rc = fn(o != NULL ? o : &none);
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
     sink = NULL;

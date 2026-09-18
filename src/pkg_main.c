@@ -25,6 +25,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The AmigaDOS version cookie: `Version C:Pkg` reads it, and publishing Pkg
+ * with Pkg takes its name and version from it. */
+const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (18.9.2026)";
+
 static const char *verb_name = "pkg";
 static int machine;
 
@@ -193,6 +197,7 @@ static void (*usage_to)(const char *fmt, ...) = pkg_err;
 
 static int usage(void)
 {
+    usage_to("%s\n", pkg_version_cookie + 6);
     usage_to("usage:\n"
         "  pkg KEYGEN   FILE <keyfile>\n"
         "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]\n"

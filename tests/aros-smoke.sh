@@ -61,7 +61,7 @@ printf 'binary\000$VER: Hello 1.2 (18.9.2026)\000tail' > "$work/drawer/C/Hello"
 printf 'library data\n' > "$work/drawer/Libs/data.txt"
 "$host_pkg" KEYGEN FILE "$work/dev.key" > /dev/null
 PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/drawer" CHANNEL "$share/channel" > /dev/null
-digest=$(awk '$1=="hello"{print $3}' "$share/channel/index")
+digest=$(awk '$1=="hello"{print $4}' "$share/channel/index")
 payload=$(awk '/^Payload:/{print $2}' "$share/channel/objects/$digest.manifest")
 cp -R "$share/channel" "$share/tampered"
 python3 -c "

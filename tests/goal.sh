@@ -90,7 +90,7 @@ PKG_SIGNKEY="$work/attacker.key" "$host_pkg" PUBLISH "$work/d16" CHANNEL "$share
                                                       ok $? "an attacker publishes 16 into the same channel with another key"
 
 cp -R "$share/channel" "$share/tampered"
-m15=$(awk '$1=="afsplus-handler" && $2=="15"{print $3}' "$share/tampered/index")
+m15=$(awk '$1=="afsplus-handler" && $2=="15"{print $4}' "$share/tampered/index")
 p15=$(awk '/^Payload:/{print $2}' "$share/tampered/objects/$m15.manifest")
 python3 -c "
 import sys

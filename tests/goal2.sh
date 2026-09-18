@@ -101,7 +101,7 @@ grep -q 'taken from \$VER: in C/Guru' "$work/p20";    ok $? "name and version re
 
 # The image sizes, and so the mount geometry, come from the signed manifests.
 blocks_of() {
-    m=$(awk -v v="$1" '$1=="guru" && $2==v{print $3}' "$CH/index")
+    m=$(awk -v v="$1" '$1=="guru" && $2==v{print $4}' "$CH/index")
     awk '/^File: .* guru\.hdf$/{print $3 / 512}' "$CH/objects/$m.manifest"
 }
 n20=$(blocks_of 2.0)
@@ -113,14 +113,14 @@ n21=$(blocks_of 2.1)
 # A copy of the channel with one byte of the 2.1 image flipped, and one where
 # the dependency's signature is damaged.
 cp -R "$CH" "$share/tampered"
-m21=$(awk '$1=="guru" && $2=="2.1"{print $3}' "$CH/index")
+m21=$(awk '$1=="guru" && $2=="2.1"{print $4}' "$CH/index")
 p21=$(awk '/^Payload:/{print $2}' "$CH/objects/$m21.manifest")
 python3 -c "
 import sys
 p=sys.argv[1]; b=bytearray(open(p,'rb').read()); b[len(b)//2]^=1; open(p,'wb').write(b)
 " "$share/tampered/objects/$p21.pkg"
 cp -R "$CH" "$share/badsig"
-mid=$(awk '$1=="identify"{print $3}' "$CH/index")
+mid=$(awk '$1=="identify"{print $4}' "$CH/index")
 python3 -c "
 import sys
 p=sys.argv[1]; s=open(p).read(); i=s.index('Signature: ')+11

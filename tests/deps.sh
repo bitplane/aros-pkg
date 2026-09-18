@@ -57,7 +57,7 @@ echo "publish"
 pub base 1.0 library - > /dev/null;                     ok $? "publish base 1.0"
 pub mid 1.0 library "base >= 1.0" > /dev/null;          ok $? "publish mid, which needs base"
 pub app 1 image "mid, base>=1.0" > "$T/pa" 2>&1;        ok $? "publish app as an image needing mid and base"
-m=$(awk '$1=="app" && $2=="1"{print $3}' "$CH/index")
+m=$(awk '$1=="app" && $2=="1"{print $4}' "$CH/index")
 M="$CH/objects/$m.manifest"
 has "$M" '^Kind: image$';                               ok $? "the manifest says image"
 has "$M" '^Depends: base >= 1.0$' && has "$M" '^Depends: mid$'
@@ -148,7 +148,7 @@ $PKG INSTALL cyc-a ROOT "$R" CHANNEL "$CH" > "$T/cy" 2>&1
 # A dependency with a damaged signature: the whole install is refused.
 pub sigdep 1 library - > /dev/null
 pub usessig 1 application "sigdep" > /dev/null
-d=$(awk '$1=="sigdep"{print $3}' "$CH/index")
+d=$(awk '$1=="sigdep"{print $4}' "$CH/index")
 cp "$CH/objects/$d.sig" "$T/good.sig"
 python3 -c "
 import sys
@@ -200,7 +200,7 @@ $PKG SHOW CHANNEL "$CH" MACHINE > "$T/sh" 2>&1
 [ $? -eq 0 ] && has "$T/sh" '^entry: app 1 image generic ok ' && has "$T/sh" '^depends: app 1 mid$' \
     && has "$T/sh" '^bad: 0$';                          ok $? "SHOW lists each entry with kind, status, signer and dependencies"
 cp -R "$CH" "$T/chbad"
-b=$(awk '$1=="base" && $2=="1.0"{print $3}' "$CH/index")
+b=$(awk '$1=="base" && $2=="1.0"{print $4}' "$CH/index")
 bp=$(awk '/^Payload:/{print $2}' "$CH/objects/$b.manifest")
 printf 'x' >> "$T/chbad/objects/$bp.pkg"
 $PKG SHOW base CHANNEL "$T/chbad" MACHINE > "$T/shb" 2>&1
@@ -223,7 +223,7 @@ pub wtool 1.0 application - > /dev/null
 pub wtool 1.1 application - > /dev/null
 $PKG WITHDRAW wtool VERSION 1.1 CHANNEL "$CH" MACHINE > "$T/wd" 2>&1
 [ $? -eq 0 ] && has "$T/wd" '^result: withdrawn$';    ok $? "the publisher withdraws wtool 1.1"
-[ -f "$CH/objects/$(awk '$1=="wtool" && $2=="1.1"{print $3}' "$CH/index").manifest" ]
+[ -f "$CH/objects/$(awk '$1=="wtool" && $2=="1.1"{print $4}' "$CH/index").manifest" ]
                                                         ok $? "and it stays in the channel"
 $PKG INSTALL wtool ROOT "$WR" CHANNEL "$CH" MACHINE > "$T/wi" 2>&1
 [ $? -eq 0 ] && has "$T/wi" '^version: 1.0$';         ok $? "INSTALL without VERSION skips the withdrawn 1.1"
@@ -234,15 +234,15 @@ has "$T/ws" '^entry: wtool 1.1 application generic withdrawn '
                                                         ok $? "SHOW marks it withdrawn"
 PKG_SIGNKEY="$T/other.key" $PKG WITHDRAW wtool VERSION 1.0 CHANNEL "$CH" MACHINE > "$T/wo" 2>&1
 [ $? -eq 14 ];                                          ok $? "another key cannot withdraw it"
-wm=$(awk '$1=="wtool" && $2=="1.0"{print $3}' "$CH/index")
-printf 'forged\n' > "$CH/objects/$wm.withdrawn"; cp "$CH/objects/$(awk '$1=="wtool" && $2=="1.1"{print $3}' "$CH/index").withdrawn.sig" "$CH/objects/$wm.withdrawn.sig"
+wm=$(awk '$1=="wtool" && $2=="1.0"{print $4}' "$CH/index")
+printf 'forged\n' > "$CH/objects/$wm.withdrawn"; cp "$CH/objects/$(awk '$1=="wtool" && $2=="1.1"{print $4}' "$CH/index").withdrawn.sig" "$CH/objects/$wm.withdrawn.sig"
 $PKG INSTALL wtool ROOT "$T/wr3" CHANNEL "$CH" MACHINE > "$T/wi3" 2>&1
 [ $? -eq 0 ] && has "$T/wi3" '^version: 1.0$';        ok $? "a forged withdrawal of 1.0 is ignored"
 rm -f "$CH/objects/$wm.withdrawn" "$CH/objects/$wm.withdrawn.sig"
 
 # The same drawer published again repairs a damaged payload.
 pub fix 1.0 library - > /dev/null
-fm=$(awk '$1=="fix"{print $3}' "$CH/index")
+fm=$(awk '$1=="fix"{print $4}' "$CH/index")
 fp=$(awk '/^Payload:/{print $2}' "$CH/objects/$fm.manifest")
 printf 'x' >> "$CH/objects/$fp.pkg"
 $PKG SHOW fix CHANNEL "$CH" > /dev/null 2>&1

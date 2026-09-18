@@ -75,7 +75,7 @@ has "$T/pub" 'published hello 1.2';                   ok $? "publish reports wha
 has "$T/pub" "signed by $(echo "$PUB" | cut -c1-16)"; ok $? "publish names the signing key"
 has "$T/pub" 'left out \.DS_Store,' && has "$T/pub" 'left out Libs/\._data\.txt,'
                                                       ok $? "publish names each host file it left out"
-digest=$(awk '$1=="hello"{print $3}' "$CH/index")
+digest=$(awk '$1=="hello"{print $4}' "$CH/index")
 payload=$(awk '/^Payload:/{print $2}' "$CH/objects/$digest.manifest")
 [ "$(shasum -a 256 "$CH/objects/$digest.manifest" | cut -d' ' -f1)" = "$digest" ]
                                                       ok $? "the index names the manifest by its shasum"
@@ -213,7 +213,7 @@ man = ('Format: pkg-manifest 1\nName: %s\nVersion: 1\nArchitecture: generic\n'
 md = hashlib.sha256(man.encode()).hexdigest()
 open(os.path.join(ch, 'objects', d + '.pkg'), 'wb').write(pkg)
 open(os.path.join(ch, 'objects', md + '.manifest'), 'w').write(man)
-open(os.path.join(ch, 'index'), 'a').write('%s 1 %s\n' % (name, md))
+open(os.path.join(ch, 'index'), 'a').write('%s 1 generic %s\n' % (name, md))
 print(md)
 PY
 )
@@ -247,7 +247,7 @@ $PKG PUBLISH "$T/same" CHANNEL "$CH" NAME same VERSION 1 KIND data > /dev/null 2
                                                       ok $? "publish same 1"
 $PKG PUBLISH "$T/same" CHANNEL "$CH" NAME same VERSION 2 KIND data > /dev/null 2>&1
                                                       ok $? "publish same 2, identical bytes"
-[ "$(awk '$1=="same"{print $3}' "$CH/index" | sort -u | wc -l | tr -d ' ')" = 2 ]
+[ "$(awk '$1=="same"{print $4}' "$CH/index" | sort -u | wc -l | tr -d ' ')" = 2 ]
                                                       ok $? "two index entries, two distinct manifests"
 $PKG INSTALL same VERSION 1 ROOT "$T/r-same" CHANNEL "$CH" > "$T/same1" 2>&1
                                                       ok $? "version 1 installs"

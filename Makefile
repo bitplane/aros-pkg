@@ -15,7 +15,7 @@ HDR  = $(wildcard include/*.h)
 
 UNITS = test_container test_sha256 test_manifest test_ed25519 test_image
 
-.PHONY: all test test-ubsan check-portability check-m68k check-image check check-aros clean
+.PHONY: all test test-ubsan check-portability check-m68k check-image check check-aros clean install aros-channel
 
 all: build/pkg
 
@@ -34,6 +34,23 @@ build/libpkg.a: $(LIB) $(CORE) $(HOST) $(HDR)
 		$(CC) $(CFLAGS) $(CPPFLAGS) -c $$f -o build/lib-obj/$$(basename $$f .c).o || exit 1; \
 	done
 	ar rcs $@ build/lib-obj/*.o
+
+# Install the tool, the library and the agents' skill: `make install`, or
+# `make install PREFIX=/usr/local`. Nothing else is needed at run time.
+PREFIX ?= $(HOME)/.local
+
+install: build/pkg build/libpkg.a
+	@mkdir -p $(PREFIX)/bin $(PREFIX)/include $(PREFIX)/lib $(PREFIX)/share/pkg/skills/pkg
+	cp build/pkg $(PREFIX)/bin/pkg
+	cp include/pkg.h $(PREFIX)/include/pkg.h
+	cp build/libpkg.a $(PREFIX)/lib/libpkg.a
+	cp skills/pkg/SKILL.md $(PREFIX)/share/pkg/skills/pkg/SKILL.md
+	@echo "installed pkg into $(PREFIX)/bin; if that is not on PATH, add it"
+
+# A channel that puts Pkg itself on AROS machines: `make aros-channel
+# CHANNEL=<dir>`. See tools/make-aros-channel.sh.
+aros-channel: build/pkg
+	sh tools/make-aros-channel.sh "$(CHANNEL)"
 
 # The examples, built against libpkg.a as another program would.
 build/example-%: examples/%.c build/libpkg.a include/pkg.h
@@ -82,6 +99,8 @@ test:
 	@PKG=./build/pkg sh tests/e2e.sh
 	@echo "== deps"
 	@PKG=./build/pkg sh tests/deps.sh
+	@echo "== crossarch"
+	@PKG=./build/pkg sh tests/crossarch.sh
 	@echo "== examples"
 	@rm -f build/libpkg.a build/example-basic build/example-browse
 	@$(MAKE) --no-print-directory build/example-basic build/example-browse

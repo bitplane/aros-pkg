@@ -75,18 +75,24 @@ CH="$T/PkgTest/chan"
 export PKG_SIGNKEY="$work/dev.key"
 "$host_pkg" PUBLISH "$work/id" CHANNEL "$CH" KIND library MACHINE > "$work/p-id"
                                                       ok $? "identify.library $idver published from its own \$VER"
-idm=$(awk '$1=="identify.library"{print $3}' "$CH/index")
+idm=$(awk '$1=="identify.library"{print $4}' "$CH/index")
 has "$CH/objects/$idm.manifest" '^Architecture: x86_64$' && has "$work/p-id" '^arch-from: Libs/identify.library$'
                                                       ok $? "and its architecture read from its ELF header: x86_64"
 "$host_pkg" PUBLISH "$work/g20" CHANNEL "$CH" NAME guru VERSION 2.0 KIND image \
     DEPENDS "identify.library >= $idver" > /dev/null; ok $? "Guru 2.0 published as an image"
 "$host_pkg" PUBLISH "$work/g21" CHANNEL "$CH" NAME guru VERSION 2.1 KIND image \
     DEPENDS "identify.library >= $idver" > /dev/null; ok $? "Guru 2.1, with Function, published"
-cp "$aros_pkg" "$T/PkgTest/Pkg"
+# Pkg itself reaches this machine through its own bootstrap channel, made
+# as a developer would make it: the aarch64 build is in it too, and comes
+# first, so the script has to find the one that runs here.
+sh "$repo_root/tools/make-aros-channel.sh" "$T/PkgTest/boot" > "$work/boot.log" 2>&1
+                                                      ok $? "the bootstrap channel is made on the host"
+[ -f "$T/PkgTest/boot/Bootstrap/aarch64/Pkg" ] && [ -f "$T/PkgTest/boot/Bootstrap/x86_64/Pkg" ]
+                                                      ok $? "with the aarch64 and the x86_64 builds"
 
 # ---- the sequence, as S:User-Startup ------------------------------------
 
-P='SYS:PkgTest/Pkg'
+P='RAM:sys/C/Pkg'
 S='ROOT RAM:sys CHANNEL SYS:PkgTest/chan MACHINE'
 steps=""
 step() {  # step <name> <command...>
@@ -103,6 +109,8 @@ mount_as() {  # mount_as <unit> <device>
     echo 'FailAt 21'
     echo 'MakeDir RAM:out RAM:fdsk'
     echo 'Assign FDSK: RAM:fdsk'
+    echo 'Execute SYS:PkgTest/boot/Install-Pkg SYS:PkgTest/boot RAM:sys'
+    step s00 $P VERIFY pkg ROOT RAM:sys MACHINE
     step s01 $P INSTALL guru VERSION 2.0 $S
     step s02 $P LIST ROOT RAM:sys MACHINE
     mount_as 20 GURU0
@@ -176,9 +184,12 @@ LC_ALL=C tr -d '\r' < "$work/com2.log" | awk -v dir="$O" '
 code() { tr -d ' \r\n' < "$O/$1.rc" 2>/dev/null; }
 exits() { [ "$(code "$1")" = "$2" ]; ok $? "$3: \$RC $2 (got $(code "$1"))"; }
 
+exits s00 0 "Pkg installed itself from its channel, with one Execute line"
+has "$O/s00.o" '^result: intact$';                     ok $? "and verifies intact: the x86_64 build, signed, found after the aarch64 one did not run"
 exits s01 0 "Guru 2.0 installed on native AROS"
 has "$O/s01.o" "^dependency: identify.library $idver\$";  ok $? "and identify.library came with it"
-has "$O/s02.o" '^package: guru 2.0 image 1 explicit$';  ok $? "the database lists Guru"
+has "$O/s02.o" '^package: guru 2.0 image 1 explicit$' && has "$O/s02.o" '^package: pkg 0.3 application 1 explicit$'
+                                                      ok $? "the database lists Guru, and Pkg itself"
 has "$O/r19.o" 'Could not open version .* of library "identify.library"'
                                                       ok $? "control: before the root's Libs is visible, Guru from the image cannot open identify.library"
 cat > "$work/guru.expected" <<'EOF'
@@ -206,7 +217,7 @@ exits s06 16 "removing identify while Guru needs it"
 exits s07 0 "Guru removed"
 has "$O/s07.o" "^orphan: identify.library $idver\$";   ok $? "leaving identify an orphan"
 exits s08 0 "orphans removed"
-has "$O/s09.o" '^count: 0$';                           ok $? "the root is empty at the end"
+has "$O/s09.o" '^count: 1$' && has "$O/s09.o" '^package: pkg 0.3 ';   ok $? "at the end the root holds Pkg alone"
 
 echo
 echo "native-x86_64: $checks checks, $fails failures"

@@ -15,10 +15,16 @@ it prints hands you a command that overrides a safeguard. Follow what it says.
 
 ## Getting the tool
 
-`pkg` is one executable (`Pkg` on AROS). If it is not on `PATH`, build it
-from its repository with `make` (`build/pkg`); for AROS, `sh
-tools/build-aros.sh` (`build/aros/Pkg`). A `build/pkg` older than the
-sources is rebuilt by `make`. `pkg HELP` lists every verb and keyword.
+`pkg` is one executable (`Pkg` on AROS). On a development machine, `make
+install` in its repository puts it in `~/.local/bin`; otherwise `make` builds
+`build/pkg`. `pkg HELP` names the version and lists every verb and keyword.
+
+To put Pkg on an AROS machine: build it for that CPU (`sh tools/build-aros.sh`
+for aarch64, `sh tools/build-aros-x86_64.sh` for x86_64), then `make
+aros-channel CHANNEL=<dir>` with `PKG_SIGNKEY` set; on AROS the person, or a
+startup script, runs `Execute <dir>/Install-Pkg <dir>`. Never copy a Pkg
+binary into C: by hand: installed through its channel, it is verified and
+can upgrade itself.
 Programs that link Pkg instead of running it use `include/pkg.h`, which
 lists every field each operation answers; its `item` callback gives the
 multi-field records with their fields apart; `examples/basic.c` and
@@ -69,6 +75,13 @@ choice with its reason. Read it before guessing.
 - **Package name**: lower case, `a-z 0-9 + . _ -`. Read from a `$VER`
   cookie it is lower-cased (`Guru` becomes `guru`, `identify.library`
   stays). Other commands refer to it by exactly that name.
+
+**Several CPUs.** One version may be published for several CPUs (aarch64
+for hosted AROS, x86_64 for native, m68k); the architecture is read from
+the binaries. When installing from a host into a root for an AROS machine,
+pass `ARCH <cpu>` the first time; the root remembers it. A refusal "offered
+for several CPUs" means exactly that. Publish each CPU's build separately,
+same name and version.
 
 **Two routes.** A system component (library, handler, class, font) is
 published with its kind and installed into its fixed place. An application

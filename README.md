@@ -75,6 +75,48 @@ Four things the hosted runs established, none of them guessed beforehand:
   ROLLBACK has to honour that declaration. Not built yet; recorded as the next
   piece of the version model.
 
+## Setting up
+
+On the development machine, once:
+
+```sh
+make install                      # pkg, pkg.h, libpkg.a and the skill into ~/.local
+pkg KEYGEN FILE ~/.pkg-dev.key    # the publisher key, once per publisher
+```
+
+To put Pkg on AROS machines, build it for their CPUs (`sh tools/build-aros.sh`
+for aarch64, `sh tools/build-aros-x86_64.sh` for x86_64) and make a channel
+that carries it:
+
+```sh
+PKG_SIGNKEY=~/.pkg-dev.key make aros-channel CHANNEL=<dir>
+```
+
+On the AROS machine, with that directory reachable (a shared folder, a disk,
+an image, a network share), one line:
+
+```
+Execute <dir>/Install-Pkg <dir>
+```
+
+The script finds the build that runs on that machine and it installs the
+signed `pkg` package into `SYS:` (or a root given after the channel); from
+then on Pkg is a package like any other, upgraded with `Pkg UPGRADE pkg`.
+`tests/native-x86_64.sh` does exactly this on native AROS, where the aarch64
+build is tried first and does not run.
+
+## Several CPUs
+
+A channel may hold one version of a program for several CPUs: the index line
+is `name version arch digest`, and the architecture comes from the
+executables' own headers. An install picks the build for the root's machine,
+and `generic` ones: the machine is `ARCH` when given, else what the root
+recorded at its first CPU-specific install, else, when Pkg runs on AROS, its
+own CPU. A package offered for several CPUs, into a root whose machine is not
+known, is refused until `ARCH` says which. Dependencies, upgrades and
+rollbacks stay on the root's CPU; `WITHDRAW` takes `ARCH` when a version was
+built for more than one. `tests/crossarch.sh`, 20 checks.
+
 ## As a library
 
 `include/pkg.h` is the interface; `src/pkg_lib.c` holds every operation;
