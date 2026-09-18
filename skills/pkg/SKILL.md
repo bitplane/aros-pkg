@@ -212,7 +212,11 @@ are the commands to run, in order: make a directory for `FDSK:`, link the
 image there as `UnitN`, write-protect it, add the root's `Libs` to `LIBS:`
 when its dependencies live there, and `Mount RAM:GURU`. The device is named
 after the mountlist file: `GURU:`. Run the program as `GURU:C/Guru`, or
-`Path GURU:C ADD`. Before an upgrade or rollback replaces the image, `Eject
+`Path GURU:C ADD`. If the program then cannot open a library its package
+brought (seen on a native system booted from CD, where a RAM: directory added
+to `LIBS:` is not searched), `CD <root>` before running it: the library loader
+also looks in `libs/` under the current directory. Before an upgrade or
+rollback replaces the image, `Eject
 GURU:`; afterwards run MOUNTLIST again, since the size may change. The FFS
 handler is the system's; where the system has none (hosted AROS), install
 one into the root as a component and MOUNTLIST finds it, or pass `HANDLER`.
