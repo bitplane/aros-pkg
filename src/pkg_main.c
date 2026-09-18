@@ -104,7 +104,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "ACCEPTKEY", offsetof(struct pkg_options, acceptkey) },
         { "DEPENDS",   offsetof(struct pkg_options, depends) },
         { "UNIT",      offsetof(struct pkg_options, unit) },
-        { "HANDLER",   offsetof(struct pkg_options, handler) }
+        { "HANDLER",   offsetof(struct pkg_options, handler) },
+        { "FILES",     offsetof(struct pkg_options, files) }
 };
 
 static int takes_value(const char *w)

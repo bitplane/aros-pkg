@@ -298,6 +298,27 @@ one `Content: <sha256> <size> <path>` line each, the syntax of `File:`, so
 that the dry run of a new version can say which files changed since the
 last one.
 
+### Packages whose files stay in someone else's archive
+
+`PUBLISH "<archive>!/<path>" FILES "a,b"` publishes the files under a path
+inside a `.tar` or `.tar.bz2` archive, only those under the paths `FILES`
+names: a nightly contrib archive becomes one package per component without
+being unpacked or copied. The signed manifest lists every file with its
+digest and names the archive with `Source: <archive name>!/<path>` instead of
+a `Payload:`; no container is written. The channel keeps the archive as
+`archives/<name>`. `INSTALL` reads the archive once, takes the listed files
+out and checks each against the manifest, so an archive changed since
+publishing is refused (12) and one the channel lacks is said so (11). Owner
+Execute comes from the archive's mode bits. The reader is `src/pkg_archive.c`
+over libbzip2 1.0.8, vendored unmodified in `third_party/bzip2`;
+`tests/archive.sh` checks it against archives the system's tar and bzip2
+write and, given `PKG_NIGHTLY_CONTRIB`, against a whole nightly.
+
+A version may carry a build after `+`, such as the date of the nightly a
+component was taken from: `41.7+20260918`. It orders after the version, so
+`41.7 < 41.7+20260917 < 41.7+20260918 < 41.8`, and it is not compared with
+the program's `$VER`.
+
 ### Protection bits and comments
 
 Each file carries its AROS protection word and comment, where they differ

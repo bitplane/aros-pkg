@@ -28,7 +28,7 @@ void pkg_manifest_free(struct pkg_manifest *m)
 {
     size_t i;
     free(m->name); free(m->version); free(m->architecture);
-    free(m->kind); free(m->payload);
+    free(m->kind); free(m->payload); free(m->source);
     for (i = 0; i < m->nfiles; i++) {
         free(m->files[i].path);
         free(m->files[i].comment);
@@ -261,21 +261,26 @@ const char *pkg_check_name(const char *s)
     return NULL;
 }
 
+/* Dotted numbers, then optionally "+" and dotted numbers: the build, such as
+ * the date of the nightly a component was taken from (41.7+20260918). */
 const char *pkg_check_version(const char *s)
 {
     size_t digits = 0;
+    int plus = 0;
     if (s == NULL || *s == '\0')
         return "the version is empty";
     for (; *s; s++) {
         if (*s >= '0' && *s <= '9') {
             if (++digits > 9u)
                 return "a version component is longer than 9 digits";
-        } else if (*s == '.') {
+        } else if (*s == '.' || (*s == '+' && !plus)) {
             if (digits == 0u)
                 return "the version has an empty component";
+            if (*s == '+') plus = 1;
             digits = 0;
         } else {
-            return "the version must be dotted numbers, such as 40.1 or 1.2.3";
+            return "the version must be dotted numbers, such as 40.1 or 1.2.3, optionally "
+                   "followed by + and a build such as 20260918";
         }
     }
     if (digits == 0u)
@@ -310,18 +315,35 @@ const char *pkg_check_kind(const char *s)
            "class, font, catalog, startup, data, slave, sdk, image";
 }
 
-int pkg_version_cmp(const char *a, const char *b)
+/* Dotted numbers up to the end or a '+', missing components counting 0. */
+static int cmp_dotted(const char **pa, const char **pb)
 {
-    while (*a || *b) {
+    const char *a = *pa, *b = *pb;
+    int r = 0;
+    while ((*a && *a != '+') || (*b && *b != '+')) {
         unsigned long x = 0, y = 0;
         while (*a >= '0' && *a <= '9') x = x * 10u + (unsigned long)(*a++ - '0');
         while (*b >= '0' && *b <= '9') y = y * 10u + (unsigned long)(*b++ - '0');
-        if (x != y)
-            return x < y ? -1 : 1;
+        if (r == 0 && x != y)
+            r = x < y ? -1 : 1;
         if (*a == '.') a++;
         if (*b == '.') b++;
     }
-    return 0;
+    *pa = a;
+    *pb = b;
+    return r;
+}
+
+/* The version first; at equal versions the build, none counting lowest, so
+ * 41.7 < 41.7+20260917 < 41.7+20260918 < 41.8. */
+int pkg_version_cmp(const char *a, const char *b)
+{
+    int r = cmp_dotted(&a, &b);
+    if (r != 0)
+        return r;
+    if (*a == '+') a++;
+    if (*b == '+') b++;
+    return cmp_dotted(&a, &b);
 }
 
 /* ---- emit ------------------------------------------------------------- */
@@ -372,6 +394,8 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
     }
     if (m->payload)
         sb_printf(&b, "Payload: %s\n", m->payload);
+    if (m->source)
+        sb_printf(&b, "Source: %s\n", m->source);
     for (i = 0; i < m->nfiles; i++)
         sb_printf(&b, "File: %s %llu %s\n", m->files[i].digest,
                   m->files[i].size, m->files[i].path);
@@ -540,6 +564,13 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
                 free(val); goto fail;
             }
             m->payload = val;
+        } else if (strcmp(key, "Source") == 0) {
+            const char *bang = strstr(val, "!/");
+            if (m->source != NULL || bang == NULL || bang == val || strchr(val, '\\') != NULL) {
+                seterr(err, errlen, line, "Source must appear once, as <archive>!/<path inside it>");
+                free(val); goto fail;
+            }
+            m->source = val;
         } else if (strcmp(key, "File") == 0 || strcmp(key, "Content") == 0) {
             /* Content: the files inside an image, the same syntax as File. */
             int is_c = key[0] == 'C';

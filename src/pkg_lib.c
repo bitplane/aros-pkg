@@ -34,6 +34,7 @@
 #include "pkg_image.h"
 #include "pkg_manifest.h"
 #include "pkg_ameta.h"
+#include "pkg_archive.h"
 #include "pkg_sha256.h"
 
 #include <ctype.h>
@@ -618,6 +619,7 @@ struct loaded {
     size_t         len;
     unsigned long long prot;    /* the AROS protection word it is published with */
     char          *comment;     /* its comment, UTF-8; NULL for none */
+    int            host_exec;   /* from an archive's mode: 1, 0; -2 ask the file system */
 };
 
 struct drawer {
@@ -673,7 +675,106 @@ static int load_one(const char *rel, void *ctx)
     free(full);
     d->v[d->n].prot = 0;
     d->v[d->n].comment = NULL;
+    d->v[d->n].host_exec = -2;
     d->n++;
+    return 0;
+}
+
+/* A drawer that is a part of an archive: "archive!/prefix", optionally only
+ * the paths FILES names under it. Paths are relative to the prefix, as they
+ * install; owner Execute comes from the archive's own mode bits. */
+struct arch_load {
+    struct drawer *d;
+    const char    *prefix;          /* "" for the whole archive */
+    const char    *files;           /* comma-separated, or NULL */
+    struct loaded *cur;
+    size_t         cap_cur;
+};
+
+static int files_match(const char *files, const char *rel)
+{
+    const char *p = files;
+    while (p && *p) {
+        const char *end = strchr(p, ',');
+        size_t n = end ? (size_t)(end - p) : strlen(p);
+        while (n > 0 && p[n - 1] == '/') n--;
+        if (n > 0 && strncmp(rel, p, n) == 0 && (rel[n] == '\0' || rel[n] == '/'))
+            return 1;
+        p = end ? end + 1 : NULL;
+    }
+    return 0;
+}
+
+static int arch_want(const struct pkg_archive_entry *e, void *ctx)
+{
+    struct arch_load *al = (struct arch_load *)ctx;
+    struct drawer *d = al->d;
+    size_t pl = strlen(al->prefix);
+    const char *rel = e->path, *c;
+    if (e->is_dir) return 0;
+    if (pl) {
+        if (strncmp(e->path, al->prefix, pl) != 0 || e->path[pl] != '/') return 0;
+        rel = e->path + pl + 1;
+    }
+    if (al->files && !files_match(al->files, rel)) return 0;
+    for (c = rel; c; c = strchr(c, '/') ? strchr(c, '/') + 1 : NULL)
+        if (*c == '.') { leave_out(rel, 0, d); return 0; }   /* hidden, as a drawer's */
+    if (pkg_check_path(rel) != NULL) {
+        snprintf(d->err, sizeof d->err, "\"%s\": %s", rel, pkg_check_path(rel));
+        return -1;
+    }
+    if (d->n == d->cap) {
+        size_t ncap = d->cap ? d->cap * 2u : 32u;
+        struct loaded *w = (struct loaded *)realloc(d->v, ncap * sizeof *w);
+        if (w == NULL) return -1;
+        d->v = w;
+        d->cap = ncap;
+    }
+    al->cur = &d->v[d->n];
+    memset(al->cur, 0, sizeof *al->cur);
+    al->cur->rel = pkg_join("", rel);
+    al->cur->host_exec = (e->mode & 0100) != 0;
+    al->cap_cur = 0;
+    if (al->cur->rel == NULL) return -1;
+    d->n++;
+    return 1;
+}
+
+static int arch_data(const struct pkg_archive_entry *e, const unsigned char *buf, size_t len, void *ctx)
+{
+    struct arch_load *al = (struct arch_load *)ctx;
+    struct loaded *f = al->cur;
+    (void)e;
+    if (len == 0) {
+        if (f->data == NULL && (f->data = (unsigned char *)malloc(1)) == NULL) return -1;
+        return 0;
+    }
+    if (f->len + len > al->cap_cur) {
+        size_t nc = al->cap_cur ? al->cap_cur : 4096;
+        unsigned char *g;
+        while (nc < f->len + len) nc *= 2;
+        g = (unsigned char *)realloc(f->data, nc);
+        if (g == NULL) return -1;
+        f->data = g;
+        al->cap_cur = nc;
+    }
+    memcpy(f->data + f->len, buf, len);
+    f->len += len;
+    return 0;
+}
+
+static int load_archive(struct drawer *d, const char *archive, const char *prefix, const char *files)
+{
+    struct arch_load al;
+    char err[300];
+    memset(&al, 0, sizeof al);
+    al.d = d;
+    al.prefix = prefix;
+    al.files = files;
+    if (pkg_archive_walk(archive, arch_want, arch_data, &al, err, sizeof err) != 0) {
+        if (!d->err[0]) snprintf(d->err, sizeof d->err, "%.200s: %.280s", archive, err[0] ? err : "cannot read it");
+        return -1;
+    }
     return 0;
 }
 
@@ -948,8 +1049,9 @@ static void squash(const char *in, char *out, size_t ol)
     out[o] = '\0';
 }
 
-/* A file whose $VER names another program than its file name is usually
- * the wrong file copied into the drawer. */
+/* An executable whose $VER names another program than its file name is
+ * usually the wrong file copied into the drawer. Scripts and data carry the
+ * cookies of whatever they belong to, so only executables are checked. */
 static void check_cookie_names(const struct drawer *d)
 {
     size_t i;
@@ -957,7 +1059,8 @@ static void check_cookie_names(const struct drawer *d)
     for (i = 0; i < d->n; i++) {
         const char *base = strrchr(d->v[i].rel, '/');
         base = base ? base + 1 : d->v[i].rel;
-        if (!cookie(&d->v[i], n, sizeof n, v, sizeof v))
+        if (file_arch(d->v[i].data, d->v[i].len) == NULL     /* scripts name other programs */
+            || !cookie(&d->v[i], n, sizeof n, v, sizeof v))
             continue;
         squash(n, sn, sizeof sn);
         squash(base, sf, sizeof sf);
@@ -1014,7 +1117,7 @@ static int drawer_attrs(struct drawer *d)
     int warned_owner = 0;
     for (i = 0; i < d->n; i++) {
         struct loaded *f = &d->v[i];
-        char *full = pkg_join(d->root, f->rel), latin[PKG_COMMENT_MAX + 1], cbuf[4 * PKG_COMMENT_MAX + 1];
+        char *full = d->root ? pkg_join(d->root, f->rel) : NULL, latin[PKG_COMMENT_MAX + 1], cbuf[4 * PKG_COMMENT_MAX + 1];
         const char *slash = strrchr(f->rel, '/'), *base = slash ? slash + 1 : f->rel;
         char dirrel[512], *dir, *ap;
         unsigned char *buf = NULL;
@@ -1022,6 +1125,11 @@ static int drawer_attrs(struct drawer *d)
         struct pkg_ameta a;
         struct pkg_ameta_entry *e;
         int native, ex, seen = 0;
+        if (d->root == NULL) {          /* from an archive: its mode, AROS defaults */
+            f->prot = pkg_ameta_publish_word(NULL, 1, f->host_exec == 1);
+            free(full);
+            continue;
+        }
         if (full == NULL) return refuse("out of memory");
         native = pkg_fs_amiga_get(full, &f->prot, latin, sizeof latin);
         if (native < 0) { free(full); return refuse_c(17, "cannot read the attributes of \"%s\"", f->rel); }
@@ -1129,6 +1237,7 @@ static int build(const struct pkg_options *a, struct built *out)
     char vname[65], vver[64];
     const char *from = NULL, *name, *version, *arch, *kind, *why;
     const char *kind_src = a->kind, *deps_src = a->depends;
+    char arch_file[1024], arch_prefix[1024];
     char ikind[32], ideps[1024], ifrom[160];
     char payload[PKG_SHA256_HEXLEN + 1];
     size_t i;
@@ -1138,14 +1247,34 @@ static int build(const struct pkg_options *a, struct built *out)
     pkg_manifest_init(&out->m);
     if (a->target == NULL)
         return refuse_c(20, "name the drawer to package");
-    if (!pkg_fs_is_dir(a->target))
-        return refuse_c(20, "\"%s\" is not a directory", a->target);
-
-    d.root = a->target;
-    if (pkg_fs_walk(a->target, load_one, leave_out, &d, &out->skipped, d.err, sizeof d.err) != 0) {
-        refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
-        drawer_free(&d);
-        return 1;
+    if (pkg_archive_split(a->target, arch_file, sizeof arch_file, arch_prefix, sizeof arch_prefix)) {
+        const char *base = strrchr(arch_file, '/');
+        char src[2200];
+        base = base ? base + 1 : arch_file;
+        if (!pkg_fs_exists(arch_file))
+            return refuse_c(20, "no archive at \"%s\"", arch_file);
+        d.root = NULL;                  /* no file system behind these files */
+        if (load_archive(&d, arch_file, arch_prefix, a->files) != 0) {
+            refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the archive");
+            drawer_free(&d);
+            return 1;
+        }
+        snprintf(src, sizeof src, "%s!/%s", base, arch_prefix);
+        pkg_manifest_set(&out->m.source, src);
+        tr("drawer from %s: %lu files under %s", arch_file, (unsigned long)d.n,
+           arch_prefix[0] ? arch_prefix : "its top");
+    } else {
+        if (a->files != NULL)
+            return refuse_c(20, "FILES chooses paths inside an archive: give the drawer as "
+                            "\"<archive>!/<path>\"");
+        if (!pkg_fs_is_dir(a->target))
+            return refuse_c(20, "\"%s\" is not a directory", a->target);
+        d.root = a->target;
+        if (pkg_fs_walk(a->target, load_one, leave_out, &d, &out->skipped, d.err, sizeof d.err) != 0) {
+            refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
+            drawer_free(&d);
+            return 1;
+        }
     }
     if (d.n == 0) {
         drawer_free(&d);
@@ -1186,7 +1315,11 @@ static int build(const struct pkg_options *a, struct built *out)
                             "versions: %s. Say which this package is with NAME and VERSION", seen);
         }
         if (got > 0) {
-            if (version != NULL && pkg_version_cmp(version, vver) != 0)
+            char vmain[64];
+            /* the build a nightly adds (+20260918) is not the program's own */
+            snprintf(vmain, sizeof vmain, "%.*s", version ? (int)strcspn(version, "+") : 0,
+                     version ? version : "");
+            if (version != NULL && pkg_version_cmp(vmain, vver) != 0)
                 warn("VERSION %s, but the $VER cookie in %s says %s: is this the build "
                      "you meant to ship?", version, from, vver);
             if (version == NULL)
@@ -1327,7 +1460,8 @@ static int build(const struct pkg_options *a, struct built *out)
     }
     pkg_writer_free(w);
     pkg_sha256_hex(out->pkg, out->pkg_len, payload);
-    pkg_manifest_set(&out->m.payload, payload);
+    if (out->m.source == NULL)          /* an archive's files are fetched from it */
+        pkg_manifest_set(&out->m.payload, payload);
     if (pkg_manifest_emit(&out->m, &out->text, &out->text_len) != 0)
         return refuse("out of memory");
     return 0;
@@ -1435,6 +1569,17 @@ static char *object_path(const char *channel, const char *digest, const char *ex
 {
     char rel[128];
     snprintf(rel, sizeof rel, "objects/%s.%s", digest, ext);
+    return pkg_join(channel, rel);
+}
+
+/* Where installers find the archive a Source line names: archives/<name>
+ * in the channel. */
+static char *archive_path(const char *channel, const char *name)
+{
+    char rel[1100];
+    if (strchr(name, '/') != NULL || name[0] == '.')
+        return NULL;
+    snprintf(rel, sizeof rel, "archives/%s", name);
     return pkg_join(channel, rel);
 }
 
@@ -1723,6 +1868,107 @@ static void fetched_free(struct fetched *f)
     free(f->mtext);
 }
 
+struct arch_fetch {
+    const struct pkg_manifest *m;
+    const char    *prefix;
+    unsigned char **data;           /* per manifest file */
+    size_t        *len, *cap;
+    long           cur;
+};
+
+static int af_want(const struct pkg_archive_entry *e, void *ctx)
+{
+    struct arch_fetch *af = (struct arch_fetch *)ctx;
+    size_t pl = strlen(af->prefix), i;
+    const char *rel = e->path;
+    if (e->is_dir) return 0;
+    if (pl) {
+        if (strncmp(e->path, af->prefix, pl) != 0 || e->path[pl] != '/') return 0;
+        rel = e->path + pl + 1;
+    }
+    for (i = 0; i < af->m->nfiles; i++)
+        if (af->data[i] == NULL && strcmp(af->m->files[i].path, rel) == 0) {
+            af->cur = (long)i;
+            return 1;
+        }
+    return 0;
+}
+
+static int af_data(const struct pkg_archive_entry *e, const unsigned char *buf, size_t len, void *ctx)
+{
+    struct arch_fetch *af = (struct arch_fetch *)ctx;
+    size_t i = (size_t)af->cur;
+    (void)e;
+    if (af->len[i] + len + 1 > af->cap[i]) {
+        size_t nc = af->cap[i] ? af->cap[i] : 4096;
+        unsigned char *g;
+        while (nc < af->len[i] + len + 1) nc *= 2;
+        g = (unsigned char *)realloc(af->data[i], nc);
+        if (g == NULL) return -1;
+        af->data[i] = g;
+        af->cap[i] = nc;
+    }
+    if (len) memcpy(af->data[i] + af->len[i], buf, len);
+    af->len[i] += len;
+    return 0;
+}
+
+/* A package whose files are in someone else's archive: take them out of it
+ * and assemble the container the rest of the install reads, so every file
+ * is checked against the signed manifest the same way. */
+static int fetch_from_archive(const char *channel, struct fetched *f, const char *what)
+{
+    char an[1024], prefix[1024], err[300];
+    char *ap;
+    struct arch_fetch af;
+    struct pkg_writer *w = NULL;
+    size_t i, n = f->m.nfiles ? f->m.nfiles : 1;
+    int rc = 1;
+
+    pkg_archive_split(f->m.source, an, sizeof an, prefix, sizeof prefix);
+    ap = archive_path(channel, an);
+    if (ap == NULL || !pkg_fs_exists(ap)) {
+        refuse_c(11, "%s comes from the archive %s, which the channel does not have (expected at %s)",
+                 what, an, ap ? ap : "archives/");
+        free(ap);
+        return 1;
+    }
+    memset(&af, 0, sizeof af);
+    af.m = &f->m;
+    af.prefix = prefix;
+    af.data = (unsigned char **)calloc(n, sizeof *af.data);
+    af.len = (size_t *)calloc(n, sizeof *af.len);
+    af.cap = (size_t *)calloc(n, sizeof *af.cap);
+    if (af.data == NULL || af.len == NULL || af.cap == NULL) { refuse("out of memory"); goto done; }
+    tr("%s: reading its files out of %s", what, ap);
+    if (pkg_archive_walk(ap, af_want, af_data, &af, err, sizeof err) != 0) {
+        refuse_c(12, "the archive %s is refused: %s. Nothing was installed", ap, err[0] ? err : "unreadable");
+        goto done;
+    }
+    w = pkg_writer_new();
+    if (w == NULL) { refuse("out of memory"); goto done; }
+    for (i = 0; i < f->m.nfiles; i++) {
+        if (af.data[i] == NULL) {
+            refuse_c(12, "the archive %s lacks %s/%s, which %s's signed manifest lists. Nothing was "
+                     "installed", ap, prefix, f->m.files[i].path, what);
+            goto done;
+        }
+        if (pkg_writer_add(w, f->m.files[i].path, af.data[i], af.len[i]) != PKG_OK) {
+            refuse("out of memory");
+            goto done;
+        }
+    }
+    if (pkg_writer_finish(w, &f->pkg, &f->pkg_len) != PKG_OK) { refuse("out of memory"); goto done; }
+    tr("%s: %lu files taken from %s", what, (unsigned long)f->m.nfiles, an);
+    rc = 0;
+done:
+    if (w) pkg_writer_free(w);
+    for (i = 0; af.data && i < n; i++) free(af.data[i]);
+    free(af.data); free(af.len); free(af.cap);
+    free(ap);
+    return rc;
+}
+
 static int fetch(const char *channel, const struct entry *e, struct fetched *f)
 {
     char *mo = object_path(channel, e->digest, "manifest");
@@ -1759,11 +2005,16 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
         goto out;
     }
     if (strcmp(f->m.name, e->name) != 0 || pkg_version_cmp(f->m.version, e->version) != 0
-        || f->m.payload == NULL) {
+        || (f->m.payload == NULL) == (f->m.source == NULL)) {
         refuse_c(12, "the manifest of %s disagrees with the channel index about what it is", what);
         goto out;
     }
-    /* 4. The payload the signed manifest names. */
+    /* 4. The payload the signed manifest names, or its files in the archive
+     *    it names, each checked against the manifest when it is placed. */
+    if (f->m.source != NULL) {
+        rc = fetch_from_archive(channel, f, what);
+        goto out;
+    }
     po = object_path(channel, f->m.payload, "pkg");
     if (po == NULL) { refuse("out of memory"); goto out; }
     if (pkg_fs_read(po, &f->pkg, &f->pkg_len) != 0) {
@@ -3058,7 +3309,7 @@ static int republish(const struct pkg_options *a, const struct index *ix, const 
                      const struct key *k, const char *mdigest)
 {
     char *mo = object_path(a->channel, mdigest, "manifest");
-    char *po = object_path(a->channel, b->m.payload, "pkg");
+    char *po = b->m.payload ? object_path(a->channel, b->m.payload, "pkg") : NULL;
     char *so = object_path(a->channel, mdigest, "sig");
     char signer[65], first_signer[65];
     const struct entry *oldest = NULL;
@@ -3066,7 +3317,7 @@ static int republish(const struct pkg_options *a, const struct index *ix, const 
     size_t o;
 
     good_m = object_good(mo, mdigest);
-    good_p = object_good(po, b->m.payload);
+    good_p = b->m.payload ? object_good(po, b->m.payload) : 1;   /* else the archive holds it */
     if (so != NULL) {
         int q = quiet;
         quiet = 1;
@@ -3204,6 +3455,22 @@ static int cmd_publish(const struct pkg_options *a)
     inherit_channel = NULL;
     if (rc != 0) { free(ix.e); built_free(&b); return 1; }
     rc = 1;
+    if (b.m.source != NULL) {
+        /* The files stay in the archive; installers find it in the channel. */
+        char an[1024], ai[1024], *ap;
+        pkg_archive_split(b.m.source, an, sizeof an, ai, sizeof ai);
+        ap = archive_path(a->channel, an);
+        if (ap == NULL || !pkg_fs_exists(ap)) {
+            refuse_c(20, "the files of %s come from %s, which installers look for as %s; put the "
+                     "archive there (a copy or a link) and publish again", b.m.name, an,
+                     ap ? ap : "archives/<name> in the channel");
+            free(ap);
+            free(ix.e);
+            built_free(&b);
+            return 1;
+        }
+        free(ap);
+    }
     if (strcmp(b.m.architecture, "generic") == 0
         && (strcmp(b.m.kind, "image") == 0 || strcmp(b.m.kind, "application") == 0
             || strcmp(b.m.kind, "library") == 0 || strcmp(b.m.kind, "device") == 0
@@ -3379,11 +3646,12 @@ static int cmd_publish(const struct pkg_options *a)
         rc = 0;
         goto out;
     }
-    po = object_path(a->channel, b.m.payload, "pkg");     /* content-addressed, shareable */
+    po = b.m.payload ? object_path(a->channel, b.m.payload, "pkg")   /* content-addressed */
+                     : pkg_strdup("");                                 /* the archive holds it */
     mo = object_path(a->channel, mdigest, "manifest");      /* one per version */
     so = object_path(a->channel, mdigest, "sig");
     if (po == NULL || mo == NULL || so == NULL
-        || pkg_fs_write_atomic(po, b.pkg, b.pkg_len) != 0
+        || (b.m.payload && pkg_fs_write_atomic(po, b.pkg, b.pkg_len) != 0)
         || pkg_fs_write_atomic(mo, b.text, b.text_len) != 0
         || write_sig(so, &k, (const unsigned char *)b.text, b.text_len) != 0) {
         refuse_c(17, "cannot write into the channel \"%s\": %s", a->channel, strerror(errno));
@@ -3403,18 +3671,20 @@ static int cmd_publish(const struct pkg_options *a)
         refuse_c(17, "cannot write the channel index: %s", strerror(errno));
         goto out;
     }
-    short12(b.m.payload, s12);
+    if (b.m.payload) short12(b.m.payload, s12);
     kv("result", "published");
     kv("name", "%s", b.m.name);
     kv("version", "%s", b.m.version);
     kv("channel", "%s", a->channel);
     kv("manifest", "%s", mdigest);
-    kv("payload", "%s", b.m.payload);
+    if (b.m.payload) kv("payload", "%s", b.m.payload);
+    else kv("source", "%s", b.m.source);
     kv("signer", "%s", k.pkhex);
     kv("files", "%lu", (unsigned long)b.m.nfiles);
     if (!machine)
-    say("published %s %s to %s: %lu files, payload %s, signed by %.16s\n", b.m.name,
-           b.m.version, a->channel, (unsigned long)b.m.nfiles, s12, k.pkhex);
+    say("published %s %s to %s: %lu files, %s%s, signed by %.16s\n", b.m.name,
+           b.m.version, a->channel, (unsigned long)b.m.nfiles, b.m.payload ? "payload " : "from ",
+           b.m.payload ? s12 : b.m.source, k.pkhex);
     if (b.arch_from[0] && machine)
         kv("arch-from", "%s", b.arch_from);
     else if (b.arch_from[0])
@@ -3524,7 +3794,7 @@ static int cmd_install(const struct pkg_options *a)
         && run_plan(&p, NULL, &placed, &dropped, &kept) == 0) {
         const struct fetched *t = &p.f[p.n - 1];
         struct fetched f = *t;
-        short12(f.m.payload, s12);
+        if (f.m.payload) short12(f.m.payload, s12);
         if (!dryrun)
             record_arch(a->root, p.f[p.n - 1].m.architecture);
         kv("result", "%s", res("installed", "would-install"));
@@ -3532,12 +3802,14 @@ static int cmd_install(const struct pkg_options *a)
         kv("version", "%s", f.m.version);
         kv("root", "%s", a->root);
         kv("files", "%lu", placed);
-        kv("payload", "%s", f.m.payload);
+        if (f.m.payload) kv("payload", "%s", f.m.payload);
+        else kv("source", "%s", f.m.source);
         kv("signer", "%s", f.signer);
         if (!machine)
-        say("%s %s %s into %s: %lu files, payload %s, signed by %.16s\n",
+        say("%s %s %s into %s: %lu files, %s%s, signed by %.16s\n",
                dryrun ? "would install" : "installed",
-               f.m.name, f.m.version, a->root, placed, s12, f.signer);
+               f.m.name, f.m.version, a->root, placed, f.m.payload ? "payload " : "from ",
+               f.m.payload ? s12 : f.m.source, f.signer);
         if (strcmp(f.m.kind, "image") == 0 && f.m.nfiles == 1) {
             kv("image", "%s", f.m.files[0].path);
             kv("blocks", "%llu", f.m.files[0].size / PKG_IMAGE_BLOCK);

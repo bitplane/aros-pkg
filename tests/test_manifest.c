@@ -110,6 +110,13 @@ static void versions(void)
     ok(pkg_version_cmp("40.1", "40.1") == 0, "equal");
     ok(pkg_version_cmp("1.2", "1.2.0") == 0, "1.2 equals 1.2.0");
     ok(pkg_version_cmp("2", "1.99") > 0, "2 > 1.99");
+    ok(pkg_version_cmp("41.7", "41.7+20260917") < 0, "a version with no build is below the same with one");
+    ok(pkg_version_cmp("41.7+20260917", "41.7+20260918") < 0, "builds order by their number");
+    ok(pkg_version_cmp("41.7+20260918", "41.8") < 0, "the version counts before the build");
+    ok(pkg_version_cmp("41.7.0+1", "41.7+1") == 0, "a missing component counts 0 before the build too");
+    ok(pkg_check_version("41.7+20260918") == NULL, "41.7+20260918 is a version");
+    ok(pkg_check_version("41.7+2026+1") != NULL && pkg_check_version("41.7+") != NULL
+       && pkg_check_version("+1") != NULL, "one build only, never empty");
     ok(pkg_check_version("1.2rc1") != NULL, "1.2rc1 refused");
     ok(pkg_check_version("1..2") != NULL, "1..2 refused");
     ok(pkg_check_version("1.") != NULL, "1. refused");

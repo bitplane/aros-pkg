@@ -51,6 +51,8 @@ struct pkg_manifest {
     char            *architecture;
     char            *kind;
     char            *payload;       /* NULL until the container exists */
+    char            *source;        /* "<archive>!/<prefix>": the files come from an
+                                       archive someone else published; no payload */
     struct pkg_file *files;
     size_t           nfiles;
     size_t           cap;

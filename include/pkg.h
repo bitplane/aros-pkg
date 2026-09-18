@@ -124,6 +124,10 @@ struct pkg_options {
                                from a new key, trust one of several, or publish with a new one */
     const char *unit;       /* mountlist: the fdsk.device unit, default 20 */
     const char *handler;    /* mountlist: the FFS handler's path, default found in the root */
+    const char *files;      /* publish from "archive!/prefix": the paths under the prefix
+                               that make this package, comma-separated; all when NULL.
+                               The manifest then names the archive (Source) and the
+                               channel keeps it as archives/<name> */
     int downgrade;          /* upgrade: moving to an older version was asked for */
     int orphans;            /* remove: remove what nothing needs, instead of target */
     int dryrun;             /* every check, no write; results read would-... */

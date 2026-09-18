@@ -194,6 +194,13 @@ and only what other programs share goes into `DEPENDS`, by package name.
 The dry run lists the files that go into the image as `content:` lines.
 On macOS the filesystem ignores case: never create `GURU` beside `Guru`.
 
+**From someone else's archive** (a nightly contrib `.tar.bz2`):
+`PUBLISH "<archive>!/<top dir>" FILES "Extras/App,Prefs/Env-Archive/SYS/Packages/App"`
+publishes those paths as one package without unpacking anything; copy or
+link the archive into the channel as `archives/<name>` first. Keep the
+archive's own layout: files install at the paths the archive gives them. A
+nightly's version is the component's `$VER` plus the date: `2.1+20260918`.
+
 **Protection bits and comments.** On AROS, Pkg publishes each file's own.
 On a Mac, Linux or Windows, the files have none, so they come from a text
 file named `.ameta` in each drawer directory (one per directory, the format

@@ -515,7 +515,12 @@ has "$T/g11" '^hint: Mount reads the entry from a file' && has "$T/g11" '^hint: 
 echo "wrong_program"
 # A game drawer holding another program by mistake: its cookie names that program.
 mkdir -p "$T/game/C" "$T/wch"
-cp "$D/C/Hello" "$T/game/C/Asteroids"
+# an x86_64 ELF header, then the cookie of hello: another program
+python3 -c "
+import sys
+b = bytearray(64); b[0:4] = b'\\x7fELF'; b[4] = 2; b[5] = 1; b[18] = 62
+open(sys.argv[1], 'wb').write(bytes(b) + b'\\x00\$VER: hello 1.2 (18.9.2026)\\x00')
+" "$T/game/C/Asteroids"
 $PKG PUBLISH "$T/game" CHANNEL "$T/wch" KIND image NAME asteroids VERSION 1.0 DRYRUN MACHINE > "$T/w1" 2>&1
 has "$T/w1" '^warning: C/Asteroids carries the \$VER cookie of hello'
                                                       ok $? "an executable whose cookie names another program is warned about"
@@ -639,6 +644,40 @@ $PKG PUBLISH "$AT/bad" CHANNEL "$AT/chb" KIND application MACHINE > "$T/at5" 2>&
 printf 'ameta 1\nfile Go\nuid 501\n' > "$AT/bad/S/.ameta"
 $PKG PUBLISH "$AT/bad" CHANNEL "$AT/chb" KIND application DRYRUN MACHINE > "$T/at6" 2>&1
 [ $? -eq 0 ] && has "$T/at6" '^warning: S/.ameta gives an owner'; ok $? "an owner is warned about, not carried"
+
+echo "from_archive"
+# A package whose files stay in someone else's archive, as a nightly contrib
+# archive: the manifest names archive!/path, the channel keeps the archive.
+FA="$T/fa"; mkdir -p "$FA/src/Top/Extras/App/C" "$FA/src/Top/Prefs/Env-Archive/SYS/Packages" "$FA/src/Top/Extras/Other"
+printf 'x\000$VER: app 2.1 (1.1.2026)\000' > "$FA/src/Top/Extras/App/C/App"; chmod 755 "$FA/src/Top/Extras/App/C/App"
+printf 'doc' > "$FA/src/Top/Extras/App/ReadMe"
+printf 'Extras:App\n' > "$FA/src/Top/Prefs/Env-Archive/SYS/Packages/App"
+printf 'other' > "$FA/src/Top/Extras/Other/Thing"
+(cd "$FA/src" && COPYFILE_DISABLE=1 tar -cjf "$FA/nightly.tar.bz2" Top)
+mkdir -p "$FA/ch/archives" && cp "$FA/nightly.tar.bz2" "$FA/ch/archives/"
+$PKG PUBLISH "$FA/nightly.tar.bz2!/Top" FILES "Extras/App,Prefs/Env-Archive/SYS/Packages/App" CHANNEL "$FA/ch" \
+    NAME app VERSION 2.1+20260918 KIND application MACHINE > "$T/fa1" 2>&1
+FM=$(ls "$FA/ch/objects/"*.manifest 2>/dev/null)
+[ $? -eq 0 ] && grep -q '^Source: nightly.tar.bz2!/Top$' $FM && ! grep -q '^Payload:' $FM \
+    && [ "$(grep -c '^File: ' $FM)" = 3 ] && ! ls "$FA/ch/objects/" | grep -q '\.pkg$'
+                                                      ok $? "PUBLISH archive!/path writes a signed manifest naming the archive, and no payload"
+grep -q '^Protect: 0x00000002 Extras/App/ReadMe$' $FM && ! grep -q 'Protect: .* Extras/App/C/App' $FM
+                                                      ok $? "owner Execute comes from the archive's mode bits"
+$PKG INSTALL app ROOT "$FA/r" CHANNEL "$FA/ch" MACHINE > "$T/fa2" 2>&1
+[ $? -eq 0 ] && cmp -s "$FA/r/Extras/App/C/App" "$FA/src/Top/Extras/App/C/App" \
+    && [ -f "$FA/r/Prefs/Env-Archive/SYS/Packages/App" ] && [ ! -e "$FA/r/Extras/Other" ]
+                                                      ok $? "INSTALL takes exactly those files out of the archive"
+$PKG VERIFY app ROOT "$FA/r" | grep -q 'all intact';  ok $? "and VERIFY finds them intact"
+! has "$T/fa1" 'warning: VERSION';                   ok $? "a nightly build suffix (+20260918) does not contradict the \$VER cookie"
+$PKG PUBLISH "$FA/nightly.tar.bz2!/Top" FILES "Extras/App" CHANNEL "$FA/ch2" NAME app VERSION 1 KIND application MACHINE > "$T/fa3" 2>&1
+[ $? -eq 20 ] && has "$T/fa3" 'put the archive there';  ok $? "publishing into a channel that lacks the archive is refused, saying where it goes"
+printf 'tampered' > "$FA/src/Top/Extras/App/ReadMe"
+(cd "$FA/src" && COPYFILE_DISABLE=1 tar -cjf "$FA/ch/archives/nightly.tar.bz2" Top)
+$PKG INSTALL app ROOT "$FA/r2" CHANNEL "$FA/ch" MACHINE > "$T/fa4" 2>&1
+[ $? -eq 12 ] && [ ! -e "$FA/r2/Extras/App/ReadMe" ]; ok $? "an archive whose files changed since publishing is refused, nothing placed"
+rm "$FA/ch/archives/nightly.tar.bz2"
+$PKG INSTALL app ROOT "$FA/r3" CHANNEL "$FA/ch" MACHINE > "$T/fa5" 2>&1
+[ $? -eq 11 ] && has "$T/fa5" 'which the channel does not have'; ok $? "an archive missing from the channel is said so"
 
 echo
 echo "$checks checks, $fails failures"
