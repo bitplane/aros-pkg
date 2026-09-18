@@ -40,7 +40,7 @@ grep -q 'TARGET_CPU_x86_64' "$tools/env.h" || { echo "build-aros-x86_64: env.h n
 
 cd "$repo_root"
 for f in src/pkg_main.c src/pkg_lib.c src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c \
-         src/pkg_ed25519.c src/pkg_manifest.c src/pkg_image.c src/pkg_fs_posix.c src/pkg_out.c \
+         src/pkg_ed25519.c src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_fs_posix.c src/pkg_out.c \
          src/pkg_port.c; do
     # The AROS clang predefines these; the stock one, which knows the triple
     # but not the platform, does not, and without __AROS__ Pkg would take its
