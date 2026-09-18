@@ -650,6 +650,7 @@ struct loaded {
 
 struct drawer {
     const char    *root;
+    const char    *files;       /* FILES: the paths of the tree that make the package */
     struct loaded *v;
     size_t         n, cap;
     char         **left_out;        /* host files not packaged, dirs with '/' */
@@ -673,12 +674,16 @@ static void leave_out(const char *rel, int is_dir, void *ctx)
     d->left_out[d->nleft++] = s;
 }
 
+static int files_match(const char *files, const char *rel);
+
 static int load_one(const char *rel, void *ctx)
 {
     struct drawer *d = (struct drawer *)ctx;
     char *full;
     const char *why = pkg_check_path(rel);
 
+    if (d->files != NULL && !files_match(d->files, rel))
+        return 0;                   /* FILES: only the paths it names, of a larger tree */
     if (why != NULL) {
         snprintf(d->err, sizeof d->err, "\"%s\": %s", rel, why);
         return -1;
@@ -1473,12 +1478,10 @@ static int build(const struct pkg_options *a, struct built *out)
         tr("drawer from %s: %lu files under %s", arch_file, (unsigned long)d.n,
            arch_prefix[0] ? arch_prefix : "its top");
     } else {
-        if (a->files != NULL)
-            return refuse_c(20, "FILES chooses paths inside an archive: give the drawer as "
-                            "\"<archive>!/<path>\"");
         if (!pkg_fs_is_dir(a->target))
             return refuse_c(20, "\"%s\" is not a directory", a->target);
         d.root = a->target;
+        d.files = a->files;
         if (pkg_fs_walk(a->target, load_one, leave_out, &d, &out->skipped, d.err, sizeof d.err) != 0) {
             refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
             drawer_free(&d);

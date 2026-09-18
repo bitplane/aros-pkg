@@ -751,6 +751,15 @@ $PKG UPGRADE tidy ROOT "$CI/r" CHANNEL "$CI/ch" MACHINE > "$T/ci5" 2>&1
 [ $? -eq 14 ] && ! grep -v -E '^[a-z][a-z-]*: ' "$T/ci5" | grep -q .
                                                       ok $? "a refusal whose reason spans lines is still one record per line"
 
+echo "files_of_a_tree"
+# One package out of a larger tree, as a system image's folders become packages.
+mkdir -p "$T/tree/C" "$T/tree/Libs" "$T/tree/Fonts"
+printf 'x\000$VER: dir 1.0 (1.1.2026)\000' > "$T/tree/C/Dir"; printf 'l' > "$T/tree/Libs/a.library"; printf f > "$T/tree/Fonts/x.font"
+$PKG PUBLISH "$T/tree" FILES "C,Libs" CHANNEL "$T/treech" NAME base VERSION 1 KIND application MACHINE > "$T/tr1" 2>&1
+TM=$(ls "$T/treech/objects/"*.manifest)
+[ $? -eq 0 ] && grep -q ' C/Dir$' $TM && grep -q ' Libs/a.library$' $TM && ! grep -q 'Fonts' $TM
+                                                      ok $? "FILES takes only the paths it names out of a directory tree"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]
