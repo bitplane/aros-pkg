@@ -83,6 +83,36 @@ tool, so byte order lives in one file behind two functions. That is also what
 makes the Aminet `.readme` interop cheap, since a text manifest converts to a
 text header with no second representation in between.
 
+### Why big-endian here when AFS+ is little-endian
+
+AFS+ is the newer format and it chose little-endian for its integer fields, so
+the question comes up. AFS+ is worth reading closely before it is used as an
+argument, because it did not pick *an* endianness at all. It picked per field,
+by what the field is for: little-endian for values, and **big-endian for tree
+keys, so that byte order is numeric order** and a key comparison is a byte
+comparison. Its own design review reaches the same place this file does on the
+other axis, that explicit byte-based decoding is what avoids the native
+alignment hazards.
+
+So the rule generalises past both formats: **byte order is chosen by access
+frequency and by purpose.** A filesystem decodes integers on every read, so
+matching the host on that path saves real work. A tree key must sort the way it
+counts, so it is big-endian whatever the host is. A package container decodes
+two integers per entry plus a header, so its order costs nothing measurable and
+buys interoperability.
+
+And here it is not a choice at all. `.pkg` is big-endian because AROS defined it
+that way, and this project adopted that format precisely because it exists, is
+documented, is used at boot and needs no port. Redefining it little-endian would
+discard the one thing it was chosen for, that AROS's own `Unpack` and the
+riscv64 loader read what we write, in exchange for saving four shifts per entry.
+
+The durable protection is elsewhere and is already in place: this container is
+the only binary format in the whole tool. If `.pkg` is ever replaced, the blast
+radius is two functions and one file. The calculus would change if something
+frequently decoded ever moved inside the container, which today holds paths and
+opaque blobs.
+
 Four checks hold the rule:
 
 | Check | What it catches |
