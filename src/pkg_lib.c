@@ -431,8 +431,10 @@ static int load_key(const char *path, struct key *k)
     char seedhex[65], pubhex[65];
 
     if (path == NULL)
-        return refuse_c(20, "no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY. "
-                      "Every package is signed; create a key with KEYGEN FILE <path>");
+        return refuse_n(20, "ask-person", "no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY. "
+                        "A publisher who has published before must sign with the same key, or "
+                        "every machine that installed their packages refuses the new ones: ask "
+                        "the person where theirs is before creating one with KEYGEN");
     if (pkg_fs_read(path, &buf, &len) != 0)
         return refuse_c(17, "cannot read the key \"%s\": %s", path, strerror(errno));
     if (len > 512u
@@ -488,6 +490,24 @@ static int check_sig(const char *sigpath, const unsigned char *msg, size_t len,
                       "manifest or the signature was altered after signing; nothing was installed",
                       what);
     memcpy(signer, pkhex, 65);
+    return 0;
+}
+
+/* Which public key a key file holds, without showing its secret. */
+static int cmd_keyinfo(const struct pkg_options *a)
+{
+    struct key k;
+    const char *path = a->file ? a->file : a->target ? a->target : a->sign;
+    if (path == NULL)
+        return refuse_c(20, "name the key file with FILE <keyfile>");
+    if (load_key(path, &k) != 0)
+        return 1;
+    kv("result", "shown");
+    kv("file", "%s", path);
+    kv("public", "%s", k.pkhex);
+    if (!machine)
+        say("%s holds the public key %s\n", path, k.pkhex);
+    memset(&k, 0, sizeof k);
     return 0;
 }
 
@@ -1042,6 +1062,8 @@ static char *object_path(const char *channel, const char *digest, const char *ex
 }
 
 /* Pick the entry for name: EXACT when version is given, else the highest. */
+static int pick_quiet;     /* the version was already chosen and traced */
+
 static const struct entry *pick(const struct index *ix, const char *name, const char *version)
 {
     const struct entry *p = NULL;
@@ -1056,7 +1078,9 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
             p = &ix->e[i];
         }
     }
-    if (p != NULL)
+    if (pick_quiet)
+        ;
+    else if (p != NULL)
         tr("picked %s %s: %s", p->name, p->version, version ? "the version asked for"
            : "the highest the channel offers");
     else
@@ -1218,6 +1242,50 @@ static int load_installed(const char *root, const char *name, struct pkg_manifes
     if (rc != 0)
         return refuse_c(12, "the database entry for %s is damaged: %s", name, err);
     return 0;
+}
+
+/* The signer a channel entry's signature file claims, unverified: enough to
+ * notice that two versions of one package name different publishers. */
+static int claimed_signer(const char *channel, const char *digest, char out[65])
+{
+    char *so = object_path(channel, digest, "sig");
+    unsigned char *buf;
+    size_t len;
+    int ok = 0;
+    if (so != NULL && pkg_fs_read(so, &buf, &len) == 0) {
+        ok = len < 512u && sscanf((const char *)buf, "Signer: %64s", out) == 1;
+        free(buf);
+    }
+    free(so);
+    return ok;
+}
+
+/* The other keys that sign versions of `name` in the channel, listed in
+ * `others`. The count of them. */
+static int other_signers(const char *channel, const struct index *ix, const char *name,
+                         const char *signer, char *others, size_t olen)
+{
+    size_t i, at = 0;
+    int n = 0;
+    char claim[65], seen[8][65];
+    others[0] = '\0';
+    for (i = 0; i < ix->n; i++) {
+        int j, dup = 0;
+        if (strcmp(ix->e[i].name, name) != 0 || !claimed_signer(channel, ix->e[i].digest, claim))
+            continue;
+        if (strcmp(claim, signer) == 0)
+            continue;
+        for (j = 0; j < n && j < 8; j++)
+            if (strcmp(seen[j], claim) == 0) dup = 1;
+        if (dup)
+            continue;
+        if (n < 8) snprintf(seen[n], sizeof seen[n], "%s", claim);
+        n++;
+        if (at + 90 < olen)
+            at += (size_t)snprintf(others + at, olen - at, "%s%s (on %s)", at ? ", " : "",
+                                   claim, ix->e[i].version);
+    }
+    return n;
 }
 
 /* The key pinned for a package in this root, and the rule that governs it. */
@@ -1665,7 +1733,38 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
         fetched_free(&f);
         return 1;
     }
+    {
+        /* Nothing pinned yet: the first install would trust this signer from
+         * now on. The key that signed the channel's first version of the
+         * package is presumed the publisher's; a first install signed by
+         * another key is the case a key added later by someone else would
+         * make, and trusting it is the person's decision. */
+        char *kp = root_path(p->root, "keys", e->name), first_signer[65];
+        const struct entry *oldest = NULL;
+        int first = kp != NULL && !pkg_fs_exists(kp);
+        size_t o;
+        free(kp);
+        for (o = 0; first && o < p->ix->n; o++)
+            if (strcmp(p->ix->e[o].name, e->name) == 0
+                && (oldest == NULL || pkg_version_cmp(p->ix->e[o].version, oldest->version) < 0))
+                oldest = &p->ix->e[o];
+        if (first && oldest != NULL && oldest != e
+            && claimed_signer(p->channel, oldest->digest, first_signer)
+            && strcmp(first_signer, f.signer) != 0
+            && (p->acceptkey == NULL || strcmp(p->acceptkey, f.signer) != 0)) {
+            kv("signer", "%s", f.signer);
+            kv("first-signer", "%s", first_signer);
+            refuse_n(14, "ask-person", "%s %s is signed by %s, but %s %s, the first version in "
+                     "this channel, was signed by %s. This root trusts no key for %s yet, and "
+                     "the first install would trust this one from now on; only the person can "
+                     "say which key is the publisher's. Nothing was changed", e->name, e->version,
+                     f.signer, e->name, oldest->version, first_signer, e->name);
+            fetched_free(&f);
+            return 1;
+        }
+    }
     p->stack[p->depth++] = f.m.name;
+    pick_quiet = 0;
     for (i = 0; i < f.m.ndeps; i++) {
         if (plan_one(p, f.m.deps[i].name, f.m.deps[i].min, NULL, f.m.name) != 0) {
             p->depth--;
@@ -1771,12 +1870,17 @@ static int run_plan(struct plan *p, const struct pkg_manifest *cur,
 static int plan_target(struct plan *p, const struct pkg_options *a, const struct index *ix,
                        const char *name, const char *exact)
 {
+    int rc;
     memset(p, 0, sizeof *p);
     p->root = a->root;
     p->channel = a->channel;
     p->acceptkey = a->acceptkey;
     p->ix = ix;
-    return plan_one(p, name, NULL, exact, NULL);
+    /* The caller picked `exact` and traced why. */
+    pick_quiet = 1;
+    rc = plan_one(p, name, NULL, exact, NULL);
+    pick_quiet = 0;
+    return rc;
 }
 
 /* The marked packages nothing installed depends on. */
@@ -1949,6 +2053,25 @@ static int cmd_show(const struct pkg_options *a)
         }
         fetched_free(&f);
     }
+    for (i = 0; i < ix.n; i++) {
+        char others[600], claim[65];
+        size_t j;
+        int earlier = 0;
+        if (a->target != NULL && strcmp(ix.e[i].name, a->target) != 0)
+            continue;
+        for (j = 0; j < i; j++)
+            if (strcmp(ix.e[j].name, ix.e[i].name) == 0) earlier = 1;
+        if (earlier || !claimed_signer(a->channel, ix.e[i].digest, claim))
+            continue;
+        if (other_signers(a->channel, &ix, ix.e[i].name, claim, others, sizeof others) > 0) {
+            if (machine)
+                kv("warning", "%s is signed by more than one key: %s on %s, and %s", ix.e[i].name,
+                   claim, ix.e[i].version, others);
+            else
+                say("  warning: %s is signed by more than one key: %.16s on %s, and %s\n",
+                    ix.e[i].name, claim, ix.e[i].version, others);
+        }
+    }
     kv("count", "%lu", (unsigned long)shown);
     kv("bad", "%lu", (unsigned long)bad);
     if (!machine && shown == 0)
@@ -2077,6 +2200,34 @@ static int cmd_publish(const struct pkg_options *a)
         }
     }
 
+    {
+        /* A later version signed by another key than the channel's first
+         * version of the package is refused by every root that trusts that
+         * key. Changing keys is the publisher's decision, stated with
+         * ACCEPTKEY and the new key. */
+        const struct entry *oldest = NULL;
+        char first_signer[65];
+        size_t o;
+        for (o = 0; o < ix.n; o++)
+            if (strcmp(ix.e[o].name, b.m.name) == 0
+                && (oldest == NULL || pkg_version_cmp(ix.e[o].version, oldest->version) < 0))
+                oldest = &ix.e[o];
+        if (oldest != NULL && claimed_signer(a->channel, oldest->digest, first_signer)
+            && strcmp(first_signer, k.pkhex) != 0
+            && (a->acceptkey == NULL || strcmp(a->acceptkey, k.pkhex) != 0)) {
+            kv("signer", "%s", k.pkhex);
+            kv("first-signer", "%s", first_signer);
+            refuse_n(14, "ask-person", "%s %s, the first version in %s, is signed by %s, and this "
+                     "key is %s: every machine that trusts the first key would refuse this "
+                     "version. Sign it with the publisher's key; changing keys is the person's "
+                     "decision. Nothing was published", b.m.name, oldest->version, a->channel,
+                     first_signer, k.pkhex);
+            free(ix.e);
+            built_free(&b);
+            memset(&k, 0, sizeof k);
+            return 1;
+        }
+    }
     if (dryrun) {
         size_t d;
         kv("result", "would-publish");
@@ -2603,6 +2754,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
 
 int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "keygen", cmd_keygen, o); }
 int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "sign", cmd_sign, o); }
+int pkg_keyinfo  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "keyinfo", cmd_keyinfo, o); }
 int pkg_manifest (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "manifest", cmd_manifest, o); }
 int pkg_publish  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "publish", cmd_publish, o); }
 int pkg_install  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "install", cmd_install, o); }

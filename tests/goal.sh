@@ -84,7 +84,8 @@ for v in 14 15; do
         NAME afsplus-handler VERSION "$v" KIND device > /dev/null
                                                       ok $? "publish afsplus-handler $v, signed with the development key"
 done
-PKG_SIGNKEY="$work/attacker.key" "$host_pkg" PUBLISH "$work/d16" CHANNEL "$share/channel" \
+ATT=$(awk '/^Public:/{print $2}' "$work/attacker.key")
+PKG_SIGNKEY="$work/attacker.key" "$host_pkg" PUBLISH "$work/d16" CHANNEL "$share/channel" ACCEPTKEY "$ATT" \
     NAME afsplus-handler VERSION 16 KIND device > /dev/null
                                                       ok $? "an attacker publishes 16 into the same channel with another key"
 

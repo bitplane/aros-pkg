@@ -165,7 +165,7 @@ printf 'library data\n' > "$D/Libs/data.txt"
 
 env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/ch-nokey" > "$T/nokey" 2>&1
 [ $? -eq 20 ];                                         ok $? "publishing without a key refused"
-has "$T/nokey" 'Every package is signed';             ok $? "and says why"
+has "$T/nokey" 'same key';                            ok $? "and says to use the publisher's key"
 [ ! -e "$T/ch-nokey/index" ];                         ok $? "and nothing was published"
 
 cp "$CH/objects/$payload.pkg" "$T/good.pkg"
@@ -326,8 +326,12 @@ echo "substituted_key"
 
 cp -R "$T/v13" "$T/v14"
 printf 'binary 3\000$VER: Hello 1.4 (20.9.2026)\000tail' > "$T/v14/C/Hello"
-PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" > /dev/null 2>&1
-                                                      ok $? "a second key can publish 1.4 into the channel"
+before=$(cat "$CH/index")
+PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" MACHINE > "$T/p14" 2>&1
+[ $? -eq 14 ] && has "$T/p14" '^next: ask-person$' && [ "$(cat "$CH/index")" = "$before" ]
+                                                      ok $? "publishing hello with another key than its earlier versions: 14, ask-person, nothing published"
+PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" ACCEPTKEY "$EVILPUB" > /dev/null 2>&1
+                                                      ok $? "a second key can publish 1.4 when ACCEPTKEY names it"
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > "$T/sub" 2>&1
 [ $? -eq 14 ];                                         ok $? "an upgrade signed by a substituted key refused"
 has "$T/sub" "pinned $PUB";                           ok $? "the refusal prints the pinned key"
@@ -432,7 +436,7 @@ p=sys.argv[1]; b=bytearray(open(p,'rb').read()); b[-1]^=1; open(p,'wb').write(b)
 $PKG INSTALL hello VERSION 1.2 ROOT "$T/xroot" CHANNEL "$T/chx" MACHINE > "$T/x12" 2>&1
 [ $? -eq 12 ] && has "$T/x12" '^next: stop$';          ok $? "an integrity refusal says stop"
 
-$PKG INSTALL hello ROOT "$T/droot" CHANNEL "$CH" DRYRUN MACHINE > "$T/di" 2>&1
+$PKG INSTALL hello VERSION 1.3 ROOT "$T/droot" CHANNEL "$CH" DRYRUN MACHINE > "$T/di" 2>&1
 [ $? -eq 0 ] && has "$T/di" '^result: would-install$' && [ ! -e "$T/droot" ]
                                                       ok $? "INSTALL DRYRUN says would-install and creates nothing"
 before=$(cat "$CH/index")
@@ -444,6 +448,26 @@ $PKG PUBLISH "$T/v15" CHANNEL "$CH" DRYRUN MACHINE > "$T/dp" 2>&1
 $PKG REMOVE hello ROOT "$A" DRYRUN MACHINE > "$T/dr" 2>&1
 [ $? -eq 0 ] && has "$T/dr" '^result: would-remove$' && [ -f "$A/C/Hello" ] && [ -f "$A/.pkg/db/hello" ]
                                                       ok $? "REMOVE DRYRUN says would-remove and removes nothing"
+
+echo "first_trust"
+# A fresh root trusts no key for hello. The channel's first hello was signed
+# by PUB; the highest, 1.4, by EVIL. Trusting EVIL is the person's decision.
+$PKG INSTALL hello ROOT "$T/fresh" CHANNEL "$CH" MACHINE > "$T/ft" 2>&1
+[ $? -eq 14 ] && has "$T/ft" '^next: ask-person$' && has "$T/ft" "^first-signer: $PUB\$" \
+    && [ ! -e "$T/fresh/C/Hello" ];                  ok $? "a first install signed by another key than the first version: 14, nothing placed"
+$PKG INSTALL hello VERSION 1.2 ROOT "$T/fresh" CHANNEL "$CH" MACHINE > "$T/ft2" 2>&1
+                                                      ok $? "the version signed by the first version's key installs"
+$PKG INSTALL hello ROOT "$T/fresh2" CHANNEL "$CH" ACCEPTKEY "$EVILPUB" MACHINE > "$T/ft3" 2>&1
+[ $? -eq 0 ] && has "$T/ft3" '^version: 1.4$';        ok $? "and the newer key once ACCEPTKEY names it"
+$PKG SHOW hello CHANNEL "$CH" MACHINE > "$T/fts" 2>&1
+has "$T/fts" '^warning: hello is signed by more than one key';
+                                                      ok $? "SHOW warns that hello has more than one signer"
+env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/nokeych" MACHINE > "$T/nk" 2>&1
+[ $? -eq 20 ] && has "$T/nk" '^next: ask-person$' && has "$T/nk" 'same key';
+                                                      ok $? "no signing key: the refusal says to find the publisher's key, not make one"
+$PKG KEYINFO FILE "$KEY" MACHINE > "$T/ki" 2>&1
+[ $? -eq 0 ] && has "$T/ki" "^public: $PUB\$" && ! has "$T/ki" 'Seed';
+                                                      ok $? "KEYINFO names the public key a key file holds, and nothing else"
 
 echo "trace"
 TR="$T/troot"

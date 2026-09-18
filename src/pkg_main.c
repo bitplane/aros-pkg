@@ -197,7 +197,8 @@ static int usage(void)
         "  pkg KEYGEN   FILE <keyfile>\n"
         "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]\n"
         "  pkg PUBLISH  <drawer> CHANNEL <dir> [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a] [KIND k]\n"
-        "               [DEPENDS \"a >= 1, b\"]\n"
+        "               [DEPENDS \"a >= 1, b\"] [ACCEPTKEY <hex>]\n"
+        "  pkg KEYINFO  FILE <keyfile>    (the public key it holds)\n"
         "  pkg SIGN     <file> KEY <keyfile> OUT <sigfile>\n"
         "  pkg INSTALL  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ACCEPTKEY <hex>]\n"
         "  pkg UPGRADE  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [DOWNGRADE] [ACCEPTKEY <hex>]\n"
@@ -232,6 +233,7 @@ static int run_verb(int argc, char **argv)
         { "MANIFEST",  "manifest",  pkg_manifest },
         { "PUBLISH",   "publish",   pkg_publish },
         { "SIGN",      "sign",      pkg_sign },
+        { "KEYINFO",   "keyinfo",   pkg_keyinfo },
         { "INSTALL",   "install",   pkg_install },
         { "UPGRADE",   "upgrade",   pkg_upgrade },
         { "ROLLBACK",  "rollback",  pkg_rollback },

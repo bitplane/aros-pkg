@@ -164,7 +164,9 @@ cp "$T/good.sig" "$CH/objects/$d.sig"
 $PKG INSTALL sigdep ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG REMOVE sigdep ROOT "$R" > /dev/null 2>&1
 rm -rf "$T/src"; mkdir -p "$T/src/Libs"; printf 'swapped\n' > "$T/src/Libs/sigdep.library"
-PKG_SIGNKEY="$T/other.key" $PKG PUBLISH "$T/src" CHANNEL "$CH" NAME sigdep VERSION 2 KIND library > /dev/null
+OTHERPUB=$(awk '/^Public:/{print $2}' "$T/other.key")
+PKG_SIGNKEY="$T/other.key" $PKG PUBLISH "$T/src" CHANNEL "$CH" NAME sigdep VERSION 2 KIND library \
+    ACCEPTKEY "$OTHERPUB" > /dev/null
 before=$(files_in "$R")
 $PKG INSTALL usessig ROOT "$R" CHANNEL "$CH" > "$T/bk" 2>&1
 [ $? -eq 14 ];                                          ok $? "a dependency signed by another key than the pinned one refused with 14"

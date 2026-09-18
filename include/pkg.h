@@ -86,7 +86,8 @@ struct pkg_options {
     const char *file;       /* keygen: the key file to create */
     const char *key;        /* sign: the key file */
     const char *out;        /* sign, image, mountlist: the file to write */
-    const char *acceptkey;  /* the new publisher key, in full, once the person confirmed it */
+    const char *acceptkey;  /* the publisher key, in full, the person confirmed: install
+                               from a new key, trust one of several, or publish with a new one */
     const char *unit;       /* mountlist: the fdsk.device unit, default 20 */
     const char *handler;    /* mountlist: the FFS handler's path, default found in the root */
     int downgrade;          /* upgrade: moving to an older version was asked for */
@@ -96,6 +97,7 @@ struct pkg_options {
 
 int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_keyinfo  (const struct pkg_sink *s, const struct pkg_options *o);  /* file: the public key it holds */
 int pkg_manifest (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_publish  (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_install  (const struct pkg_sink *s, const struct pkg_options *o);
