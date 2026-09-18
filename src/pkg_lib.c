@@ -810,6 +810,8 @@ static int drawer_arch(const struct drawer *d, const char **arch, const char **f
 static int add_depends(struct pkg_manifest *m, const char *list)
 {
     const char *p = list, *why;
+    if (list != NULL && strcmp(list, "none") == 0)
+        return 0;                   /* DEPENDS none: a version that needs nothing */
     while (p != NULL && *p) {
         const char *end = strchr(p, ',');
         size_t len = end ? (size_t)(end - p) : strlen(p);
@@ -877,6 +879,14 @@ static int to_image(struct drawer *d, const char *name)
     return 0;
 }
 
+/* What PUBLISH lets a new version inherit: the channel it publishes into.
+ * NULL for MANIFEST and IMAGE, which know no channel. */
+struct index;
+static const struct index *inherit_ix;
+static const char *inherit_channel;
+static int inherited(const char *name, const char *arch, char *kind, size_t kl,
+                     char *deps, size_t dl, char *from, size_t fl);
+
 struct built {
     struct pkg_manifest m;
     unsigned char *pkg;
@@ -888,6 +898,8 @@ struct built {
     char           cookie_ver[64];  /* what that $VER says, whatever was used */
     char           cookie_file[512];
     char           arch_from[512];
+    char           kind_from[160];  /* KIND taken from this published version */
+    char           deps_from[160];  /* DEPENDS too */
     unsigned       skipped;
     char         **left_out;
     size_t         nleft;
@@ -951,6 +963,8 @@ static int build(const struct pkg_options *a, struct built *out)
     struct pkg_writer *w;
     char vname[65], vver[64];
     const char *from = NULL, *name, *version, *arch, *kind, *why;
+    const char *kind_src = a->kind, *deps_src = a->depends;
+    char ikind[32], ideps[1024], ifrom[160];
     char payload[PKG_SHA256_HEXLEN + 1];
     size_t i;
 
@@ -1040,17 +1054,30 @@ static int build(const struct pkg_options *a, struct built *out)
         if (a->arch == NULL && got > 0)
             snprintf(out->arch_from, sizeof out->arch_from, "%s", afrom);
     }
-    if (a->kind == NULL && strcmp(verb_name, "publish") == 0) {
+    if (inherit_ix != NULL && name != NULL && (a->kind == NULL || a->depends == NULL)
+        && inherited(name, arch, ikind, sizeof ikind, ideps, sizeof ideps, ifrom, sizeof ifrom)) {
+        /* A new version is the same package: what it is and what it needs
+         * come from the last one published, unless the command says. */
+        if (a->kind == NULL) {
+            kind_src = ikind;
+            snprintf(out->kind_from, sizeof out->kind_from, "%s", ifrom);
+        }
+        if (a->depends == NULL) {
+            deps_src = ideps;
+            snprintf(out->deps_from, sizeof out->deps_from, "%s", ifrom);
+        }
+    }
+    if (kind_src == NULL && strcmp(verb_name, "publish") == 0) {
         drawer_free(&d);
-        return refuse_c(20, "no KIND given; Pkg does not guess what a package is. KIND image for "
+        return refuse_c(20, "no KIND given, and no version of %s is published in this channel to "
+                        "take it from; Pkg does not guess what a package is. KIND image for "
                         "a program people run, installed as one volume to mount; application "
                         "for a program installed as loose files; library, device (handlers "
                         "too), class, font or catalog for what other programs use, in Libs, "
                         "Devs or L, Classes, Fonts, Locale; startup or boot for what the system "
-                        "runs as it starts; data, sdk or slave. A new version keeps the kind "
-                        "of the published ones (SHOW <name> CHANNEL <dir>)");
+                        "runs as it starts; data, sdk or slave", name ? name : "this package");
     }
-    kind = a->kind ? a->kind : "application";
+    kind = kind_src ? kind_src : "application";
     if (name == NULL) {
         drawer_free(&d);
         return refuse_c(20, "no NAME given and no $VER: cookie found; add NAME <name>");
@@ -1088,7 +1115,7 @@ static int build(const struct pkg_options *a, struct built *out)
     pkg_manifest_set(&out->m.version, version);
     pkg_manifest_set(&out->m.architecture, arch);
     pkg_manifest_set(&out->m.kind, kind);
-    if (add_depends(&out->m, a->depends) != 0) {
+    if (add_depends(&out->m, deps_src) != 0) {
         drawer_free(&d);
         return 1;
     }
@@ -1237,6 +1264,47 @@ static char *object_path(const char *channel, const char *digest, const char *ex
     char rel[128];
     snprintf(rel, sizeof rel, "objects/%s.%s", digest, ext);
     return pkg_join(channel, rel);
+}
+
+/* The kind and dependencies of the highest version of a package published in
+ * the channel, for the CPU given when it has one there. */
+static int inherited(const char *name, const char *arch, char *kind, size_t kl,
+                     char *deps, size_t dl, char *from, size_t fl)
+{
+    const struct entry *best = NULL;
+    size_t o, d, at = 0;
+    int pass;
+    char *mp, err[200];
+    unsigned char *buf;
+    size_t len;
+    struct pkg_manifest em;
+
+    for (pass = 0; pass < 2 && best == NULL; pass++)
+        for (o = 0; o < inherit_ix->n; o++) {
+            const struct entry *e = &inherit_ix->e[o];
+            if (strcmp(e->name, name) != 0 || (pass == 0 && strcmp(e->arch, arch) != 0))
+                continue;
+            if (best == NULL || pkg_version_cmp(e->version, best->version) > 0)
+                best = e;
+        }
+    if (best == NULL)
+        return 0;
+    mp = object_path(inherit_channel, best->digest, "manifest");
+    if (mp == NULL || pkg_fs_read(mp, &buf, &len) != 0) { free(mp); return 0; }
+    free(mp);
+    if (pkg_manifest_parse((const char *)buf, len, &em, err, sizeof err) != 0) { free(buf); return 0; }
+    free(buf);
+    snprintf(kind, kl, "%s", em.kind);
+    deps[0] = '\0';
+    for (d = 0; d < em.ndeps && at < dl; d++)
+        at += (size_t)snprintf(deps + at, dl - at, "%s%s%s%s", d ? ", " : "", em.deps[d].name,
+                               em.deps[d].min ? " >= " : "", em.deps[d].min ? em.deps[d].min : "");
+    if (em.ndeps == 0)
+        snprintf(deps, dl, "none");
+    snprintf(from, fl, "%s %s", em.name, em.version);
+    tr("inherited from %s %s: kind %s, depends %s", em.name, em.version, kind, deps);
+    pkg_manifest_free(&em);
+    return 1;
 }
 
 /* ---- the machine a root is for ------------------------------------------ *
@@ -2853,15 +2921,21 @@ static int cmd_publish(const struct pkg_options *a)
         snprintf(k.pkhex, sizeof k.pkhex, "none");
     } else if (load_key(a->sign, &k) != 0)
         return 1;
-    if (build(a, &b) != 0) { built_free(&b); return 1; }
+    if (read_index(a->channel, &ix) != 0) return 1;
+    inherit_ix = &ix;
+    inherit_channel = a->channel;
+    rc = build(a, &b);
+    inherit_ix = NULL;
+    inherit_channel = NULL;
+    if (rc != 0) { free(ix.e); built_free(&b); return 1; }
+    rc = 1;
     if (strcmp(b.m.architecture, "generic") == 0
         && (strcmp(b.m.kind, "image") == 0 || strcmp(b.m.kind, "application") == 0
             || strcmp(b.m.kind, "library") == 0 || strcmp(b.m.kind, "device") == 0
             || strcmp(b.m.kind, "class") == 0))
-        warn("no executable in the drawer: a %s is usually a program, and Pkg found no ELF or "
+        warn("no executable in the drawer: kind %s is usually a program, and Pkg found no ELF or "
              "hunk header, so it is published as generic, for every CPU. Check the drawer holds "
              "the build, not a script or a placeholder", b.m.kind);
-    if (read_index(a->channel, &ix) != 0) { built_free(&b); return 1; }
     /* A version is named by its manifest, which names its payload. */
     pkg_sha256_hex(b.text, b.text_len, mdigest);
 
@@ -2999,6 +3073,8 @@ static int cmd_publish(const struct pkg_options *a)
         kv("signer", "%s", k.pkhex);
         if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
         if (b.name_from[0]) kv("name-from", "%s", b.name_from);
+        if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
+        if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
         if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
         for (d = 0; d < b.nleft; d++)
             kv("left-out", "%s", b.left_out[d]);
@@ -3019,6 +3095,8 @@ static int cmd_publish(const struct pkg_options *a)
             if (b.ver_from[0] || b.name_from[0])
                 say("  %s from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
                     : b.ver_from[0] ? "version" : "name", b.ver_from[0] ? b.ver_from : b.name_from);
+            if (b.kind_from[0] || b.deps_from[0])
+                say("  %s from %s, published before\n", b.kind_from[0] && b.deps_from[0] ? "kind and dependencies" : b.kind_from[0] ? "kind" : "dependencies", b.kind_from[0] ? b.kind_from : b.deps_from);
         }
         if (new_channel)
             hint("there is no channel at %s yet: publishing creates it. Check it is the one "
@@ -3069,10 +3147,16 @@ static int cmd_publish(const struct pkg_options *a)
     if (machine) {
         if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
         if (b.name_from[0]) kv("name-from", "%s", b.name_from);
+        if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
+        if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
     } else if (b.ver_from[0] || b.name_from[0]) {
         say("  %s taken from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
             : b.ver_from[0] ? "version" : "name", b.ver_from[0] ? b.ver_from : b.name_from);
     }
+    if (!machine && (b.kind_from[0] || b.deps_from[0]))
+        say("  %s from %s, published before\n", b.kind_from[0] && b.deps_from[0]
+            ? "kind and dependencies" : b.kind_from[0] ? "kind" : "dependencies",
+            b.kind_from[0] ? b.kind_from : b.deps_from);
     for (i = 0; i < b.nleft; i++) {
         if (machine)
             kv("left-out", "%s", b.left_out[i]);

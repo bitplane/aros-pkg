@@ -92,7 +92,8 @@ choice with its reason. Read it before guessing.
   cookie it is lower-cased (`Guru` becomes `guru`, `identify.library`
   stays). Other commands refer to it by exactly that name.
 
-**Kinds.** Every publish names one; Pkg refuses to guess.
+**Kinds.** The first version of a package names one; Pkg refuses to guess.
+Later versions take it from the last one published (`kind-from:`).
 
 | `KIND` | For | Installed as |
 |---|---|---|
@@ -201,8 +202,10 @@ Read the dry run's `name:`, `version:` and `version-from:` against what the
 person said, and ask when they disagree; `NAME` silences nothing, it only
 names the package.
 
-**A new version** starts from nothing: `KIND`, `DEPENDS` and `ARCH` are not
-carried over from the previous one; pass them again. Before publishing it,
+**A new version** takes `KIND` and `DEPENDS` from the last version
+published in the channel, and says so (`kind-from:`, `depends-from:`); pass
+them only to change them, `DEPENDS none` for a version that needs nothing.
+`ARCH` comes from the binaries as always. Before publishing it,
 check that the drawer holds the new build: Pkg warns when `VERSION`
 contradicts the program's own `$VER` cookie (often the old build copied by
 mistake), when a dependency of the previous version is missing, and when

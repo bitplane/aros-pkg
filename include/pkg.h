@@ -143,8 +143,9 @@ struct pkg_options {
  *   manifest   result shown; then each manifest line as a field (Name, ...)
  *   publish    result published: name, version, channel, manifest, payload,
  *              signer, files, [arch-from], [version-from], [name-from] (the
- *              file whose $VER gave the version or the name), left-out per
- *              file.
+ *              file whose $VER gave the version or the name), [kind-from],
+ *              [depends-from] (the published version they were taken from
+ *              when kind or depends was not given), left-out per file.
  *              result unchanged: name, version (that exact content is there).
  *              result repaired: name, version, repaired per object written
  *              again (manifest, payload, signature), when that version's

@@ -418,7 +418,10 @@ to the version installed before the last change, fetched again from the channel,
 which never changes a published version. An upgrade that would overwrite a file
 the user edited is refused before anything moves.
 
-`KIND` is required on `PUBLISH`: `image` for a program people run, one
+`KIND` is required on the first `PUBLISH` of a package; later versions take
+`KIND` and `DEPENDS` from the last one published, and say so with
+`kind-from:` and `depends-from:` (`DEPENDS none` for a version that needs
+nothing). The kinds: `image` for a program people run, one
 volume to mount; `application` for a program as loose files; `library`,
 `device` (handlers too), `class`, `font`, `catalog`, `startup`, `boot`,
 `data`, `sdk`, `slave`. A missing or unknown kind is refused with the list,

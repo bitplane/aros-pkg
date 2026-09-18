@@ -262,9 +262,12 @@ has "$T/vwm" '^warning: VERSION 1.3, but the \$VER cookie in C/vw says 1.1' && !
                                                         ok $? "VERSION contradicting the cookie is warned about, and not reported as from the cookie"
 
 pub dl 1.0 application "base" > /dev/null
-pub dl 1.1 application - DRYRUN MACHINE > "$T/dlw" 2>&1
+pub dl 1.1 application none DRYRUN MACHINE > "$T/dlw" 2>&1
 has "$T/dlw" '^warning: dl 1.0 depends on base, and this version does not'
                                                         ok $? "a dependency dropped between versions is warned about before publishing"
+pub dl 1.1 application - DRYRUN MACHINE > "$T/dlk" 2>&1
+has "$T/dlk" '^depends: base$' && has "$T/dlk" '^depends-from: dl 1.0$'
+                                                        ok $? "and with no DEPENDS at all, 1.0's dependency is kept"
 
 echo "dry_runs"
 DR="$T/dryroot"

@@ -571,6 +571,24 @@ $PKG VERIFY tool ROOT "$MV/r" MACHINE > "$T/mv2" 2>&1
 $PKG REMOVE tool ROOT "$MV/r" > /dev/null 2>&1
 [ -f "$MV/r/Work/Tool/C/Tool" ];                      ok $? "REMOVE leaves the moved files where the person put them"
 
+echo "inherit"
+# A new version is the same package: kind and dependencies come from the last one.
+IH="$T/ih"; mkdir -p "$IH/l/Libs" "$IH/a/C" "$IH/b/C"
+printf 'l' > "$IH/l/Libs/h.library"
+printf 'x\000$VER: tool 1.0 (1.1.2026)\000' > "$IH/a/C/Tool"; printf 'x\000$VER: tool 1.1 (1.1.2026)\000' > "$IH/b/C/Tool"
+$PKG PUBLISH "$IH/l" CHANNEL "$IH/ch" NAME h VERSION 1 KIND library > /dev/null 2>&1
+$PKG PUBLISH "$IH/a" CHANNEL "$IH/ch" KIND image DEPENDS "h >= 1" > /dev/null 2>&1
+$PKG PUBLISH "$IH/b" CHANNEL "$IH/ch" DRYRUN MACHINE > "$T/ih1" 2>&1
+[ $? -eq 0 ] && has "$T/ih1" '^kind: image$' && has "$T/ih1" '^depends: h >= 1$' \
+    && has "$T/ih1" '^kind-from: tool 1.0$' && has "$T/ih1" '^depends-from: tool 1.0$' && ! has "$T/ih1" '^warning:.*DEPENDS'
+                                                      ok $? "a new version takes kind and dependencies from the last one, and says so"
+$PKG PUBLISH "$IH/b" CHANNEL "$IH/ch" DEPENDS none DRYRUN MACHINE > "$T/ih2" 2>&1
+has "$T/ih2" '^depends: none$' && has "$T/ih2" '^warning: tool 1.0 depends on h, and this version does not' \
+    && ! has "$T/ih2" '^depends-from:';               ok $? "DEPENDS none drops them, with the warning"
+$PKG PUBLISH "$IH/b" CHANNEL "$IH/ch" NAME tool KIND application DRYRUN MACHINE > "$T/ih3" 2>&1
+has "$T/ih3" '^kind: application$' && has "$T/ih3" '^warning: tool 1.0 was published as kind image' \
+    && ! has "$T/ih3" '^kind-from:';                  ok $? "KIND given wins, with the change warned about"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]
