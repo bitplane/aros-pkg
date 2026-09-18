@@ -70,7 +70,7 @@ sort "$T/order" | cmp -s - "$T/order";                ok $? "File lines sorted"
 want=$(shasum -a 256 "$D/Libs/data.txt" | cut -d' ' -f1)
 has "$T/m1" "^File: $want 13 Libs/data.txt$";         ok $? "digest agrees with shasum"
 
-$PKG PUBLISH "$D" CHANNEL "$CH" > "$T/pub" 2>&1;      ok $? "publish succeeds"
+$PKG PUBLISH "$D" CHANNEL "$CH" KIND application > "$T/pub" 2>&1;      ok $? "publish succeeds"
 has "$T/pub" 'published hello 1.2';                   ok $? "publish reports what it did"
 has "$T/pub" "signed by $(echo "$PUB" | cut -c1-16)"; ok $? "publish names the signing key"
 has "$T/pub" 'left out \.DS_Store,' && has "$T/pub" 'left out Libs/\._data\.txt,'
@@ -88,7 +88,7 @@ cp -R "$D" "$T/elsewhere"
 $PKG MANIFEST "$T/elsewhere" > "$T/m2" 2>&1
 cmp -s "$T/m1" "$T/m2";                               ok $? "same drawer elsewhere, same manifest"
 
-$PKG PUBLISH "$D" CHANNEL "$CH" > "$T/pub2" 2>&1;     ok $? "republishing identical bytes is not an error"
+$PKG PUBLISH "$D" CHANNEL "$CH" KIND application > "$T/pub2" 2>&1;     ok $? "republishing identical bytes is not an error"
 has "$T/pub2" 'nothing to do';                        ok $? "and says so"
 
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/inst" 2>&1
@@ -158,12 +158,12 @@ $PKG HELP > "$T/help" 2>"$T/help.e"
 echo "refusals"
 
 printf 'different\n' > "$D/Libs/data.txt"
-$PKG PUBLISH "$D" CHANNEL "$CH" > "$T/rep" 2>&1
+$PKG PUBLISH "$D" CHANNEL "$CH" KIND application > "$T/rep" 2>&1
 [ $? -eq 15 ];                                         ok $? "republishing a version with new bytes refused"
 has "$T/rep" 'never changes';                         ok $? "and says why"
 printf 'library data\n' > "$D/Libs/data.txt"
 
-env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/ch-nokey" > "$T/nokey" 2>&1
+env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/ch-nokey" KIND application > "$T/nokey" 2>&1
 [ $? -eq 20 ];                                         ok $? "publishing without a key refused"
 has "$T/nokey" 'same key';                            ok $? "and says to use the publisher's key"
 [ ! -e "$T/ch-nokey/index" ];                         ok $? "and nothing was published"
@@ -284,7 +284,7 @@ cp -R "$D" "$T/v13"
 printf 'binary 2\000$VER: Hello 1.3 (19.9.2026)\000tail' > "$T/v13/C/Hello"
 rm "$T/v13/S/My Startup"; rmdir "$T/v13/S"
 printf 'new in 1.3\n' > "$T/v13/Libs/extra.txt"
-$PKG PUBLISH "$T/v13" CHANNEL "$CH" > /dev/null 2>&1; ok $? "publish 1.3"
+$PKG PUBLISH "$T/v13" CHANNEL "$CH" KIND application > /dev/null 2>&1; ok $? "publish 1.3"
 
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > "$T/up" 2>&1
                                                       ok $? "upgrade to 1.3"
@@ -327,10 +327,10 @@ echo "substituted_key"
 cp -R "$T/v13" "$T/v14"
 printf 'binary 3\000$VER: Hello 1.4 (20.9.2026)\000tail' > "$T/v14/C/Hello"
 before=$(cat "$CH/index")
-PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" MACHINE > "$T/p14" 2>&1
+PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" KIND application MACHINE > "$T/p14" 2>&1
 [ $? -eq 14 ] && has "$T/p14" '^next: ask-requester$' && [ "$(cat "$CH/index")" = "$before" ]
                                                       ok $? "publishing hello with another key than its earlier versions: 14, ask-requester, nothing published"
-PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" ACCEPTKEY "$EVILPUB" > /dev/null 2>&1
+PKG_SIGNKEY="$EVIL" $PKG PUBLISH "$T/v14" CHANNEL "$CH" KIND application ACCEPTKEY "$EVILPUB" > /dev/null 2>&1
                                                       ok $? "a second key can publish 1.4 when ACCEPTKEY names it"
 $PKG UPGRADE hello ROOT "$R" CHANNEL "$CH" > "$T/sub" 2>&1
 [ $? -eq 14 ];                                         ok $? "an upgrade signed by a substituted key refused"
@@ -441,7 +441,7 @@ $PKG INSTALL hello VERSION 1.3 ROOT "$T/droot" CHANNEL "$CH" DRYRUN MACHINE > "$
                                                       ok $? "INSTALL DRYRUN says would-install and creates nothing"
 before=$(cat "$CH/index")
 mkdir -p "$T/v15/C"; printf 'binary 5\000$VER: Hello 1.5 (1.10.2026)\000' > "$T/v15/C/Hello"
-$PKG PUBLISH "$T/v15" CHANNEL "$CH" DRYRUN MACHINE > "$T/dp" 2>&1
+$PKG PUBLISH "$T/v15" CHANNEL "$CH" KIND application DRYRUN MACHINE > "$T/dp" 2>&1
 [ $? -eq 0 ] && has "$T/dp" '^result: would-publish$' && has "$T/dp" '^depends: none$' \
     && has "$T/dp" '^version: 1.5$' && [ "$(cat "$CH/index")" = "$before" ]
                                                       ok $? "PUBLISH DRYRUN shows name, version, no dependencies, and leaves the channel as it was"
@@ -462,7 +462,7 @@ $PKG INSTALL hello ROOT "$T/fresh2" CHANNEL "$CH" ACCEPTKEY "$EVILPUB" MACHINE >
 $PKG SHOW hello CHANNEL "$CH" MACHINE > "$T/fts" 2>&1
 has "$T/fts" '^warning: hello is signed by more than one key';
                                                       ok $? "SHOW warns that hello has more than one signer"
-env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/nokeych" MACHINE > "$T/nk" 2>&1
+env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/nokeych" KIND application MACHINE > "$T/nk" 2>&1
 [ $? -eq 20 ] && has "$T/nk" '^next: ask-requester$' && has "$T/nk" 'same key';
                                                       ok $? "no signing key: the refusal says to find the publisher's key, not make one"
 $PKG KEYINFO FILE "$KEY" MACHINE > "$T/ki" 2>&1
@@ -480,6 +480,36 @@ PKG_TRACE="$T/env.log" $PKG INSTALL hello VERSION 1.2 ROOT "$T/xr2" CHANNEL "$T/
 has "$T/env.log" 'refused, integrity (12), next stop';  ok $? "PKG_TRACE works too, and a refusal is traced with its class"
 $PKG LIST ROOT "$TR" TRACE > "$T/tru" 2>&1
 [ $? -eq 20 ];                                        ok $? "TRACE without a file is a usage error"
+
+echo "guidance"
+$PKG PUBLISH "$D" CHANNEL "$T/gch" MACHINE > "$T/g1" 2>&1
+[ $? -eq 20 ] && has "$T/g1" 'no KIND given' && has "$T/g1" 'KIND image' && has "$T/g1" '^next: fix-command$' \
+    && [ ! -e "$T/gch" ];                             ok $? "PUBLISH without KIND is refused with the kinds listed, and creates nothing"
+$PKG PUBLISH "$D" CHANNEL "$T/gch" KIND handler MACHINE > "$T/g2" 2>&1
+[ $? -eq 20 ] && has "$T/g2" 'the kind for that is device'; ok $? "KIND handler is refused with the kind to use"
+$PKG PUBLISH "$D" CHANNEL "$T/gch" KIND application DRYRUN MACHINE > "$T/g3" 2>&1
+has "$T/g3" '^hint: there is no channel at .* publishing creates it' && [ ! -e "$T/gch" ]
+                                                      ok $? "a dry run into a missing channel says it would create it"
+$PKG PUBLISH "$D" CHANNEL "$T/gch" KIND application MACHINE > "$T/g4" 2>&1
+has "$T/g4" '^hint: the channel .* did not exist and was created'; ok $? "and the publish says it did"
+$PKG PUBLISH "$D" CHANNEL "$T/gch" KIND application MACHINE > "$T/g5" 2>&1
+! has "$T/g5" '^hint: the channel';                   ok $? "no such hint once the channel exists"
+mkdir -p "$T/gscript/S"; printf 'Echo hi\n' > "$T/gscript/S/Go"
+$PKG PUBLISH "$T/gscript" CHANNEL "$T/gch" NAME go VERSION 1 KIND application DRYRUN MACHINE > "$T/g6" 2>&1
+has "$T/g6" '^warning: no executable in the drawer'; ok $? "an application with no executable is warned about"
+$PKG PUBLISH "$T/gscript" CHANNEL "$T/gch" NAME go VERSION 1 KIND data DRYRUN MACHINE > "$T/g7" 2>&1
+! has "$T/g7" '^warning:';                            ok $? "data with no executable is not"
+$PKG PUBLISH "$D" CHANNEL "$T/gch" NAME himg VERSION 1 KIND image DRYRUN MACHINE > "$T/g8" 2>&1
+has "$T/g8" '^content: C/Hello [0-9]' && has "$T/g8" '^file: himg.hdf ';
+                                                      ok $? "an image dry run lists the files that go into the image"
+$PKG KEYGEN FILE "$T/gkey" MACHINE > "$T/g9" 2>&1
+has "$T/g9" '^hint: every later version .* signed with it'; ok $? "KEYGEN says to keep the key"
+$PKG PUBLISH "$D" CHANNEL "$T/gch" NAME himg VERSION 1 KIND image > /dev/null 2>&1
+$PKG INSTALL himg ROOT "$T/groot" CHANNEL "$T/gch" MACHINE > "$T/g10" 2>&1
+has "$T/g10" '^hint: to run it, mount the image: MOUNTLIST himg'; ok $? "installing an image says how to run it"
+$PKG MOUNTLIST himg ROOT "$T/groot" MACHINE > "$T/g11" 2>&1
+has "$T/g11" '^hint: Mount reads the entry from a file' && has "$T/g11" '^hint: no FFS handler';
+                                                      ok $? "MOUNTLIST without OUT says to save it, and warns of the missing handler"
 
 echo
 echo "$checks checks, $fails failures"

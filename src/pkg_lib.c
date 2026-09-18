@@ -353,6 +353,21 @@ static void warn(const char *fmt, ...)
         say("pkg %s: warning: %s\n", verb_name, buf);
 }
 
+/* What usually comes next after a success, or what is worth telling the
+ * person: never a command that overrides a safeguard. */
+static void hint(const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    if (machine)
+        kv("hint", "%s", buf);
+    else
+        say("  hint: %s\n", buf);
+}
+
 static void short12(const char *hex, char out[13])
 {
     memcpy(out, hex, 12);
@@ -476,6 +491,9 @@ static int cmd_keygen(const struct pkg_options *a)
     kv("public", "%s", k.pkhex);
     if (!machine)
         say("key written to %s, readable by you alone\npublic key %s\n", a->file, k.pkhex);
+    hint("every later version of what this key publishes must be signed with it: keep the "
+         "file with the person's secrets, outside any channel or repository, and back it up. "
+         "Use it with SIGN <file> or PKG_SIGNKEY; only the public key may be shared");
     return 0;
 }
 
@@ -869,6 +887,8 @@ struct built {
     unsigned       skipped;
     char         **left_out;
     size_t         nleft;
+    char         **content;         /* an image's files, "path size" */
+    size_t         ncontent;
 };
 
 static void built_free(struct built *b)
@@ -881,6 +901,19 @@ static void built_free(struct built *b)
     free(b->left_out);
     b->left_out = NULL;
     b->nleft = 0;
+    for (i = 0; i < b->ncontent; i++) free(b->content[i]);
+    free(b->content);
+    b->content = NULL;
+    b->ncontent = 0;
+}
+
+static int ascii_casecmp(const char *x, const char *y)
+{
+    for (; *x && *y; x++, y++) {
+        int cx = (*x >= 'A' && *x <= 'Z') ? *x + 32 : *x, cy = (*y >= 'A' && *y <= 'Z') ? *y + 32 : *y;
+        if (cx != cy) return cx - cy;
+    }
+    return (unsigned char)*x - (unsigned char)*y;
 }
 
 static int build(const struct pkg_options *a, struct built *out)
@@ -973,6 +1006,16 @@ static int build(const struct pkg_options *a, struct built *out)
         if (a->arch == NULL && got > 0)
             snprintf(out->arch_from, sizeof out->arch_from, "%s", afrom);
     }
+    if (a->kind == NULL && strcmp(verb_name, "publish") == 0) {
+        drawer_free(&d);
+        return refuse_c(20, "no KIND given; Pkg does not guess what a package is. KIND image for "
+                        "a program people run, installed as one volume to mount; application "
+                        "for a program installed as loose files; library, device (handlers "
+                        "too), class, font or catalog for what other programs use, in Libs, "
+                        "Devs or L, Classes, Fonts, Locale; startup or boot for what the system "
+                        "runs as it starts; data, sdk or slave. A new version keeps the kind "
+                        "of the published ones (SHOW <name> CHANNEL <dir>)");
+    }
     kind = a->kind ? a->kind : "application";
     if (name == NULL) {
         drawer_free(&d);
@@ -983,7 +1026,26 @@ static int build(const struct pkg_options *a, struct built *out)
         return refuse_c(20, "no VERSION given and no $VER: cookie found; add VERSION <version>");
     }
     if ((why = pkg_check_name(name)) || (why = pkg_check_version(version))
-        || (why = pkg_check_arch(arch)) || (why = pkg_check_kind(kind))) {
+        || (why = pkg_check_arch(arch))) {
+        drawer_free(&d);
+        return refuse_c(20, "%s", why);
+    }
+    if ((why = pkg_check_kind(kind)) != NULL) {
+        static const char *const alias[][2] = {
+            { "handler", "device" }, { "filesystem", "device" }, { "driver", "device" },
+            { "lib", "library" }, { "libs", "library" }, { "mui", "class" },
+            { "datatype", "class" }, { "gadget", "class" }, { "locale", "catalog" },
+            { "program", "image" }, { "tool", "image" }, { "app", "image" }, { "game", "image" },
+            { "headers", "sdk" }, { "docs", "data" }
+        };
+        size_t al;
+        for (al = 0; al < sizeof alias / sizeof alias[0]; al++)
+            if (ascii_casecmp(kind, alias[al][0]) == 0) {
+                drawer_free(&d);
+                return refuse_c(20, "no kind \"%s\"; the kind for that is %s (a program people "
+                                "run is image, or application to install it as loose files)",
+                                kind, alias[al][1]);
+            }
         drawer_free(&d);
         return refuse_c(20, "%s", why);
     }
@@ -995,6 +1057,16 @@ static int build(const struct pkg_options *a, struct built *out)
     if (add_depends(&out->m, a->depends) != 0) {
         drawer_free(&d);
         return 1;
+    }
+    if (strcmp(kind, "image") == 0 && d.n > 0) {
+        out->content = (char **)calloc(d.n, sizeof *out->content);
+        for (i = 0; out->content != NULL && i < d.n; i++) {
+            size_t n = strlen(d.v[i].rel) + 24;
+            out->content[i] = (char *)malloc(n);
+            if (out->content[i] == NULL) break;
+            snprintf(out->content[i], n, "%s %lu", d.v[i].rel, (unsigned long)d.v[i].len);
+            out->ncontent = i + 1;
+        }
     }
     if (strcmp(kind, "image") == 0 && to_image(&d, name) != 0) {
         drawer_free(&d);
@@ -2366,10 +2438,14 @@ static int cmd_mountlist(const struct pkg_options *a)
                 "  Mount %s\n", fdsk, fdsk, fdsk, unitbuf, img ? img : "", img ? img : "",
                 libs ? "  Assign LIBS: " : "", libs ? a->root : "", libs ? "/Libs ADD\n" : "",
                 a->out ? a->out : "<file>");
-        if (!handler[0])
-            say("No FFS handler is installed in this root; the entry relies on the "
-                    "system's. Hosted AROS has none: install one, or name it with HANDLER.\n");
     }
+    if (a->out == NULL)
+        hint("Mount reads the entry from a file named after the device: add OUT <file>, "
+             "for example OUT RAM:%s, and Pkg writes it", m.name);
+    if (!handler[0])
+        hint("no FFS handler is installed in this root, so the entry relies on the system's. "
+             "Native AROS has one; hosted AROS built on macOS has none: there, install one "
+             "into the root as a device package, or name one with HANDLER <path>");
     free(img);
     pkg_manifest_free(&m);
     return 0;
@@ -2671,13 +2747,21 @@ static int cmd_publish(const struct pkg_options *a)
     size_t i;
     char *po = NULL, *mo = NULL, *so = NULL, s12[13];
     char mdigest[PKG_SHA256_HEXLEN + 1];
-    int rc = 1;
+    int rc = 1, new_channel;
 
     if (a->channel == NULL)
         return refuse_c(20, "name the channel with CHANNEL <dir>");
+    new_channel = !pkg_fs_exists(a->channel);
     if (load_key(a->sign, &k) != 0)
         return 1;
     if (build(a, &b) != 0) { built_free(&b); return 1; }
+    if (strcmp(b.m.architecture, "generic") == 0
+        && (strcmp(b.m.kind, "image") == 0 || strcmp(b.m.kind, "application") == 0
+            || strcmp(b.m.kind, "library") == 0 || strcmp(b.m.kind, "device") == 0
+            || strcmp(b.m.kind, "class") == 0))
+        warn("no executable in the drawer: a %s is usually a program, and Pkg found no ELF or "
+             "hunk header, so it is published as generic, for every CPU. Check the drawer holds "
+             "the build, not a script or a placeholder", b.m.kind);
     if (read_index(a->channel, &ix) != 0) { built_free(&b); return 1; }
     /* A version is named by its manifest, which names its payload. */
     pkg_sha256_hex(b.text, b.text_len, mdigest);
@@ -2779,6 +2863,8 @@ static int cmd_publish(const struct pkg_options *a)
                b.m.deps[d].min ? b.m.deps[d].min : "");
         for (d = 0; d < b.m.nfiles; d++)
             kv("file", "%s %llu", b.m.files[d].path, b.m.files[d].size);
+        for (d = 0; d < b.ncontent; d++)
+            kv("content", "%s", b.content[d]);
         kv("signer", "%s", k.pkhex);
         if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
         if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
@@ -2794,11 +2880,16 @@ static int cmd_publish(const struct pkg_options *a)
                 say("  depends  nothing\n");
             for (d = 0; d < b.m.nfiles; d++)
                 say("  file     %s (%llu bytes)\n", b.m.files[d].path, b.m.files[d].size);
+            for (d = 0; d < b.ncontent; d++)
+                say("  content  %s bytes\n", b.content[d]);
             for (d = 0; d < b.nleft; d++)
                 say("  left out %s\n", b.left_out[d]);
             if (b.ver_from[0])
                 say("  name and version from $VER: in %s\n", b.ver_from);
         }
+        if (new_channel)
+            hint("there is no channel at %s yet: publishing creates it. Check it is the one "
+                 "meant", a->channel);
         rc = 0;
         goto out;
     }
@@ -2852,6 +2943,10 @@ static int cmd_publish(const struct pkg_options *a)
         else
             say("  left out %s, host metadata no Amiga uses\n", b.left_out[i]);
     }
+    if (new_channel)
+        hint("the channel %s did not exist and was created: machines install from it with "
+             "INSTALL %s ROOT <root> CHANNEL <this channel, as the machine names it>",
+             a->channel, b.m.name);
     rc = 0;
 out:
     memset(&k, 0, sizeof k);
@@ -2952,9 +3047,10 @@ static int cmd_install(const struct pkg_options *a)
             kv("image", "%s", f.m.files[0].path);
             kv("blocks", "%llu", f.m.files[0].size / PKG_IMAGE_BLOCK);
             if (!machine)
-                say("  image %s, %llu blocks; pkg MOUNTLIST %s ROOT %s OUT <file> writes "
-                        "its mount entry\n", f.m.files[0].path,
-                        f.m.files[0].size / PKG_IMAGE_BLOCK, f.m.name, a->root);
+                say("  image %s, %llu blocks\n", f.m.files[0].path,
+                        f.m.files[0].size / PKG_IMAGE_BLOCK);
+            hint("to run it, mount the image: MOUNTLIST %s ROOT %s OUT <file> writes the "
+                 "mount entry and lists the steps", f.m.name, a->root);
         }
         rc = 0;
     }

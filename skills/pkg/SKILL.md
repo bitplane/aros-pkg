@@ -15,16 +15,24 @@ it prints hands you a command that overrides a safeguard. Follow what it says.
 
 ## Getting the tool
 
-`pkg` is one executable (`Pkg` on AROS). On a development machine, `make
-install` in its repository puts it in `~/.local/bin`; otherwise `make` builds
-`build/pkg`. `pkg HELP` names the version and lists every verb and keyword.
+`pkg` is one executable (`Pkg` on AROS). On a development machine, in its
+repository, `make install` puts `pkg` in `~/.local/bin`, with `pkg.h`,
+`libpkg.a` and this skill beside it (`include/`, `lib/`, `share/pkg/`);
+`make install PREFIX=<dir>` puts them under another directory, for a person
+who wants nothing system-wide. Then `<prefix>/bin` must be on `PATH`; say so
+to the person rather than editing their shell profile. Without installing,
+`make` builds `build/pkg`. `pkg HELP` names the version and lists every verb
+and keyword.
 
-To put Pkg on an AROS machine: build it for that CPU (`sh tools/build-aros.sh`
-for aarch64, `sh tools/build-aros-x86_64.sh` for x86_64), then `make
-aros-channel CHANNEL=<dir>` with `PKG_SIGNKEY` set; on AROS the person, or a
-startup script, runs `Execute <dir>/Install-Pkg <dir>`. Never copy a Pkg
-binary into C: by hand: installed through its channel, it is verified and
-can upgrade itself.
+To put Pkg on an AROS machine: build it for each CPU (`sh tools/build-aros.sh`
+for aarch64, `sh tools/build-aros-x86_64.sh` for x86_64; `make` alone builds
+only the host's `pkg`), then `make aros-channel CHANNEL=<dir>` with
+`PKG_SIGNKEY` set. On AROS the directory has another name, the one that
+machine gives it (a shared volume `DEPOT:`, a drawer `Work:channel`); the
+person, or a startup script, runs `Execute <ch>/Install-Pkg <ch>` with that
+name, `Execute DEPOT:Install-Pkg DEPOT:` for a volume root. Never tell the
+person a host path to type on AROS. Never copy a Pkg binary into C: by hand:
+installed through its channel, it is verified and can upgrade itself.
 Programs that link Pkg instead of running it use `include/pkg.h`, which
 lists every field each operation answers; its `item` callback gives the
 multi-field records with their fields apart; `examples/basic.c` and
@@ -37,7 +45,11 @@ multi-field records with their fields apart; `examples/basic.c` and
 2. **Read the exit code straight away** (on AROS, `$RC`): 0 is done, 10 to 18
    a refusal whose number is its class, 20 a wrong command. `$?` after a pipe
    is the pipe's.
-3. **On a refusal, do what `next:` says.**
+3. **On a refusal, do what `next:` says. On a success, read the `hint:`** lines:
+   they say what usually comes next (keep the new key, check the channel,
+   mount the image), and anything worth telling the person.
+   `warning:` lines are things to check before going on; `note:` lines are
+   facts worth passing on (a newer version published for another CPU).
 
 | `next:` | What you do |
 |---|---|
@@ -76,6 +88,20 @@ choice with its reason. Read it before guessing.
   cookie it is lower-cased (`Guru` becomes `guru`, `identify.library`
   stays). Other commands refer to it by exactly that name.
 
+**Kinds.** Every publish names one; Pkg refuses to guess.
+
+| `KIND` | For | Installed as |
+|---|---|---|
+| `image` | a program people run (a tool, an application, a game) | one read-only volume, `<name>.hdf`, mounted to run |
+| `application` | a program installed as loose files into the root, when mounting is not wanted | its files, in place |
+| `library`, `device`, `class`, `font`, `catalog` | system components other programs use: `Libs/`, `Devs/` or `L/` (a handler, a filesystem is `device`), `Classes/`, `Fonts/`, `Locale/` | their files, in their fixed place |
+| `startup`, `boot` | pieces the system runs at startup | their files |
+| `data`, `sdk`, `slave` | documents and data; headers and link libraries; WHDLoad slaves | their files |
+
+When unsure between `image` and `application`, it is `image`; the
+requester decides if they want otherwise. Keep a package's kind from one
+version to the next: Pkg warns when it changes.
+
 **Several CPUs.** One version may be published for several CPUs (aarch64
 for hosted AROS, x86_64 for native, m68k); the architecture is read from
 the binaries. When installing from a host into a root for an AROS machine,
@@ -83,7 +109,7 @@ pass `ARCH <cpu>` the first time; the root remembers it. A refusal "offered
 for several CPUs" means exactly that. Publish each CPU's build separately,
 same name and version.
 
-**Two routes.** A system component (library, handler, class, font) is
+**Two routes.** A system component (library, device or handler, class, font) is
 published with its kind and installed into its fixed place. An application
 is published with `KIND image`: it travels as one read-only volume, mounted
 to run, and names the components it needs with `DEPENDS`.
@@ -104,12 +130,18 @@ to run, and names the components it needs with `DEPENDS`.
 4. **`REMOVE ORPHANS` removes packages.** Run it when the person asked to
    clean up what is left; otherwise show them the `orphan:` lines `REMOVE`
    printed.
-5. **One key per publisher, kept.** Every later version must be signed with
-   the same key; Pkg refuses to publish it otherwise. When `PKG_SIGNKEY` is
-   not set, find the publisher's existing key, never make a new one: `pkg
-   KEYINFO FILE <keyfile>` names the public key a file holds, and `SHOW`
-   names the signer of each published version. Keep it where the person
-   keeps secrets; never print, copy or commit it.
+5. **One key per publisher, kept.** Every later version of a package must be
+   signed with the key that signed its first version; Pkg refuses to publish
+   it otherwise. So: if the package already exists in the channel (`SHOW
+   <name> CHANNEL <dir>` names its signer), find that key and use it, never
+   make a new one (`pkg KEYINFO FILE <keyfile>` names the public key a file
+   holds). Make a key with KEYGEN only for someone who has never published,
+   into a channel where their packages do not exist yet. In a team, each
+   package belongs to whoever published it first; whether the team shares
+   one key or each person keeps their own is the requester's call, and
+   worth asking once. Keep a key where the person keeps secrets (outside the
+   channel and any repository), readable by them alone, backed up; never
+   print, copy or commit it. The `public:` line is what may be shared.
 6. **Check the result, not only the code.** On AROS a command that cannot
    even load leaves `$RC` as it was. A step has succeeded when its output
    has the `result:` you expect.
@@ -133,6 +165,11 @@ mixed CPUs are refused. Host metadata is left out and each file named in a
 `left-out:` line: names starting with `.` (`.DS_Store`, `.git`,
 `.backdrop`), `Icon\r`, `Thumbs.db`, `desktop.ini`. `Name.info` icons stay.
 
+PUBLISH creates the channel directory if it does not exist (`hint:` says
+so). A program shows `architecture: generic` only when Pkg found no
+executable header in it: for a real AROS binary that means the drawer holds
+something else than the build (a script, a copy, the wrong file); check.
+
 An application:
 
 ```sh
@@ -143,7 +180,24 @@ pkg PUBLISH <drawer> CHANNEL <channel> NAME guru VERSION 2.0 KIND image \
 The volume's top level is the drawer, laid out as the program expects to
 find itself when mounted; its own helpers, icons and documents go inside,
 and only what other programs share goes into `DEPENDS`, by package name.
+The dry run lists the files that go into the image as `content:` lines.
 On macOS the filesystem ignores case: never create `GURU` beside `Guru`.
+
+**A new version** starts from nothing: `KIND`, `DEPENDS` and `ARCH` are not
+carried over from the previous one; pass them again. Before publishing it,
+check that the drawer holds the new build: Pkg warns when `VERSION`
+contradicts the program's own `$VER` cookie (often the old build copied by
+mistake), when a dependency of the previous version is missing, and when
+the kind changes. Compare the dry run's `file:`/`content:` sizes with the
+previous version's (`SHOW`, or `MANIFEST` on the old drawer) when in doubt,
+and ask rather than publish a version whose program did not change.
+
+**One CPU ahead of another** (an x86_64 fix, the aarch64 build not ready):
+publish the new version for the CPU that has it, and nothing for the other.
+Roots of the other CPU stay on their version; UPGRADE there answers
+`unchanged` with a `note:` that the newer version exists for another CPU,
+and asking for it there is refused as "published for x86_64 only". Publish
+the other build later, same name and version, when it is ready.
 
 ## Installing and changing
 
@@ -175,9 +229,10 @@ kind files explicit|dependency`.
 
 | Verb | `result:` on success |
 |---|---|
-| KEYGEN | `created` |
+| KEYGEN, KEYINFO | `created`; `shown` |
 | MANIFEST | `shown`, then the manifest's own fields |
-| PUBLISH | `published`, or `unchanged` for the exact version already there |
+| PUBLISH | `published`; `unchanged` for the exact content already there; `repaired` when that content's objects were damaged |
+| WITHDRAW | `withdrawn`, or `unchanged` |
 | INSTALL | `installed`, `unchanged`, or `kept` (a dependency now kept for itself) |
 | UPGRADE, ROLLBACK | `upgraded`, `downgraded`, `rolled-back`, or `unchanged` |
 | VERIFY | `intact`; `damaged` with exit 12 and `changed:`/`missing:` lines |
@@ -229,10 +284,38 @@ after the mountlist file: `GURU:`. Run the program as `GURU:C/Guru`, or
 brought (seen on a native system booted from CD, where a RAM: directory added
 to `LIBS:` is not searched), `CD <root>` before running it: the library loader
 also looks in `libs/` under the current directory. Before an upgrade or
-rollback replaces the image, `Eject
-GURU:`; afterwards run MOUNTLIST again, since the size may change. The FFS
-handler is the system's; where the system has none (hosted AROS), install
-one into the root as a component and MOUNTLIST finds it, or pass `HANDLER`.
+rollback replaces the image, `Eject GURU:`; afterwards run MOUNTLIST again,
+since the size may change. The FFS handler is the system's; native AROS has
+one. Hosted AROS built on macOS has none: build one on the host
+(`sh tools/build-aros-extras.sh` writes `build/aros/afs-handler`), publish
+it as `KIND device` with its file at `L/afs-handler` in the drawer, install
+it into the root, and MOUNTLIST names it; or pass `HANDLER <path>`. The
+`hint:` lines of MOUNTLIST say when no handler is installed.
+
+**The whole flow**, for a person who will type on AROS, with `SYS:` as the
+root (one database, libraries straight into `LIBS:`; another root such as
+`Work:Apps` keeps the system drawer untouched, at the cost of an `Assign
+LIBS: <root>/Libs ADD`, which MOUNTLIST adds to the steps):
+
+```
+Execute DEPOT:Install-Pkg DEPOT:                          ; once: Pkg itself
+Pkg INSTALL guru ROOT SYS: CHANNEL DEPOT:                 ; guru and what it depends on
+Pkg MOUNTLIST guru ROOT SYS: OUT RAM:GURU                 ; prints the steps
+MakeDir RAM:fdsk
+Assign FDSK: RAM:fdsk
+MakeLink RAM:fdsk/Unit20 SYS:guru.hdf
+Protect SYS:guru.hdf w SUB
+Mount RAM:GURU
+GURU:C/Guru 04000001
+```
+
+The step lines are the ones MOUNTLIST printed; copy them from its output
+rather than from here, since unit and paths follow the arguments. They can
+go into a script the person runs after each boot, since mounts do not
+survive one; INSTALL answers `unchanged` when run again. Before giving a
+person such a script, run the same lines against a scratch root on the host
+(`ROOT <tmp> ARCH <cpu>`), and say which lines were checked on AROS and
+which only on the host.
 
 ## On AROS without ARexx
 

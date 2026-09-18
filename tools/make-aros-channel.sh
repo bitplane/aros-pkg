@@ -23,6 +23,8 @@
 set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 ch=${1:?usage: make-aros-channel.sh <channel>}
+mkdir -p "$ch"
+ch=$(CDPATH= cd -- "$ch" && pwd)
 pkg="$repo_root/build/pkg"
 [ -n "${PKG_SIGNKEY:-}" ] || {
     echo "make-aros-channel: set PKG_SIGNKEY to the publisher's key (pkg KEYINFO FILE <key> names it;" >&2
@@ -54,16 +56,23 @@ done
     echo '; Puts Pkg on this machine from <CHANNEL>, verified: the bootstrap binary'
     echo '; that runs here installs the signed pkg package, which is then the one in use.'
     echo 'FailAt 21'
+    echo '; PKGCH: names the channel whatever its form (DEPOT: or DEPOT:channel):'
+    echo '; "<CHANNEL>/Bootstrap" would mean the parent of a volume root.'
+    echo 'Assign PKGCH: "<CHANNEL>"'
+    echo 'If ERROR'
+    echo '    Echo "There is no channel at <CHANNEL>."'
+    echo '    Quit 20'
+    echo 'EndIf'
     echo 'Set pkgboot ""'
     for d in "$ch"/Bootstrap/*/; do
         cpu=$(basename "$d")
         cat <<EOF
 If "\$pkgboot" EQ ""
-    If EXISTS "<CHANNEL>/Bootstrap/$cpu/Pkg"
-        "<CHANNEL>/Bootstrap/$cpu/Pkg" HELP >T:pkgboot.out
+    If EXISTS "PKGCH:Bootstrap/$cpu/Pkg"
+        "PKGCH:Bootstrap/$cpu/Pkg" HELP >T:pkgboot.out
         Search T:pkgboot.out "usage" QUIET >NIL:
         If NOT WARN
-            Set pkgboot "<CHANNEL>/Bootstrap/$cpu/Pkg"
+            Set pkgboot "PKGCH:Bootstrap/$cpu/Pkg"
             Echo "This machine runs the $cpu build."
         EndIf
     EndIf
@@ -73,14 +82,17 @@ EOF
     cat <<'EOF'
 Delete T:pkgboot.out QUIET >NIL:
 If "$pkgboot" EQ ""
-    Echo "None of the Pkg builds in <CHANNEL>/Bootstrap runs on this machine."
+    Echo "None of the Pkg builds in the channel's Bootstrap drawer runs on this machine."
+    Assign PKGCH: REMOVE
     Quit 20
 EndIf
-"$pkgboot" INSTALL pkg ROOT "<ROOT>" CHANNEL "<CHANNEL>"
+"$pkgboot" INSTALL pkg ROOT "<ROOT>" CHANNEL PKGCH:
 If ERROR
     Echo "Pkg did not install itself; the lines above say why."
+    Assign PKGCH: REMOVE
     Quit 20
 EndIf
+Assign PKGCH: REMOVE
 Echo "Pkg is in <ROOT>C. Try: Pkg HELP. Later: Pkg UPGRADE pkg ROOT <ROOT> CHANNEL <CHANNEL>"
 EOF
 } > "$ch/Install-Pkg"
@@ -94,4 +106,7 @@ This is a Pkg channel. To put Pkg on an AROS machine that can reach it:
 itself from this channel as a signed package; `Pkg UPGRADE pkg ROOT SYS:
 CHANNEL <this directory>` keeps it up to date.
 EOF
-echo "make-aros-channel: $ch is ready; on AROS: Execute $ch/Install-Pkg $ch"
+echo "make-aros-channel: $ch is ready."
+echo "  On each AROS machine, with <ch> the name that machine gives this directory"
+echo "  (a volume such as DEPOT:, or a drawer such as Work:channel):"
+echo "    Execute <ch>/Install-Pkg <ch>        (DEPOT:Install-Pkg DEPOT: for a volume root)"

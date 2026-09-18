@@ -113,7 +113,8 @@ struct pkg_options {
     const char *target;     /* the package, drawer, file or image operated on */
     const char *root;       /* the directory packages are installed into */
     const char *channel;    /* the directory packages are published into */
-    const char *name, *version, *arch, *kind;  /* publish: identity, else from the drawer */
+    const char *name, *version, *arch, *kind;  /* publish: identity, else from the drawer;
+                                                  publish refuses a NULL kind (20) */
     const char *depends;    /* publish: "a >= 1.0, b" */
     const char *sign;       /* publish: the signing key file */
     const char *file;       /* keygen: the key file to create */
@@ -152,7 +153,8 @@ struct pkg_options {
  *              withdrawn.
  *              dryrun: result would-publish, name, version, kind,
  *              architecture, channel, depends (or "none"), file per file,
- *              signer, left-out.
+ *              signer, left-out; content (path size) per file inside the
+ *              image, for kind image.
  *   install    result installed: name, version, root, files, payload, signer,
  *              and image, blocks for an image; before it, one [item]
  *              dependency (name version) per dependency this install
@@ -187,6 +189,13 @@ struct pkg_options {
  *              dependency, min empty when any version will do; [item] problem (package version reason)
  *              per bad entry; warning when a package has several signers;
  *              count; bad. A name the channel lacks shows count 0.
+ *   any        hint: what usually comes next, or what to tell the person
+ *              (after keygen: keep the key; publish into a channel that did
+ *              not exist: it was created; install of an image and
+ *              mountlist: how to mount it, a missing FFS handler). warning:
+ *              something to check before going on. note: a fact worth
+ *              passing on. None of them is ever a command that overrides a
+ *              safeguard. Without MACHINE the CLI prints them as text.
  *   any        [item] suggest (name), before a not-found refusal. The
  *              refusal's reason names the same suggestions: it is complete
  *              by itself; the items are for offering them as choices.

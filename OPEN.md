@@ -32,8 +32,9 @@ step in `tools/build-aros-regina.sh`, decode a dead-end alert in
 
 ## Native AROS runs
 
-- **pc-x86_64 in QEMU**: done 2026-09-18, `tests/native-x86_64.sh`, 27
-  checks. Two AROS defects found on the way, in the README table: `Lock()`
+- **pc-x86_64 in QEMU**: done 2026-09-18, `tests/native-x86_64.sh`, 31
+  checks, Pkg bootstrapping itself from a channel named by its root
+  (`DEPOT:`). Two AROS defects found on the way, in the README table: `Lock()`
   misses later directories of a multi-directory assign, and on the CD-booted
   native system a RAM: directory added to `LIBS:` is not searched by the
   library loader. Worth a look in dos.library before an upstream report.
@@ -51,8 +52,14 @@ step in `tools/build-aros-regina.sh`, decode a dead-end alert in
   are still open in the planning repository's packaging README.
 - **Images over about 49 MB.** Bitmap extension blocks are not written, and
   such an image is refused.
-- **Mounting help.** A person or agent writes the Mountlist from the manifest's
-  image size by hand (`skills/pkg/SKILL.md`). Pkg could print the entry.
+- **Mounting as one command.** MOUNTLIST writes the entry and lists the
+  `step:` commands, but AmigaDOS cannot easily run those lines from Pkg's
+  output, so a person or an agent copies them into a script. Pkg could write
+  that script too (an agent in round 5 wrote one by hand, checked on the host
+  only).
+- **The single-file bootstrap, rest of `[PKG23]`**: a database location for
+  read-only media, self-upgrade with a fallback, a lock against two Pkg runs
+  on one root.
 - **An upgrade that is refused at dependency level only names `UPGRADE`**; it
   does not offer to upgrade the dependency in the same run.
 - **Network channels, publishing from a GitHub link, Aminet and AmigaOS
@@ -60,3 +67,15 @@ step in `tools/build-aros-regina.sh`, decode a dead-end alert in
   the planning repository, none built.
 - **No `[PKG*]` gate is claimed.** Goals 1 and 2 touch many gates, but none has
   its `pkg-*.json` verdict artifact; `STATUS.md` in aros-next still says spec.
+
+## Guidance added from the agent rounds
+
+Rounds 1 to 5 each had an agent use Pkg from the skill alone, on a different
+task. What they got wrong turned into refusals and hints rather than more
+text: `KIND` is required on PUBLISH (a missing kind used to default to
+application), a near-miss kind is refused with the right one, `hint:` lines
+after KEYGEN, a publish that creates its channel, an image install and
+MOUNTLIST, `content:` lines in an image's dry run, and a warning when a
+program kind holds no executable. Still to watch in the next rounds: whether
+agents choose a root (`SYS:` or another) without asking, and whether they
+make a new key when the person's cannot be found.

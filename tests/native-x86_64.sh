@@ -109,7 +109,10 @@ mount_as() {  # mount_as <unit> <device>
     echo 'FailAt 21'
     echo 'MakeDir RAM:out RAM:fdsk'
     echo 'Assign FDSK: RAM:fdsk'
-    echo 'Execute SYS:PkgTest/boot/Install-Pkg SYS:PkgTest/boot RAM:sys'
+    # The channel named by its root, as a person with a DEPOT: volume would:
+    # DEPOT:/Bootstrap would be the parent, so Install-Pkg must not build it.
+    echo 'Assign DEPOT: SYS:PkgTest/boot'
+    echo 'Execute DEPOT:Install-Pkg DEPOT: RAM:sys'
     step s00 $P VERIFY pkg ROOT RAM:sys MACHINE
     step s01 $P INSTALL guru VERSION 2.0 $S
     step s02 $P LIST ROOT RAM:sys MACHINE

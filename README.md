@@ -93,10 +93,11 @@ PKG_SIGNKEY=~/.pkg-dev.key make aros-channel CHANNEL=<dir>
 ```
 
 On the AROS machine, with that directory reachable (a shared folder, a disk,
-an image, a network share), one line:
+an image, a network share) under the name that machine gives it, one line:
 
 ```
-Execute <dir>/Install-Pkg <dir>
+Execute <ch>/Install-Pkg <ch>             ; Work:channel, say
+Execute DEPOT:Install-Pkg DEPOT:          ; a volume that is the channel
 ```
 
 The script finds the build that runs on that machine and it installs the
@@ -179,7 +180,14 @@ With `MACHINE` on the line, or `PKG_OUTPUT=machine` in the environment, stdout
 carries only `key: value` lines, the manifest's syntax, and stderr stays empty.
 Every answer has a `result:` line: `installed`, `upgraded`, `downgraded`,
 `rolled-back`, `unchanged`, `listed`, `intact`, `damaged`, `removed`,
-`published`, `created`, `signed` or `refused`. A refusal reads:
+`published`, `repaired`, `withdrawn`, `created`, `shown`, `signed` or
+`refused`, and `would-...` under `DRYRUN`. Beside the result, `warning:` is
+something to check before going on (a kind that changed since the last
+version, a dependency that disappeared, a `$VER` that contradicts `VERSION`,
+an application with no executable in it), `note:` a fact worth passing on,
+and `hint:` what usually comes next (keep a new key, the channel a publish
+created, how to mount an image just installed). None is ever a command that
+overrides a safeguard. A refusal reads:
 
 ```
 result: refused
@@ -382,7 +390,7 @@ request (2026-09-18); the others are not reported.
 make
 ./build/pkg KEYGEN FILE ~/.pkg-dev.key          # once
 export PKG_SIGNKEY=~/.pkg-dev.key
-./build/pkg PUBLISH ~/dev/MyTool CHANNEL ~/pkg-channel
+./build/pkg PUBLISH ~/dev/MyTool CHANNEL ~/pkg-channel KIND image
 ./build/pkg INSTALL mytool ROOT ~/aros-root CHANNEL ~/pkg-channel
 ./build/pkg LIST ROOT ~/aros-root
 ./build/pkg VERIFY mytool ROOT ~/aros-root
@@ -405,11 +413,17 @@ to the version installed before the last change, fetched again from the channel,
 which never changes a published version. An upgrade that would overwrite a file
 the user edited is refused before anything moves.
 
+`KIND` is required on `PUBLISH`: `image` for a program people run, one
+volume to mount; `application` for a program as loose files; `library`,
+`device` (handlers too), `class`, `font`, `catalog`, `startup`, `boot`,
+`data`, `sdk`, `slave`. A missing or unknown kind is refused with the list,
+and a near miss (`handler`, `tool`) with the kind to use.
+
 Name and version come from the `$VER:` cookie when `NAME` and `VERSION` are
 not given. Keywords are case-insensitive, AmigaDOS style.
 
-A channel is a directory: `index` holds one `name version digest` line per
-published version, and `objects/` holds each payload and its manifest under the
+A channel is a directory, created by the first `PUBLISH` into it: `index`
+holds one `name version arch digest` line per published version and CPU, and `objects/` holds each payload and its manifest under the
 payload's SHA-256. A root keeps its own database in `.pkg/db`, so a machine can
 hold several roots without interference.
 

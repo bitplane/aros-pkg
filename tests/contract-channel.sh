@@ -27,12 +27,12 @@ printf 'an application\n' > "$work/app/C/HApp"
 "$pkg" KEYGEN FILE "$work/dev.key" > /dev/null
 "$pkg" KEYGEN FILE "$work/other.key" > /dev/null
 for v in 12 13; do
-    PKG_SIGNKEY="$work/dev.key" "$pkg" PUBLISH "$work/d$v" CHANNEL "$out/channel" > /dev/null
+    PKG_SIGNKEY="$work/dev.key" "$pkg" PUBLISH "$work/d$v" CHANNEL "$out/channel" KIND application > /dev/null
 done
 # Another publisher's 1.4, let in on purpose: Pkg refuses a new key for a
 # package already published unless ACCEPTKEY names it.
 other=$(awk '/^Public:/{print $2}' "$work/other.key")
-PKG_SIGNKEY="$work/other.key" "$pkg" PUBLISH "$work/d14" CHANNEL "$out/channel" ACCEPTKEY "$other" > /dev/null
+PKG_SIGNKEY="$work/other.key" "$pkg" PUBLISH "$work/d14" CHANNEL "$out/channel" KIND application ACCEPTKEY "$other" > /dev/null
 PKG_SIGNKEY="$work/dev.key" "$pkg" PUBLISH "$work/lib" CHANNEL "$out/channel" \
     NAME hlib VERSION 1.0 KIND library > /dev/null
 PKG_SIGNKEY="$work/dev.key" "$pkg" PUBLISH "$work/app" CHANNEL "$out/channel" \
