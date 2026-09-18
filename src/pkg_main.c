@@ -603,8 +603,16 @@ static void say_not_found(const struct index *ix, const char *name, const char *
     pkg_err("\n");
 }
 
-/* A fetched, verified package: bytes that hash to the index digest, a manifest
- * that agrees with the index, and a valid signature over that manifest. */
+/* A fetched, verified package.
+ *
+ * The index names a version by the digest of its MANIFEST, never of its
+ * payload. The manifest is the signed object and it names the payload, so the
+ * chain runs index -> manifest -> payload, each link checked. Payloads stay
+ * content-addressed and may be shared: two versions with identical bytes, or
+ * two packages shipping the same files, keep separate manifests and signatures
+ * over one payload object. Keying manifests by the payload, as the first layout
+ * did, let the second of two such publishes overwrite the first's manifest and
+ * signature; a diagnostic run with two identical handler builds found it. */
 struct fetched {
     struct pkg_manifest m;
     unsigned char *pkg;
@@ -612,7 +620,7 @@ struct fetched {
     unsigned char *mtext;
     size_t         mlen;
     char           signer[65];
-    char           digest[PKG_SHA256_HEXLEN + 1];
+    char           digest[PKG_SHA256_HEXLEN + 1];   /* the manifest's */
 };
 
 static void fetched_free(struct fetched *f)
@@ -624,9 +632,9 @@ static void fetched_free(struct fetched *f)
 
 static int fetch(const char *channel, const struct entry *e, struct fetched *f)
 {
-    char *po = object_path(channel, e->digest, "pkg");
     char *mo = object_path(channel, e->digest, "manifest");
     char *so = object_path(channel, e->digest, "sig");
+    char *po = NULL;
     char hex[PKG_SHA256_HEXLEN + 1], err[300], what[160];
     int rc = 1;
 
@@ -634,31 +642,43 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
     pkg_manifest_init(&f->m);
     snprintf(what, sizeof what, "%s %s", e->name, e->version);
     memcpy(f->digest, e->digest, sizeof f->digest);
-    if (po == NULL || mo == NULL || so == NULL) { refuse("out of memory"); goto out; }
+    if (mo == NULL || so == NULL) { refuse("out of memory"); goto out; }
 
-    if (pkg_fs_read(po, &f->pkg, &f->pkg_len) != 0) {
-        refuse("the channel lists %s but its payload is missing", what);
-        goto out;
-    }
-    pkg_sha256_hex(f->pkg, f->pkg_len, hex);
-    if (strcmp(hex, e->digest) != 0) {
-        refuse("the payload of %s does not match the channel index; expected %s, found %s. "
-               "Nothing was installed", what, e->digest, hex);
-        goto out;
-    }
+    /* 1. The manifest the index names, byte for byte. */
     if (pkg_fs_read(mo, &f->mtext, &f->mlen) != 0) {
         refuse("the channel lists %s but its manifest is missing", what);
         goto out;
     }
+    pkg_sha256_hex(f->mtext, f->mlen, hex);
+    if (strcmp(hex, e->digest) != 0) {
+        refuse("the manifest of %s does not match the channel index; expected %s, found %s. "
+               "Nothing was installed", what, e->digest, hex);
+        goto out;
+    }
+    /* 2. Signed. */
     if (check_sig(so, f->mtext, f->mlen, f->signer, what) != 0)
         goto out;
+    /* 3. And saying what the index says it is. */
     if (pkg_manifest_parse((const char *)f->mtext, f->mlen, &f->m, err, sizeof err) != 0) {
         refuse("the manifest of %s is refused: %s", what, err);
         goto out;
     }
     if (strcmp(f->m.name, e->name) != 0 || pkg_version_cmp(f->m.version, e->version) != 0
-        || f->m.payload == NULL || strcmp(f->m.payload, e->digest) != 0) {
+        || f->m.payload == NULL) {
         refuse("the manifest of %s disagrees with the channel index about what it is", what);
+        goto out;
+    }
+    /* 4. The payload the signed manifest names. */
+    po = object_path(channel, f->m.payload, "pkg");
+    if (po == NULL) { refuse("out of memory"); goto out; }
+    if (pkg_fs_read(po, &f->pkg, &f->pkg_len) != 0) {
+        refuse("the channel lists %s but its payload is missing", what);
+        goto out;
+    }
+    pkg_sha256_hex(f->pkg, f->pkg_len, hex);
+    if (strcmp(hex, f->m.payload) != 0) {
+        refuse("the payload of %s does not match its signed manifest; expected %s, found %s. "
+               "Nothing was installed", what, f->m.payload, hex);
         goto out;
     }
     rc = 0;
@@ -930,7 +950,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         refuse("warning: the signing key could not be pinned");
     if (old != NULL) {
         char *pp = root_path(root, "prev", m->name), line[160];
-        int n = snprintf(line, sizeof line, "%s %s\n", old->version, old->payload ? old->payload : "");
+        int n = snprintf(line, sizeof line, "%s\n", old->version);
         if (pp == NULL || pkg_fs_write_atomic(pp, line, (size_t)n) != 0)
             refuse("warning: the previous version could not be recorded for ROLLBACK");
         free(pp);
@@ -958,6 +978,7 @@ static int cmd_publish(const struct args *a)
     struct key k;
     size_t i;
     char *po = NULL, *mo = NULL, *so = NULL, s12[13];
+    char mdigest[PKG_SHA256_HEXLEN + 1];
     int rc = 1;
 
     if (a->channel == NULL)
@@ -966,12 +987,14 @@ static int cmd_publish(const struct args *a)
         return 1;
     if (build(a, &b) != 0) { built_free(&b); return 1; }
     if (read_index(a->channel, &ix) != 0) { built_free(&b); return 1; }
+    /* A version is named by its manifest, which names its payload. */
+    pkg_sha256_hex(b.text, b.text_len, mdigest);
 
     for (i = 0; i < ix.n; i++) {
         if (strcmp(ix.e[i].name, b.m.name) == 0
             && pkg_version_cmp(ix.e[i].version, b.m.version) == 0) {
-            if (strcmp(ix.e[i].digest, b.m.payload) == 0) {
-                pkg_out("%s %s is already published with this exact payload; nothing to do\n",
+            if (strcmp(ix.e[i].digest, mdigest) == 0) {
+                pkg_out("%s %s is already published with this exact content; nothing to do\n",
                        b.m.name, b.m.version);
                 rc = 0;
             } else {
@@ -985,9 +1008,9 @@ static int cmd_publish(const struct args *a)
         }
     }
 
-    po = object_path(a->channel, b.m.payload, "pkg");
-    mo = object_path(a->channel, b.m.payload, "manifest");
-    so = object_path(a->channel, b.m.payload, "sig");
+    po = object_path(a->channel, b.m.payload, "pkg");     /* content-addressed, shareable */
+    mo = object_path(a->channel, mdigest, "manifest");      /* one per version */
+    so = object_path(a->channel, mdigest, "sig");
     if (po == NULL || mo == NULL || so == NULL
         || pkg_fs_write_atomic(po, b.pkg, b.pkg_len) != 0
         || pkg_fs_write_atomic(mo, b.text, b.text_len) != 0
@@ -1001,7 +1024,7 @@ static int cmd_publish(const struct args *a)
         ix.e = w;
         snprintf(ix.e[ix.n].name, sizeof ix.e[ix.n].name, "%s", b.m.name);
         snprintf(ix.e[ix.n].version, sizeof ix.e[ix.n].version, "%s", b.m.version);
-        snprintf(ix.e[ix.n].digest, sizeof ix.e[ix.n].digest, "%s", b.m.payload);
+        snprintf(ix.e[ix.n].digest, sizeof ix.e[ix.n].digest, "%s", mdigest);
         ix.n++;
     }
     if (write_index(a->channel, &ix) != 0) {
@@ -1059,7 +1082,7 @@ static int cmd_install(const struct args *a)
     if (fetch(a->channel, e, &f) == 0
         && check_pin(a->root, e->name, f.signer, a->acceptkey) == 0
         && apply(a->root, NULL, &f, &placed, &dropped, &kept) == 0) {
-        short12(f.digest, s12);
+        short12(f.m.payload, s12);
         pkg_out("installed %s %s into %s: %lu files, payload %s, signed by %.16s\n",
                f.m.name, f.m.version, a->root, placed, s12, f.signer);
         rc = 0;
@@ -1151,14 +1174,14 @@ static int cmd_rollback(const struct args *a)
         memcpy(tmp, buf, n);
         tmp[n] = '\0';
         free(buf);
-        if (sscanf(tmp, "%63s %64s", prev.version, prev.digest) != 2) {
+        if (sscanf(tmp, "%63s", prev.version) != 1 || pkg_check_version(prev.version) != NULL) {
             pkg_manifest_free(&cur);
             return refuse("the rollback record for %s is damaged", a->pos);
         }
     }
     if (read_index(a->channel, &ix) != 0) { pkg_manifest_free(&cur); return 1; }
     for (i = 0; i < ix.n; i++)
-        if (strcmp(ix.e[i].name, a->pos) == 0 && strcmp(ix.e[i].digest, prev.digest) == 0)
+        if (strcmp(ix.e[i].name, a->pos) == 0 && pkg_version_cmp(ix.e[i].version, prev.version) == 0)
             e = &ix.e[i];
     if (e == NULL)
         refuse("the previous version of %s, %s, is no longer in the channel %s",

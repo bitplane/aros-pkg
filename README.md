@@ -14,7 +14,7 @@ directory of signed index snapshots and content-addressed objects.
 
 ## State
 
-Goal and milestones: [GOAL.md](GOAL.md). **M1 and M2 are done** on macOS.
+Goal and milestones: [GOAL.md](GOAL.md). **M1, M2 and M3 are done**: the loop on macOS, trust and versions, and the client on hosted AROS installing the real AFS+ handler.
 
 | Piece | State |
 |---|---|
@@ -22,13 +22,55 @@ Goal and milestones: [GOAL.md](GOAL.md). **M1 and M2 are done** on macOS.
 | Byte-order discipline and its checks | Built |
 | SHA-256 | Built, checked against the NIST vectors |
 | Text manifest | Built, strict parser, with its test |
-| Host filesystem layer | POSIX (macOS, Linux). The AROS layer comes with M3 |
+| Host filesystem layer | POSIX, used on macOS, Linux and AROS through its posixc library |
 | `MANIFEST`, `PUBLISH`, `INSTALL ROOT`, `LIST`, `VERIFY`, `REMOVE` | Built, end-to-end test on macOS |
 | SHA-512 and Ed25519 | Built, checked against FIPS and the RFC 8032 vectors |
 | `KEYGEN`, `SIGN`, signed `PUBLISH`, key pinned per package in the root | Built, end-to-end test |
 | `UPGRADE`, `ROLLBACK`, `DOWNGRADE`, `EXACT` and `COMPATIBLE` selection | Built, end-to-end test |
-| AROS client | M3 |
+| AROS client | Built with `tools/build-aros.sh`; `make check-aros` and `tests/aros-handler.sh` on hosted AROS |
 | ARexx port | M4 |
+
+## On hosted AROS
+
+`sh tools/build-aros.sh` cross-builds `Pkg` for aarch64 AROS, and `PkgHandlerRev`,
+a test probe that asks a mounted AFS+ volume which handler revision serves it.
+
+`make check-aros` boots hosted AROS once: a package published and signed on
+macOS is installed through the `MacRW:` share, verified, listed, removed, and a
+tampered payload is refused with AmigaDOS seeing the error.
+
+`tests/aros-handler.sh` is M3. It installs the real AFS+ handler with Pkg, over
+four boots, so that a restart is a restart:
+
+| Boot | What happens | What the handler itself reports |
+|---|---|---|
+| 1 | Install revision 14, mount; upgrade to 15 while mounted | 14, then still 14: the loaded handler runs on until restart |
+| 2 | Restart | 15 |
+| 3 | Upgrade to a 16 that cannot load; it fails to start, and the startup sequence runs `Pkg ROLLBACK` | the start fails, AmigaDOS sees it |
+| 4 | Restart after the fallback | 15 |
+
+It needs two handler packages built by AFS+'s own `tools/package-aros-alpha0.sh`,
+at interface revisions 14 and 15:
+
+```sh
+PKG_HANDLER_V14=<dir> PKG_HANDLER_V15=<dir> sh tests/aros-handler.sh
+```
+
+Four things the hosted runs established, none of them guessed beforehand:
+
+- **Output.** posixc's `stdout` reached nothing a shell redirection could see;
+  output goes through `dos.library` to `Output()`, refusals included.
+- **Exit codes.** A refusal is `RETURN_ERROR` (10), since `If ERROR` tests for
+  10 and a POSIX 1 would pass as success.
+- **errno.** posixc reports no `EEXIST` for an existing directory and no `ENOENT`
+  from `opendir` on an absent one; existence is tested, never inferred.
+- **Formats.** AFS+ changes its on-disk format without keeping legacy readers,
+  so a revision 14 handler refuses an image written by revision 15 tools. For
+  the tool this is the concrete case behind `[PKG22]` item 5: rolling a handler
+  back across a format change leaves volumes unreadable, so a package that owns
+  an on-disk format has to declare whether its state survives a downgrade, and
+  ROLLBACK has to honour that declaration. Not built yet; recorded as the next
+  piece of the version model.
 
 ## Use, on macOS
 

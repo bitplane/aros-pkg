@@ -52,3 +52,30 @@ COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
     -Wl,--end-group -lclang_rt.builtins-aarch64
 chmod 755 "$out/Pkg"
 echo "build-aros: $out/Pkg"
+
+# The test probe, built against the AFS+ client library, read-only.
+afsplus=${AFSPLUS_ROOT:-"$repo_root/../afsplus"}
+if [ -f "$afsplus/native/aros/client/afsplus_client.c" ]; then
+    # shellcheck disable=SC2086
+    COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
+        "$aros_clang" --target="$aros_target" $aros_arch_flags \
+        -O2 -std=gnu11 -Wall -Wextra -Werror -Wno-pointer-sign \
+        -isystem "$developer/include" \
+        -isystem "$sdk/gen/include" \
+        -isystem "$sdk/gen/include/aros/posixc" \
+        -isystem "$developer/include/aros/stdc" \
+        -nostartfiles -nodefaultlibs \
+        -L "$developer/lib" -L "$aros_cross_lib" \
+        -I "$afsplus/api" -I "$afsplus/native/aros/client" \
+        "$developer/lib/startup.o" \
+        tools/aros/pkg_handler_rev.c "$afsplus/native/aros/client/afsplus_client.c" \
+        -o "$out/PkgHandlerRev" \
+        -Wl,--allow-multiple-definition -Wl,--start-group \
+        -lpthread -lposixc -lstdc -lstdcio -ldos -lexec -laros \
+        -lautoinit -llibinit -lutility -lamiga -larossupport \
+        -Wl,--end-group -lclang_rt.builtins-aarch64
+    chmod 755 "$out/PkgHandlerRev"
+    echo "build-aros: $out/PkgHandlerRev"
+else
+    echo "build-aros: no AFS+ tree at $afsplus; PkgHandlerRev skipped"
+fi

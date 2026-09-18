@@ -62,11 +62,12 @@ printf 'library data\n' > "$work/drawer/Libs/data.txt"
 "$host_pkg" KEYGEN FILE "$work/dev.key" > /dev/null
 PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/drawer" CHANNEL "$share/channel" > /dev/null
 digest=$(awk '$1=="hello"{print $3}' "$share/channel/index")
+payload=$(awk '/^Payload:/{print $2}' "$share/channel/objects/$digest.manifest")
 cp -R "$share/channel" "$share/tampered"
 python3 -c "
 import sys
 p=sys.argv[1]; b=bytearray(open(p,'rb').read()); b[-1]^=1; open(p,'wb').write(b)
-" "$share/tampered/objects/$digest.pkg"
+" "$share/tampered/objects/$payload.pkg"
 
 cp "$aros_pkg" "$target"
 installed=1
@@ -110,7 +111,7 @@ has "$share/verify.out" 'all intact';                 ok $? "verify passes on AR
 has "$share/list.out" '^hello';                       ok $? "list shows the package"
 cmp -s "$work/drawer/C/Hello" "$share/hello.copy";    ok $? "the installed bytes equal the drawer's, compared on the host"
 [ "$(cat "$share/tamper.rc" 2>/dev/null)" = refused ]; ok $? "a tampered payload is refused, and AmigaDOS sees the error"
-has "$share/tamper.out" "expected $digest";           ok $? "the refusal names the expected digest"
+has "$share/tamper.out" "expected $payload";           ok $? "the refusal names the expected digest"
 has "$share/remove.out" 'removed hello 1.2';          ok $? "remove reports what it did"
 ! has "$share/after-remove.out" 'Hello';              ok $? "nothing of the package is left in RAM:root"
 

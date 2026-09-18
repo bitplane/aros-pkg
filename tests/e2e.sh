@@ -70,8 +70,11 @@ has "$T/pub" 'published hello 1.2';                   ok $? "publish reports wha
 has "$T/pub" "signed by $(echo "$PUB" | cut -c1-16)"; ok $? "publish names the signing key"
 has "$T/pub" 'skipped 2 host metadata';               ok $? "publish reports skipped files"
 digest=$(awk '$1=="hello"{print $3}' "$CH/index")
-[ "$(shasum -a 256 "$CH/objects/$digest.pkg" | cut -d' ' -f1)" = "$digest" ]
-                                                      ok $? "payload name is its shasum"
+payload=$(awk '/^Payload:/{print $2}' "$CH/objects/$digest.manifest")
+[ "$(shasum -a 256 "$CH/objects/$digest.manifest" | cut -d' ' -f1)" = "$digest" ]
+                                                      ok $? "the index names the manifest by its shasum"
+[ "$(shasum -a 256 "$CH/objects/$payload.pkg" | cut -d' ' -f1)" = "$payload" ]
+                                                      ok $? "the manifest names the payload by its shasum"
 cmp -s "$T/m1" "$CH/objects/$digest.manifest";        ok $? "MANIFEST equals what PUBLISH stored"
 has "$CH/objects/$digest.sig" "^Signer: $PUB$";       ok $? "signature file names its signer"
 
@@ -121,16 +124,16 @@ env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/ch-nokey" > "$T/nokey" 2>&1
 has "$T/nokey" 'Every package is signed';             ok $? "and says why"
 [ ! -e "$T/ch-nokey/index" ];                         ok $? "and nothing was published"
 
-cp "$CH/objects/$digest.pkg" "$T/good.pkg"
+cp "$CH/objects/$payload.pkg" "$T/good.pkg"
 python3 -c "
 import sys
 p=sys.argv[1]; b=bytearray(open(p,'rb').read()); b[-1]^=1; open(p,'wb').write(b)
-" "$CH/objects/$digest.pkg"
+" "$CH/objects/$payload.pkg"
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/tamper" 2>&1
 [ $? -eq 1 ];                                         ok $? "tampered payload refused"
-has "$T/tamper" "expected $digest";                   ok $? "the refusal names the expected digest"
+has "$T/tamper" "expected $payload";                  ok $? "the refusal names the expected digest"
 [ ! -e "$R/C/Hello" ];                                ok $? "and nothing was installed"
-cp "$T/good.pkg" "$CH/objects/$digest.pkg"
+cp "$T/good.pkg" "$CH/objects/$payload.pkg"
 
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG INSTALL hello ROOT "$R" CHANNEL "$CH" > "$T/twice" 2>&1
@@ -164,10 +167,11 @@ d = hashlib.sha256(pkg).hexdigest()
 fd = hashlib.sha256(data).hexdigest()
 man = ('Format: pkg-manifest 1\nName: %s\nVersion: 1\nArchitecture: generic\n'
        'Kind: data\nPayload: %s\nFile: %s %d %s\n') % (name, d, fd, len(data), mpath)
+md = hashlib.sha256(man.encode()).hexdigest()
 open(os.path.join(ch, 'objects', d + '.pkg'), 'wb').write(pkg)
-open(os.path.join(ch, 'objects', d + '.manifest'), 'w').write(man)
-open(os.path.join(ch, 'index'), 'a').write('%s 1 %s\n' % (name, d))
-print(d)
+open(os.path.join(ch, 'objects', md + '.manifest'), 'w').write(man)
+open(os.path.join(ch, 'index'), 'a').write('%s 1 %s\n' % (name, md))
+print(md)
 PY
 )
     $PKG SIGN "$CH/objects/$d.manifest" KEY "$KEY" OUT "$CH/objects/$d.sig" > /dev/null
@@ -188,6 +192,26 @@ forge evil-c ".pkg/db/hello" ".pkg/db/hello"
 $PKG INSTALL evil-c ROOT "$R" CHANNEL "$CH" > "$T/ec" 2>&1
 [ $? -eq 1 ];                                         ok $? "a payload writing into the database refused"
 has "$T/ec" 'inside .pkg';                            ok $? "for the database path, not the signature"
+
+echo "identical_payloads"
+
+# Two versions whose bytes are identical keep separate manifests and signatures
+# over one shared payload. The first layout keyed manifests by the payload, so
+# the second publish overwrote the first's manifest; this is the case that
+# found it.
+mkdir -p "$T/same/Libs"; printf 'same bytes\n' > "$T/same/Libs/x.txt"
+$PKG PUBLISH "$T/same" CHANNEL "$CH" NAME same VERSION 1 KIND data > /dev/null 2>&1
+                                                      ok $? "publish same 1"
+$PKG PUBLISH "$T/same" CHANNEL "$CH" NAME same VERSION 2 KIND data > /dev/null 2>&1
+                                                      ok $? "publish same 2, identical bytes"
+[ "$(awk '$1=="same"{print $3}' "$CH/index" | sort -u | wc -l | tr -d ' ')" = 2 ]
+                                                      ok $? "two index entries, two distinct manifests"
+$PKG INSTALL same VERSION 1 ROOT "$T/r-same" CHANNEL "$CH" > "$T/same1" 2>&1
+                                                      ok $? "version 1 installs"
+has "$T/same1" 'installed same 1';                    ok $? "and is version 1"
+$PKG UPGRADE same VERSION 2 ROOT "$T/r-same" CHANNEL "$CH" > "$T/same2" 2>&1
+                                                      ok $? "version 2 installs over it"
+has "$T/same2" 'upgraded same from 1 to 2';           ok $? "and is version 2"
 
 echo "signatures"
 

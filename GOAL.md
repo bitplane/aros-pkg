@@ -34,7 +34,7 @@ follows.
 |---|---|---|
 | **M1 ✓** | **macOS loop.** Done 2026-09-18. Manifest, publish into a directory channel, install into a root, list, verify, remove, with every payload digest-checked | `make check` passes, including an end-to-end run on macOS with its negative controls |
 | **M2 ✓** | **Trust and versions.** Done 2026-09-18. Ed25519 signatures, publisher key pinned on first use, `Upgrade` and `Rollback`, `EXACT` and `COMPATIBLE` selection | A tampered payload and a substituted key are refused on macOS |
-| M3 | **The AROS client.** `Pkg` built for aarch64-aros, bootstrapped on hosted AROS, installs the AFS+ handler with replacement at restart and fallback | Steps 1 and 2 of the goal pass on hosted AROS |
+| **M3 ✓** | **The AROS client.** Done 2026-09-18. `Pkg` built for aarch64-aros, bootstrapped on hosted AROS, installs the AFS+ handler with replacement at restart and fallback | Steps 1 and 2 of the goal pass on hosted AROS |
 | M4 | **The agent.** The `PKG` ARexx port, and one script that drives steps 1 to 4 | The whole goal sequence passes |
 
 Gates touched: `[PKG1]`, `[PKG6]`, `[PKG10]`, `[PKG11]`, `[PKG17]`, `[PKG18]`,
