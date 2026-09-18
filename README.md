@@ -526,8 +526,14 @@ Name and version come from the `$VER:` cookie when `NAME` and `VERSION` are
 not given. Keywords are case-insensitive, AmigaDOS style.
 
 A channel is a directory, created by the first `PUBLISH` into it: `index`
-holds one `name version arch digest` line per published version and CPU, and `objects/` holds each payload and its manifest under the
-payload's SHA-256. A root keeps its own database in `.pkg/db`, so a machine can
+holds one `name version arch digest` line per published version and CPU,
+where the digest is the SHA-256 of that version's manifest. `objects/`
+holds, per version, `<manifest digest>.manifest` (named by its own
+SHA-256), `.sig` (its signature) and, once withdrawn, `.withdrawn` and
+`.withdrawn.sig`; and per payload `<payload digest>.pkg`, named by its own
+SHA-256, which the manifest's `Payload:` line gives. A package whose files
+stay in an archive has no `.pkg`: its manifest's `Source:` names
+`archives/<name>` in the channel. A root keeps its own database in `.pkg/db`, so a machine can
 hold several roots without interference.
 
 Host metadata the Amiga side has no use for, `.DS_Store` and AppleDouble `._`
