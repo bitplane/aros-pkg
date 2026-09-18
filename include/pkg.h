@@ -66,12 +66,28 @@ enum {
     PKG_RC_USAGE      = 20   /* the request is wrong */
 };
 
+/* Every callback runs on the thread that called the operation, before the
+ * operation returns. The strings it receives are valid only during the
+ * callback: copy what you keep. Any callback may be NULL; with structured
+ * set, `text` is never called, and without it `record` and `item` are never
+ * called. */
 struct pkg_sink {
     void (*record)(void *user, const char *key, const char *value);
     void (*text)(void *user, int is_error, const char *text);
     void *user;
     int   structured;
-    void (*trace)(void *user, const char *line);   /* optional */
+    /* Optional: the operation's account of itself, see above. */
+    void (*trace)(void *user, const char *line);
+    /* Optional, structured form: a record that has several fields also
+     * arrives here with its fields apart, so nothing has to split strings.
+     * `kind` is the record's key; `keys` and `values` hold `n` fields, in the
+     * order the joined value lists them. The records concerned, and their
+     * fields, are listed below. */
+    void (*item)(void *user, const char *kind, int n,
+                 const char *const *keys, const char *const *values);
+    /* Optional: asked between steps; non-zero stops the operation, which is
+     * refused (10, next report) with anything it had placed taken back out. */
+    int  (*cancel)(void *user);
 };
 
 /* Every option any operation takes; each operation reads the ones it needs
@@ -94,6 +110,60 @@ struct pkg_options {
     int orphans;            /* remove: remove what nothing needs, instead of target */
     int dryrun;             /* every check, no write; results read would-... */
 };
+
+/* What each operation answers in the structured form. `result` is always
+ * there but not always first: look it up by key. A refusal is result
+ * refused, class, code, reason, next, sometimes preceded by fields that
+ * help (pinned, signer, first-signer on a key refusal; suggest on a name not
+ * found). The return code and these fields agree, except SHOW, which answers
+ * `shown` with every entry and returns the class of the first bad one.
+ * Fields marked [item] also reach `item`, with the field names in brackets.
+ *
+ *   keygen     result created; file; public
+ *   keyinfo    result shown; file; public                (file or target)
+ *   sign       result signed; file; signer
+ *   manifest   result shown; then each manifest line as a field (Name, ...)
+ *   publish    result published: name, version, channel, manifest, payload,
+ *              signer, files, [arch-from], [version-from], left-out per file.
+ *              result unchanged: name, version (that exact content is there).
+ *              dryrun: result would-publish, name, version, kind,
+ *              architecture, channel, depends (or "none"), file per file,
+ *              signer, left-out.
+ *   install    result installed: name, version, root, files, payload, signer,
+ *              and image, blocks for an image; before it, one [item]
+ *              dependency (name version) per dependency this install
+ *              placed; those already there are not listed.
+ *              result unchanged or kept: name, version.
+ *   upgrade,   result upgraded, downgraded, rolled-back or unchanged: name,
+ *   rollback   from, version, root, placed, removed, signer, with
+ *              dependency items as for install.
+ *   list       result listed; [item] package (name version kind files
+ *              reason), reason explicit or dependency; count. A root that
+ *              does not exist lists nothing and succeeds.
+ *   verify     name, version, files; changed and missing per file; result
+ *              intact, or damaged with code 12.
+ *   remove     result removed: name, version, root, removed, gone, kept per
+ *              edited file left in place, [item] orphan (name version) per
+ *              package nothing needs any more. With orphans set: [item]
+ *              package (name version) per package removed, then result
+ *              removed, count.
+ *   image      result created: file, volume, blocks
+ *   mountlist  result created (with out) or shown: name, image, blocks,
+ *              highcyl, unit, handler, file, step per AmigaDOS command.
+ *   show       result shown; [item] entry (name version kind architecture
+ *              status signer [installed]) per channel entry, status ok or
+ *              a class name, installed (installed, other-version or no)
+ *              when root is given; [item] depends (package version needs
+ *              min) per dependency; [item] problem (package version reason)
+ *              per bad entry; warning when a package has several signers;
+ *              count; bad. A name the channel lacks shows count 0.
+ *   any        [item] suggest (name), before a not-found refusal.
+ *
+ * `next` takes the values stop, ask-person, fix-command, check-name,
+ * use-upgrade, use-install and report; a value added later is shown with
+ * pkg_next_words. dryrun turns results into would-publish, would-install,
+ * would-upgrade, would-downgrade, would-roll-back, would-remove,
+ * would-create. INSTALL creates the root if it does not exist. */
 
 int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o);
@@ -118,7 +188,8 @@ int pkg_usage_error(const struct pkg_sink *s, const char *verb, const char *reas
 /* "not-found" for 11, and so on; "ok" for 0. */
 const char *pkg_class_name(int code);
 
-/* The sentence a person reads for a `next` value. */
+/* A sentence for a person, for a `next` value, naming no command, so any
+ * front end can show it. (The command line's text form has its own.) */
 const char *pkg_next_words(const char *next);
 
 #endif

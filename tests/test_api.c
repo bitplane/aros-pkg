@@ -43,6 +43,24 @@ static void txt(void *user, int is_error, const char *text)
     ((struct seen *)user)->texts++;
 }
 
+static int items_ok, cancel_after = -1, asked;
+
+/* An entry must arrive with its fields apart, in their order. */
+static void itm(void *user, const char *kind, int n, const char *const *k, const char *const *v)
+{
+    (void)user;
+    if (strcmp(kind, "entry") == 0 && n >= 7 && strcmp(k[0], "name") == 0
+        && strcmp(v[0], "tool") == 0 && strcmp(k[4], "status") == 0 && strcmp(v[4], "ok") == 0
+        && strcmp(k[6], "installed") == 0 && strcmp(v[6], "installed") == 0)
+        items_ok = 1;
+}
+
+static int stop_now(void *user)
+{
+    (void)user;
+    return cancel_after >= 0 && asked++ >= cancel_after;
+}
+
 static int traced;
 static void trc(void *user, const char *line)
 {
@@ -77,7 +95,7 @@ int main(void)
     char dirbuf[400], *dir = dirbuf, p[512], key[512], drawer[512], channel[512], root[512];
     const char *tmp = getenv("TMPDIR");
     struct seen s;
-    struct pkg_sink sink = { rec, txt, &s, 1, NULL };
+    struct pkg_sink sink = { rec, txt, &s, 1, NULL, NULL, NULL };
     struct pkg_options o;
     struct stat st;
     int rc;
@@ -154,6 +172,39 @@ int main(void)
     rc = pkg_install(&sink, &o);
     sink.trace = NULL;
     ok(rc == 0 && traced, "the trace callback hears the operation's choices");
+
+    memset(&s, 0, sizeof s);
+    memset(&o, 0, sizeof o);
+    sink.item = itm;
+    o.channel = channel; o.root = root;
+    rc = pkg_show(&sink, &o);
+    sink.item = NULL;
+    ok(rc == 0 && items_ok, "SHOW against a root: each entry's fields apart, installed among them");
+
+    memset(&s, 0, sizeof s);
+    memset(&o, 0, sizeof o);
+    o.target = "tol"; o.root = root; o.channel = channel;
+    rc = pkg_install(&sink, &o);
+    ok(rc == PKG_RC_NOTFOUND && is(&s, "suggest", "tool"), "a typo gets the near name as a suggest field");
+
+    {
+        char root2[600];
+        snprintf(root2, sizeof root2, "%s/root2", dir);
+        memset(&s, 0, sizeof s);
+        memset(&o, 0, sizeof o);
+        o.target = "tool"; o.root = root2; o.channel = channel;
+        sink.cancel = stop_now;
+        cancel_after = 1;
+        asked = 0;
+        rc = pkg_install(&sink, &o);
+        sink.cancel = NULL;
+        snprintf(p, sizeof p, "%s/C/Tool", root2);
+        ok(rc == PKG_RC_REFUSED && is(&s, "next", "report") && stat(p, &st) != 0,
+           "cancel stops the install with nothing placed");
+    }
+    ok(strstr(pkg_next_words("check-name"), "pkg ") == NULL
+       && strstr(pkg_next_words("use-upgrade"), "UPGRADE") == NULL,
+       "pkg_next_words names no command, for any front end");
 
     printf("text\n");
     sink.structured = 0;

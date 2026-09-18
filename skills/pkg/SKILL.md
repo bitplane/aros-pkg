@@ -17,7 +17,9 @@ it prints hands you a command that overrides a safeguard. Follow what it says.
 from its repository with `make` (`build/pkg`); for AROS, `sh
 tools/build-aros.sh` (`build/aros/Pkg`). A `build/pkg` older than the
 sources is rebuilt by `make`. `pkg HELP` lists every verb and keyword.
-Programs that link Pkg instead of running it use `include/pkg.h`.
+Programs that link Pkg instead of running it use `include/pkg.h`, which
+lists every field each operation answers; its `item` callback gives the
+multi-field records with their fields apart.
 
 ## The three habits
 
@@ -31,18 +33,21 @@ Programs that link Pkg instead of running it use `include/pkg.h`.
 | `next:` | What you do |
 |---|---|
 | `stop` | Stop. Report the `reason:` to the person as it is. The bytes or signatures are not what was published; no keyword, copy or other channel makes that safe |
-| `ask-person` | Show the person the `reason:` and wait. It is their decision: a new publisher key, going back a version, a file they edited, removing something others need |
+| `ask-person` | Show the person the `reason:` and wait. It is their decision: a new publisher key, going back a version, a file of theirs where the package installs (move it, or choose another root), a file they edited, removing something others need |
 | `fix-command` | Your command is wrong; `pkg HELP` has the spelling. Keywords have no dashes: `ROOT <dir>`, not `--root` |
-| `check-name` | The name is not there. The `reason:` suggests near names; `pkg SHOW CHANNEL <dir>` lists a channel, `pkg LIST ROOT <dir>` a root |
+| `check-name` | The name is not there. Near names come as `suggest:` fields; `pkg SHOW CHANNEL <dir>` lists a channel, `pkg LIST ROOT <dir>` a root |
 | `use-upgrade` | Another version is installed; `UPGRADE` moves it, if that is what the person asked for |
 | `use-install` | It is not installed; `INSTALL` it, if that is what the person asked for |
 | `report` | Report the `reason:` |
 
 A refusal reads `result: refused`, `class:`, `code:`, `reason:`, `next:`. A
-key refusal also gives `pinned:` and `signer:`: show both to the person. If
-they confirm with the publisher, by another route than the channel, that the
-new key is theirs, repeat the command with `ACCEPTKEY <signer, in full>`.
-Never before.
+key refusal also gives the keys involved (`pinned:` or `first-signer:`, and
+`signer:`): show them to the person. The key that signed a package's first
+version in a channel is presumed its publisher's, so a first install, or a
+publish, signed by another key is refused too. If the person confirms with
+the publisher, by another route than the channel, that the other key is
+theirs, repeat the command with `ACCEPTKEY <that key, in full>`. Never
+before.
 
 When something behaves unexpectedly, add `TRACE <file>` (or set
 `PKG_TRACE=<file>`, `-` for stderr): the file then tells every step, every
@@ -71,20 +76,24 @@ to run, and names the components it needs with `DEPENDS`.
 
 1. **Publishing is permanent.** A channel has no unpublish. Run the command
    with `DRYRUN` first and read `name:`, `version:`, `kind:`,
-   `architecture:`, `depends:` and `file:`; when unsure, publish to a
-   scratch channel first.
+   `architecture:`, `depends:`, `file:` and `signer:`; compare them with the
+   versions already published (`SHOW <name> CHANNEL <dir>`). When unsure,
+   publish to a scratch channel first.
 2. **Never pass `ACCEPTKEY` or `DOWNGRADE` on your own.** Pkg never suggests
    them; only the person's answer does.
-3. **Never touch `.pkg/` in a root, or `objects/` in a channel, by hand.**
-   After everything is removed a root still holds the keys pinned for each
-   package: that is on purpose.
+3. **Never change `.pkg/` in a root, or `objects/` in a channel, by hand**;
+   reading them does no harm, but `LIST`, `SHOW` and `TRACE` say the same
+   more clearly. After everything is removed a root still holds the keys
+   pinned for each package: that is on purpose.
 4. **`REMOVE ORPHANS` removes packages.** Run it when the person asked to
    clean up what is left; otherwise show them the `orphan:` lines `REMOVE`
    printed.
 5. **One key per publisher, kept.** Every later version must be signed with
-   the same key, or every machine that installed the earlier one refuses it
-   with 14. Keep it where the person keeps secrets; never print, copy or
-   commit it. The `public:` line is what may be shared.
+   the same key; Pkg refuses to publish it otherwise. When `PKG_SIGNKEY` is
+   not set, find the publisher's existing key, never make a new one: `pkg
+   KEYINFO FILE <keyfile>` names the public key a file holds, and `SHOW`
+   names the signer of each published version. Keep it where the person
+   keeps secrets; never print, copy or commit it.
 6. **Check the result, not only the code.** On AROS a command that cannot
    even load leaves `$RC` as it was. A step has succeeded when its output
    has the `result:` you expect.
@@ -130,16 +139,23 @@ pkg VERIFY   <name> ROOT <root> MACHINE
 pkg LIST     ROOT <root> MACHINE
 pkg REMOVE   <name> ROOT <root> MACHINE
 pkg REMOVE   ORPHANS ROOT <root> MACHINE
-pkg SHOW     [<name>] CHANNEL <channel> MACHINE
+pkg SHOW     [<name>] CHANNEL <channel> [ROOT <root>] MACHINE
+pkg KEYINFO  FILE <keyfile> MACHINE
 ```
 
 Every one that changes something takes `DRYRUN`. Without `VERSION`, the
 highest version. INSTALL settles every dependency before placing a file
 (`dependency:` lines) and places nothing if anything is refused; installing
 what is already installed answers `unchanged` and succeeds, so a retry is
-safe. SHOW checks every entry of a channel as INSTALL would, without
-installing: kind, architecture, signer, dependencies, and exit 12 or 13 if
-any is damaged. Use it before trusting a channel, mirror or copy.
+safe. ROLLBACK goes back one step, to the version installed before the last
+change. SHOW checks every entry of a channel as INSTALL would, without
+installing, and exits 12 or 13 if any is damaged: use it before trusting a
+channel, mirror or copy. Its `entry:` lines read `name version kind
+architecture status signer`, status `ok` or a class name, and with `ROOT
+<dir>` a last field, `installed`, `other-version` or `no`; `depends:` lines
+read `package version needs [>= min]`, and a `warning:` names a package
+signed by more than one key. `LIST`'s `package:` lines read `name version
+kind files explicit|dependency`.
 
 | Verb | `result:` on success |
 |---|---|

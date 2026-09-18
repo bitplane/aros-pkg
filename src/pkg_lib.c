@@ -187,6 +187,36 @@ static void kv(const char *key, const char *fmt, ...)
     sink->record(sink->user, key, buf);
 }
 
+/* A record with several fields: the joined value goes to `record`, as the
+ * command line prints it, and the fields one by one to `item`, for a program
+ * that should not have to split strings. Key/value pairs, NULL-terminated. */
+static void rec_item(const char *kind, const char *joined, ...)
+{
+    const char *keys[12], *vals[12];
+    int n = 0;
+    va_list ap;
+    if (!machine || sink == NULL)
+        return;
+    if (sink->record != NULL)
+        sink->record(sink->user, kind, joined);
+    if (sink->item == NULL)
+        return;
+    va_start(ap, joined);
+    while (n < 12) {
+        const char *k = va_arg(ap, const char *);
+        if (k == NULL)
+            break;
+        keys[n] = k;
+        vals[n] = va_arg(ap, const char *);
+        n++;
+    }
+    va_end(ap);
+    sink->item(sink->user, kind, n, keys, vals);
+}
+
+/* The caller's cancel callback, asked between steps. */
+static int cancelled(const char *before);
+
 /* What an agent, or a person, should do after a refusal. Every refusal says
  * it, as `next` in the structured form and as a last line in the text one,
  * so the answer to "what now?" never has to be guessed from the reason's
@@ -208,7 +238,8 @@ static const char *next_default(int cls)
     }
 }
 
-const char *pkg_next_words(const char *next)
+/* The command line's sentence for a `next` value, naming its commands. */
+static const char *next_cli_words(const char *next)
 {
     if (next == NULL)
         return "report this to the person";
@@ -228,7 +259,30 @@ const char *pkg_next_words(const char *next)
         return "it is not installed there; INSTALL it instead";
     return "report this to the person";
 }
-#define next_words pkg_next_words
+#define next_words next_cli_words
+
+/* The same, in words for any front end: no command is named. */
+const char *pkg_next_words(const char *next)
+{
+    if (next == NULL || strcmp(next, "report") == 0)
+        return "Tell the person what happened; there is nothing to retry.";
+    if (strcmp(next, "stop") == 0)
+        return "Do not go on. What the channel holds is not what its publisher published; "
+               "no option or other copy makes it safe.";
+    if (strcmp(next, "ask-person") == 0)
+        return "This is the person's decision. Show them the reason; if they agree, repeat "
+               "the operation with the option that says so.";
+    if (strcmp(next, "fix-command") == 0)
+        return "The request was malformed; correct it and try again.";
+    if (strcmp(next, "check-name") == 0)
+        return "That name is not there. Choose from what is offered; near names are given "
+               "as suggestions.";
+    if (strcmp(next, "use-upgrade") == 0)
+        return "Another version is installed; upgrading moves it to this one.";
+    if (strcmp(next, "use-install") == 0)
+        return "It is not installed yet; install it instead.";
+    return "Tell the person what happened.";
+}
 
 static const char *pending_next;   /* set by refuse_n for the next refusal */
 static const char *refused_next;
@@ -1090,10 +1144,35 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
 
 /* Names in the channel close to `name`: one contains the other, or they
  * agree up to the first '.', '-' or '_' ("identify" and "identify.library"). */
+/* Edits (insertions, deletions, substitutions) between two short names. */
+static size_t edits(const char *a, const char *b)
+{
+    size_t la = strlen(a), lb = strlen(b), i, j, row[66], diag, up;
+    if (la > 64 || lb > 64)
+        return 99;
+    for (j = 0; j <= lb; j++) row[j] = j;
+    for (i = 1; i <= la; i++) {
+        diag = row[0];
+        row[0] = i;
+        for (j = 1; j <= lb; j++) {
+            size_t best;
+            up = row[j];
+            best = diag + (a[i - 1] != b[j - 1]);
+            if (up + 1 < best) best = up + 1;
+            if (row[j - 1] + 1 < best) best = row[j - 1] + 1;
+            diag = up;
+            row[j] = best;
+        }
+    }
+    return row[lb];
+}
+
 static int close_name(const char *a, const char *b)
 {
     size_t la = strcspn(a, ".-_"), lb = strcspn(b, ".-_");
     if (strstr(a, b) != NULL || strstr(b, a) != NULL)
+        return 1;
+    if (edits(a, b) <= 2)
         return 1;
     return la == lb && la >= 3 && strncmp(a, b, la) == 0;
 }
@@ -1115,9 +1194,11 @@ static void say_not_found(const struct index *ix, const char *name, const char *
                 continue;
             for (j = 0; j < i; j++)
                 if (strcmp(ix->e[j].name, ix->e[i].name) == 0) seen = 1;
-            if (!seen)
+            if (!seen) {
                 at += (size_t)snprintf(offered + at, sizeof offered - at, "%s%s",
                                        at ? ", " : "; did you mean ", ix->e[i].name);
+                rec_item("suggest", ix->e[i].name, "name", ix->e[i].name, NULL);
+            }
         }
     }
     refuse_c(PKGRC_NOTFOUND, "%s%s%s is not in the channel %s%s", name,
@@ -1676,6 +1757,8 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
     struct pkg_manifest cur;
     size_t i;
 
+    if (cancelled("while resolving"))
+        return 1;
     for (i = 0; i < p->depth; i++) {
         if (strcmp(p->stack[i], name) == 0) {
             char path[512];
@@ -1843,7 +1926,7 @@ static int run_plan(struct plan *p, const struct pkg_manifest *cur,
     for (i = 0; i < p->n; i++) {
         int last = i + 1 == p->n;
         unsigned long pl, dr, ke;
-        if (apply(p->root, last ? cur : NULL, &p->f[i], &pl, &dr, &ke) != 0) {
+        if (cancelled("before placing files") || apply(p->root, last ? cur : NULL, &p->f[i], &pl, &dr, &ke) != 0) {
             while (!dryrun && i-- > 0) {
                 size_t r, k, g;
                 remove_files(p->root, &p->f[i].m, &r, &k, &g, 0);
@@ -1854,7 +1937,11 @@ static int run_plan(struct plan *p, const struct pkg_manifest *cur,
             if (!dryrun)
                 set_auto(p->root, p->f[i].m.name, 1);
             if (machine)
-                kv("dependency", "%s %s", p->f[i].m.name, p->f[i].m.version);
+            {
+                char j[140];
+                snprintf(j, sizeof j, "%s %s", p->f[i].m.name, p->f[i].m.version);
+                rec_item("dependency", j, "name", p->f[i].m.name, "version", p->f[i].m.version, NULL);
+            }
             else
                 say("  %s %s %s, a dependency\n", dryrun ? "would add" : "added   ",
                         p->f[i].m.name, p->f[i].m.version);
@@ -2017,10 +2104,14 @@ static int cmd_show(const struct pkg_options *a)
     kv("result", "shown");
     for (i = 0; i < ix.n; i++) {
         struct fetched f;
-        const char *status = "ok";
+        const char *status = "ok", *here = NULL;
         int rc;
         if (a->target != NULL && strcmp(ix.e[i].name, a->target) != 0)
             continue;
+        if (cancelled("while checking the channel")) {
+            free(ix.e);
+            return 1;
+        }
         shown++;
         quiet = 1;
         refused_class = 0;
@@ -2032,17 +2123,44 @@ static int cmd_show(const struct pkg_options *a)
             bad++;
             if (!first_bad) first_bad = refused_class;
         }
+        if (a->root != NULL) {
+            /* Against a root: is this the version installed there? */
+            struct pkg_manifest cur;
+            int q = quiet;
+            quiet = 1;
+            if (load_installed(a->root, ix.e[i].name, &cur, 1) == 0) {
+                here = pkg_version_cmp(cur.version, ix.e[i].version) == 0 ? "installed"
+                       : "other-version";
+                pkg_manifest_free(&cur);
+            } else {
+                here = "no";
+            }
+            quiet = q;
+        }
         if (machine) {
-            kv("entry", "%s %s %s %s %s %s", ix.e[i].name, ix.e[i].version,
-               rc == 0 ? f.m.kind : "-", rc == 0 ? f.m.architecture : "-", status,
-               rc == 0 ? f.signer : "-");
+            char j[400];
+            snprintf(j, sizeof j, "%s %s %s %s %s %s%s%s", ix.e[i].name, ix.e[i].version,
+                     rc == 0 ? f.m.kind : "-", rc == 0 ? f.m.architecture : "-", status,
+                     rc == 0 ? f.signer : "-", here ? " " : "", here ? here : "");
+            rec_item("entry", j, "name", ix.e[i].name, "version", ix.e[i].version,
+                     "kind", rc == 0 ? f.m.kind : "-", "architecture", rc == 0 ? f.m.architecture : "-",
+                     "status", status, "signer", rc == 0 ? f.signer : "-",
+                     here ? "installed" : NULL, here, NULL);
             if (rc == 0) {
                 size_t d;
-                for (d = 0; d < f.m.ndeps; d++)
-                    kv("depends", "%s %s %s%s%s", ix.e[i].name, ix.e[i].version, f.m.deps[d].name,
-                       f.m.deps[d].min ? " >= " : "", f.m.deps[d].min ? f.m.deps[d].min : "");
+                for (d = 0; d < f.m.ndeps; d++) {
+                    snprintf(j, sizeof j, "%s %s %s%s%s", ix.e[i].name, ix.e[i].version,
+                             f.m.deps[d].name, f.m.deps[d].min ? " >= " : "",
+                             f.m.deps[d].min ? f.m.deps[d].min : "");
+                    rec_item("depends", j, "package", ix.e[i].name, "version", ix.e[i].version,
+                             "needs", f.m.deps[d].name, "min", f.m.deps[d].min ? f.m.deps[d].min : "",
+                             NULL);
+                }
             } else {
-                kv("problem", "%s %s %s", ix.e[i].name, ix.e[i].version, quiet_reason);
+                char jp[700];
+                snprintf(jp, sizeof jp, "%s %s %s", ix.e[i].name, ix.e[i].version, quiet_reason);
+                rec_item("problem", jp, "package", ix.e[i].name, "version", ix.e[i].version,
+                         "reason", quiet_reason, NULL);
             }
         } else {
             say("%-20s %-8s %-11s %-8s %-10s %.16s\n", ix.e[i].name, ix.e[i].version,
@@ -2547,9 +2665,14 @@ static int cmd_list(const struct pkg_options *a)
         struct pkg_manifest m;
         if (load_installed(a->root, names[i], &m, 0) == 0) {
             int dep = is_auto(a->root, m.name);
-            if (machine)
-                kv("package", "%s %s %s %lu %s", m.name, m.version, m.kind,
-                   (unsigned long)m.nfiles, dep ? "dependency" : "explicit");
+            if (machine) {
+                char j[300], files[24];
+                snprintf(files, sizeof files, "%lu", (unsigned long)m.nfiles);
+                snprintf(j, sizeof j, "%s %s %s %s %s", m.name, m.version, m.kind, files,
+                         dep ? "dependency" : "explicit");
+                rec_item("package", j, "name", m.name, "version", m.version, "kind", m.kind,
+                         "files", files, "reason", dep ? "dependency" : "explicit", NULL);
+            }
             else
                 say("%-24s %-10s %-12s %lu files%s\n", m.name, m.version, m.kind,
                         (unsigned long)m.nfiles, dep ? ", a dependency" : "");
@@ -2644,7 +2767,11 @@ static int remove_orphans(const struct pkg_options *a)
             }
             total++;
             if (machine)
-                kv("package", "%s %s", m->name, m->version);
+            {
+                char j[140];
+                snprintf(j, sizeof j, "%s %s", m->name, m->version);
+                rec_item("package", j, "name", m->name, "version", m->version, NULL);
+            }
             else
                 say("%s %s %s, which nothing needed: %lu files%s\n",
                         dryrun ? "would remove" : "removed", m->name,
@@ -2716,7 +2843,12 @@ static int cmd_remove(const struct pkg_options *a)
         n = which ? find_orphans(&in, a->root, which) : 0;
         for (i = 0; i < n; i++) {
             if (machine)
-                kv("orphan", "%s %s", in.m[which[i]].name, in.m[which[i]].version);
+            {
+                char j[140];
+                snprintf(j, sizeof j, "%s %s", in.m[which[i]].name, in.m[which[i]].version);
+                rec_item("orphan", j, "name", in.m[which[i]].name, "version",
+                         in.m[which[i]].version, NULL);
+            }
             else
                 say("  %s %s is no longer needed by anything; REMOVE ORPHANS takes it out\n",
                         in.m[which[i]].name, in.m[which[i]].version);
@@ -2730,6 +2862,14 @@ static int cmd_remove(const struct pkg_options *a)
 
 
 /* ---- the interface in pkg.h ------------------------------------------- */
+
+static int cancelled(const char *when)
+{
+    if (sink == NULL || sink->cancel == NULL || !sink->cancel(sink->user))
+        return 0;
+    refuse_n(PKGRC_REFUSED, "report", "cancelled by the caller %s; nothing was changed", when);
+    return 1;
+}
 
 typedef int (*op_fn)(const struct pkg_options *);
 
