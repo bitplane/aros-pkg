@@ -28,18 +28,28 @@ const char *pkg_strstatus(enum pkg_status s)
     return "unknown status";
 }
 
+unsigned long pkg_be32_get(const unsigned char *p)
+{
+    return ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
+         | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
+}
+
+void pkg_be32_put(unsigned char *p, unsigned long v)
+{
+    p[0] = (unsigned char)((v >> 24) & 0xFFu);
+    p[1] = (unsigned char)((v >> 16) & 0xFFu);
+    p[2] = (unsigned char)((v >> 8)  & 0xFFu);
+    p[3] = (unsigned char)( v        & 0xFFu);
+}
+
 static uint32_t be32_get(const unsigned char *p)
 {
-    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16)
-         | ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
+    return (uint32_t)pkg_be32_get(p);
 }
 
 static void be32_put(unsigned char *p, uint32_t v)
 {
-    p[0] = (unsigned char)(v >> 24);
-    p[1] = (unsigned char)(v >> 16);
-    p[2] = (unsigned char)(v >> 8);
-    p[3] = (unsigned char)(v);
+    pkg_be32_put(p, (unsigned long)v);
 }
 
 /* ---- reading ---------------------------------------------------------- */
@@ -231,3 +241,4 @@ enum pkg_status pkg_writer_finish(struct pkg_writer *w,
     w->cap   = 0u;
     return PKG_OK;
 }
+

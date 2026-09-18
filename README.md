@@ -17,6 +17,7 @@ directory of signed index snapshots and content-addressed objects.
 | Piece | State |
 |---|---|
 | `.pkg` container, reader and writer | Built, with its test |
+| Byte-order discipline and its four checks | Built, `make check` |
 | Manifest | Not started |
 | Digests (SHA-256) and signatures (Ed25519) | Not started |
 | Channel index, resolution, install engine | Not started |
@@ -56,6 +57,47 @@ version byte and ignores `packageSize`; `FORMAT` says the version must be 1.
 This reader requires version 1 and requires `packageSize` to agree with the
 buffer it was handed, so a truncated or padded stream is refused instead of
 being walked.
+
+## Byte order
+
+The container is big-endian, because AROS defined it that way. The tool runs on
+little-endian hosts (macOS and Linux on arm64 and x86_64, AROS on aarch64 and
+i386) and on big-endian ones (AROS on m68k and ppc). So the rule:
+
+**Byte order is expressed in `pkg_be32_get` and `pkg_be32_put`, and nowhere
+else.** Both read and write one byte at a time with explicit shifts, so they
+describe the *stream's* order and never ask the host what it is. They compile
+to the same behaviour everywhere, and they need no conditional, no host-order
+conversion macro and no byte-swap builtin.
+
+They also place **no alignment requirement** on the pointer, and that property
+is load-bearing here. On a 68000 an unaligned 32-bit access raises an address
+error, so any design that maps a packed struct over a byte stream is broken on
+the oldest target this program serves. Byte-wise access sidesteps it, and the
+same choice removes the padding and strict-aliasing questions a struct would
+bring.
+
+Everything else the tool defines is **text**: the manifest, the channel index,
+the installed-package database, the lockfile. One binary format in the whole
+tool, so byte order lives in one file behind two functions. That is also what
+makes the Aminet `.readme` interop cheap, since a text manifest converts to a
+text header with no second representation in between.
+
+Four checks hold the rule:
+
+| Check | What it catches |
+|---|---|
+| `make check-portability` | Host-order conversion macros, endianness conditionals and byte-swap builtins anywhere in the tree |
+| Accessor vectors in the test | A byte-swapped implementation. The vectors are asymmetric on purpose: `1` and `0x01000000` are each other's swap, so a suite built only from palindromes would pass while swapped |
+| The misaligned-buffer test | A struct mapped over the stream. It reads the same package from offsets 1, 2 and 3 |
+| `make test-ubsan` | The same, loudly, under `-fsanitize=undefined,address` |
+| `make check-m68k` | That the code builds for a big-endian target, using the AROS m68k cross compiler when it is present |
+
+`make check` runs all of them.
+
+**What is not claimed:** none of this is a big-endian *run*. `check-m68k`
+compiles, and executing the suite on a big-endian target is separate work,
+waiting on a target to run it on.
 
 ## How the container is proven
 

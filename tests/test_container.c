@@ -211,8 +211,54 @@ static void callback_can_stop_the_walk(void)
     ok(stopped == 7, "the callback's value reaches the caller");
 }
 
+/* The accessors are checked against hand-written byte arrays. Asymmetric
+ * values are deliberate: 1 and 0x01000000 are each other's byte-swap, so a
+ * swapped implementation passes a test built only from palindromes. */
+static void accessors_express_the_stream_not_the_host(void)
+{
+    static const struct { unsigned char b[4]; unsigned long v; } vec[] = {
+        { { 0x00, 0x00, 0x00, 0x00 }, 0x00000000uL },
+        { { 0x00, 0x00, 0x00, 0x01 }, 0x00000001uL },
+        { { 0x01, 0x00, 0x00, 0x00 }, 0x01000000uL },
+        { { 0x01, 0x02, 0x03, 0x04 }, 0x01020304uL },
+        { { 0xDE, 0xAD, 0xBE, 0xEF }, 0xDEADBEEFuL },
+        { { 0xFF, 0xFF, 0xFF, 0xFF }, 0xFFFFFFFFuL }
+    };
+    size_t i;
+
+    printf("accessors_express_the_stream_not_the_host\n");
+    for (i = 0; i < sizeof vec / sizeof vec[0]; i++) {
+        unsigned char out[4];
+        ok(pkg_be32_get(vec[i].b) == vec[i].v, "get matches the vector");
+        pkg_be32_put(out, vec[i].v);
+        ok(memcmp(out, vec[i].b, 4) == 0, "put matches the vector");
+    }
+}
+
+/* A 68000 raises an address error on an unaligned 32-bit access, so reading
+ * from an odd offset has to work. Under -fsanitize=alignment this also fails
+ * loudly for any implementation that casts a struct over the buffer. */
+static void reads_from_a_misaligned_buffer(void)
+{
+    size_t offset;
+
+    printf("reads_from_a_misaligned_buffer\n");
+    for (offset = 1; offset <= 3; offset++) {
+        unsigned char *raw = (unsigned char *)malloc(sizeof format_example + 4);
+        struct collect c;
+        memset(&c, 0, sizeof c);
+        memcpy(raw + offset, format_example, sizeof format_example);
+        ok_status(pkg_read(raw + offset, sizeof format_example,
+                           collect_cb, &c, NULL), PKG_OK, "read at an odd offset");
+        ok(c.n == 1 && strcmp(c.path[0], "foo") == 0, "entry read correctly");
+        free(raw);
+    }
+}
+
 int main(void)
 {
+    accessors_express_the_stream_not_the_host();
+    reads_from_a_misaligned_buffer();
     writer_matches_the_format_document();
     reader_reads_the_format_document();
     round_trips_several_entries();

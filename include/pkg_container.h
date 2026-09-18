@@ -49,6 +49,25 @@ enum pkg_status {
 /* Human-readable form of a status, for a refusal that names its reason. */
 const char *pkg_strstatus(enum pkg_status s);
 
+/* ---- byte order ------------------------------------------------------- *
+ *
+ * These two functions are the ONLY place in this codebase where a byte order
+ * is expressed, and they express the STREAM's order, never the host's. They
+ * read and write one byte at a time with explicit shifts, so they compile to
+ * the same behaviour on a little-endian and a big-endian host, and they place
+ * no alignment requirement on the pointer.
+ *
+ * That last property is load-bearing rather than tidy: on a 68000 an unaligned
+ * 32-bit access raises an address error, so any design that maps a packed
+ * struct onto a byte stream is broken on the oldest target this program
+ * serves. `make check-portability` refuses host-order conversion macros,
+ * endianness conditionals and byte-swap builtins anywhere in the tree. It
+ * names no forbidden token itself, so that it cannot trip over its own
+ * documentation.
+ */
+unsigned long pkg_be32_get(const unsigned char *p);
+void          pkg_be32_put(unsigned char *p, unsigned long v);
+
 /* ---- reading ---------------------------------------------------------- */
 
 struct pkg_entry {
