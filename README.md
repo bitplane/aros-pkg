@@ -293,7 +293,10 @@ once in memory by `src/pkg_image.c`, and the package holds that one file,
 `<name>.hdf`. `pkg IMAGE <drawer> OUT <file>` writes the same file without a
 channel. Geometry is fixed (512-byte blocks, 32 per track, two reserved), so
 the size in the signed manifest gives the mount entry. The same drawer always
-gives the same bytes.
+gives the same bytes. The manifest also lists the files inside the image,
+one `Content: <sha256> <size> <path>` line each, the syntax of `File:`, so
+that the dry run of a new version can say which files changed since the
+last one.
 
 FFS rather than AFS+, which settles one of the open questions in the planning
 repository's packaging README. An application image is read-only, written

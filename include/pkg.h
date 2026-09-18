@@ -142,7 +142,9 @@ struct pkg_options {
  *   sign       result signed; file; signer
  *   manifest   result shown; then each manifest line as a field (Name, ...)
  *   publish    result published: name, version, channel, manifest, payload,
- *              signer, files, [arch-from], [version-from], left-out per file.
+ *              signer, files, [arch-from], [version-from], [name-from] (the
+ *              file whose $VER gave the version or the name), left-out per
+ *              file.
  *              result unchanged: name, version (that exact content is there).
  *              result repaired: name, version, repaired per object written
  *              again (manifest, payload, signature), when that version's
@@ -153,8 +155,13 @@ struct pkg_options {
  *              withdrawn.
  *              dryrun: result would-publish, name, version, kind,
  *              architecture, channel, depends (or "none"), file per file,
- *              signer, left-out; content (path size) per file inside the
- *              image, for kind image.
+ *              signer ("none" when no key was given: a dry run needs none),
+ *              [first-signer] when keyless and the package exists, left-out;
+ *              content (path size) per file inside the image, for kind
+ *              image. Against the highest published version: compared-with
+ *              (name version), then added (path size), changed (path
+ *              oldsize newsize), same (path), gone (path) per file; inside
+ *              the image for kind image.
  *   install    result installed: name, version, root, files, payload, signer,
  *              and image, blocks for an image; before it, one [item]
  *              dependency (name version) per dependency this install

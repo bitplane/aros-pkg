@@ -160,11 +160,12 @@ echo "refusals"
 printf 'different\n' > "$D/Libs/data.txt"
 $PKG PUBLISH "$D" CHANNEL "$CH" KIND application > "$T/rep" 2>&1
 [ $? -eq 15 ];                                         ok $? "republishing a version with new bytes refused"
-has "$T/rep" 'never changes';                         ok $? "and says why"
+has "$T/rep" 'already published with a different payload' && has "$T/rep" 'was not raised'
+                                                      ok $? "and says why: the version came from a \$VER not raised, or the old build"
 printf 'library data\n' > "$D/Libs/data.txt"
 
 env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/ch-nokey" KIND application > "$T/nokey" 2>&1
-[ $? -eq 20 ];                                         ok $? "publishing without a key refused"
+[ $? -eq 14 ];                                         ok $? "publishing without a key refused, class key"
 has "$T/nokey" 'same key';                            ok $? "and says to use the publisher's key"
 [ ! -e "$T/ch-nokey/index" ];                         ok $? "and nothing was published"
 
@@ -463,7 +464,7 @@ $PKG SHOW hello CHANNEL "$CH" MACHINE > "$T/fts" 2>&1
 has "$T/fts" '^warning: hello is signed by more than one key';
                                                       ok $? "SHOW warns that hello has more than one signer"
 env -u PKG_SIGNKEY $PKG PUBLISH "$D" CHANNEL "$T/nokeych" KIND application MACHINE > "$T/nk" 2>&1
-[ $? -eq 20 ] && has "$T/nk" '^next: ask-requester$' && has "$T/nk" 'same key';
+[ $? -eq 14 ] && has "$T/nk" '^next: ask-requester$' && has "$T/nk" 'same key';
                                                       ok $? "no signing key: the refusal says to find the publisher's key, not make one"
 $PKG KEYINFO FILE "$KEY" MACHINE > "$T/ki" 2>&1
 [ $? -eq 0 ] && has "$T/ki" "^public: $PUB\$" && ! has "$T/ki" 'Seed';
@@ -526,6 +527,31 @@ $PKG PUBLISH "$D" CHANNEL "$T/wch" KIND application NAME hello2 VERSION 1 DRYRUN
 ! has "$T/w3" '^warning: C/Hello carries';            ok $? "a cookie that matches its file name raises nothing"
 $PKG SHOW nosuch CHANNEL "$T/wch" MACHINE > "$T/w4" 2>&1
 [ $? -eq 0 ] && has "$T/w4" '^hint: no package is published as nosuch'; ok $? "SHOW of a name not published says so"
+
+echo "next_version"
+# A teammate's 2.1 that is the published 2.0 with a byte added, its $VER not raised.
+NV="$T/nv"; mkdir -p "$NV/v2/C" "$NV/v21/C"
+printf 'bin\000$VER: Tool 2.0 (1.1.2026)\000' > "$NV/v2/C/Tool"; printf 'data\n' > "$NV/v2/C/Tool.cfg"
+cp -R "$NV/v2/C" "$NV/v21/"; printf 'x' >> "$NV/v21/C/Tool"
+$PKG PUBLISH "$NV/v2" CHANNEL "$NV/ch" KIND image MACHINE > /dev/null 2>&1
+grep -q '^Content: [0-9a-f]* [0-9]* C/Tool$' "$NV/ch/objects/"*.manifest
+                                                      ok $? "an image's manifest lists the files inside it"
+env -u PKG_SIGNKEY $PKG PUBLISH "$NV/v21" CHANNEL "$NV/ch" KIND image VERSION 2.1 DRYRUN MACHINE > "$T/n1" 2>&1
+[ $? -eq 0 ] && has "$T/n1" '^result: would-publish$' && has "$T/n1" '^signer: none$' \
+    && has "$T/n1" "^first-signer: $PUB\$" && has "$T/n1" '^hint: the real publish must be signed with the key that signed tool 2.0'
+                                                      ok $? "a dry run needs no key, and names the key the real publish needs"
+has "$T/n1" '^compared-with: tool 2.0$' && has "$T/n1" '^changed: C/Tool [0-9]* [0-9]*$' && has "$T/n1" '^same: C/Tool.cfg$'
+                                                      ok $? "and compares the new version with the last, file by file"
+has "$T/n1" '^warning: the \$VER cookie in C/Tool says 2.0, the version already published' \
+    && ! has "$T/n1" '^version-from:' && has "$T/n1" '^name-from: C/Tool$'
+                                                      ok $? "a \$VER not raised is named as such; the version is not claimed to come from it"
+$PKG PUBLISH "$NV/v2" CHANNEL "$NV/ch" KIND image VERSION 2.2 DRYRUN MACHINE > "$T/n2" 2>&1
+has "$T/n2" '^warning: every file is identical to tool 2.0'; ok $? "a new version with nothing changed is warned about"
+$PKG INSTALL tool ROOT "$NV/r" CHANNEL "$NV/ch" > /dev/null 2>&1
+$PKG PUBLISH "$NV/v21" CHANNEL "$NV/ch" KIND image VERSION 2.1 > /dev/null 2>&1
+$PKG UPGRADE tool ROOT "$NV/r" CHANNEL "$NV/ch" MACHINE > "$T/n3" 2>&1
+has "$T/n3" '^hint: the image tool.hdf is replaced: a machine that has it mounted must Eject it'
+                                                      ok $? "UPGRADE of an image says to eject it and mount it again"
 
 echo
 echo "$checks checks, $fails failures"

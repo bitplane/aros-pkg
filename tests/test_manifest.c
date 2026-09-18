@@ -93,6 +93,12 @@ static void strict_parsing(void)
     ok(!parses(buf, err, sizeof err), "negative size refused");
     snprintf(buf, sizeof buf, "%sFile: ABCD 3 x\n", head);
     ok(!parses(buf, err, sizeof err), "short digest refused");
+    snprintf(buf, sizeof buf, "%sFile: %s 3 a.hdf\nContent: %s 3 C/x\nContent: %s 3 C/y\n", head, D1, D1, D1);
+    ok(parses(buf, err, sizeof err), "Content lines, an image's files, parse");
+    snprintf(buf, sizeof buf, "%sContent: %s 3 C/y\nContent: %s 3 C/x\n", head, D1, D1);
+    ok(!parses(buf, err, sizeof err) && strstr(err, "Content") != NULL, "unsorted Content lines refused, by name");
+    snprintf(buf, sizeof buf, "%sContent: %s 3 ../x\n", head, D1);
+    ok(!parses(buf, err, sizeof err), "traversal in a Content line refused");
     snprintf(buf, sizeof buf, "%sKind: gadget\n", "Format: pkg-manifest 1\nName: a\nVersion: 1\nArchitecture: generic\n");
     ok(!parses(buf, err, sizeof err), "unknown kind refused");
 }

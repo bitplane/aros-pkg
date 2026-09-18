@@ -504,10 +504,11 @@ static int load_key(const char *path, struct key *k)
     char seedhex[65], pubhex[65];
 
     if (path == NULL)
-        return refuse_n(20, "ask-requester", "no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY. "
+        return refuse_c(14, "no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY. "
                         "A publisher who has published before must sign with the same key, or "
                         "every machine that installed their packages refuses the new ones: ask "
-                        "whoever requested this where theirs is before creating one with KEYGEN");
+                        "whoever requested this where theirs is before creating one with KEYGEN. "
+                        "DRYRUN needs no key");
     if (pkg_fs_read(path, &buf, &len) != 0)
         return refuse_c(17, "cannot read the key \"%s\": %s", path, strerror(errno));
     if (len > 512u
@@ -882,13 +883,14 @@ struct built {
     size_t         pkg_len;
     char          *text;
     size_t         text_len;
-    char           ver_from[512];
+    char           ver_from[512];   /* the version was read from this file's $VER */
+    char           name_from[512];  /* the name was */
+    char           cookie_ver[64];  /* what that $VER says, whatever was used */
+    char           cookie_file[512];
     char           arch_from[512];
     unsigned       skipped;
     char         **left_out;
     size_t         nleft;
-    char         **content;         /* an image's files, "path size" */
-    size_t         ncontent;
 };
 
 static void built_free(struct built *b)
@@ -901,10 +903,6 @@ static void built_free(struct built *b)
     free(b->left_out);
     b->left_out = NULL;
     b->nleft = 0;
-    for (i = 0; i < b->ncontent; i++) free(b->content[i]);
-    free(b->content);
-    b->content = NULL;
-    b->ncontent = 0;
 }
 
 /* Letters and digits only, lower case: "afs.handler" and "afs-handler" agree. */
@@ -1011,8 +1009,12 @@ static int build(const struct pkg_options *a, struct built *out)
             if (version != NULL && pkg_version_cmp(version, vver) != 0)
                 warn("VERSION %s, but the $VER cookie in %s says %s: is this the build "
                      "you meant to ship?", version, from, vver);
-            if (needed)
+            if (version == NULL)
                 snprintf(out->ver_from, sizeof out->ver_from, "%s", from);
+            if (name == NULL)
+                snprintf(out->name_from, sizeof out->name_from, "%s", from);
+            snprintf(out->cookie_ver, sizeof out->cookie_ver, "%s", vver);
+            snprintf(out->cookie_file, sizeof out->cookie_file, "%s", from);
             if (name == NULL) name = vname;
             if (version == NULL) version = vver;
         }
@@ -1090,14 +1092,17 @@ static int build(const struct pkg_options *a, struct built *out)
         drawer_free(&d);
         return 1;
     }
-    if (strcmp(kind, "image") == 0 && d.n > 0) {
-        out->content = (char **)calloc(d.n, sizeof *out->content);
-        for (i = 0; out->content != NULL && i < d.n; i++) {
-            size_t n = strlen(d.v[i].rel) + 24;
-            out->content[i] = (char *)malloc(n);
-            if (out->content[i] == NULL) break;
-            snprintf(out->content[i], n, "%s %lu", d.v[i].rel, (unsigned long)d.v[i].len);
-            out->ncontent = i + 1;
+    if (strcmp(kind, "image") == 0) {
+        /* The manifest names what is inside the image too, so that a new
+         * version can be compared with the last one file by file. */
+        for (i = 0; i < d.n; i++) {
+            char hex[PKG_SHA256_HEXLEN + 1];
+            pkg_sha256_hex(d.v[i].data, d.v[i].len, hex);
+            if (pkg_manifest_add_content(&out->m, d.v[i].rel, hex,
+                                         (unsigned long long)d.v[i].len) != 0) {
+                drawer_free(&d);
+                return refuse("out of memory");
+            }
         }
     }
     if (strcmp(kind, "image") == 0 && to_image(&d, name) != 0) {
@@ -2774,6 +2779,59 @@ out:
     return rc;
 }
 
+/* A new version against the highest one published: the files that changed,
+ * and the slips that show there (the old build again, a $VER not raised). */
+static void compare_last(const struct pkg_manifest *em, const struct built *b)
+{
+    const struct pkg_file *nv = b->m.ncontent ? b->m.content : b->m.files;
+    const struct pkg_file *ov = em->ncontent ? em->content : em->files;
+    size_t nn = b->m.ncontent ? b->m.ncontent : b->m.nfiles;
+    size_t on = em->ncontent ? em->ncontent : em->nfiles;
+    size_t i, j, changed = 0;
+    int comparable = (b->m.ncontent > 0) == (em->ncontent > 0);
+
+    if (pkg_version_cmp(b->m.version, em->version) == 0)
+        return;
+    if (b->cookie_ver[0] && pkg_version_cmp(b->cookie_ver, em->version) == 0)
+        warn("the $VER cookie in %s says %s, the version already published: this is the %s build "
+             "again, changed or not, or a new build whose $VER was not raised. Ask which before "
+             "publishing it as %s", b->cookie_file, em->version, em->version, b->m.version);
+    if (!comparable) {
+        if (dryrun)
+            hint("%s %s was published before its image listed its files; nothing to compare "
+                 "file by file", em->name, em->version);
+        return;
+    }
+    if (dryrun)
+        kv("compared-with", "%s %s", em->name, em->version);
+    for (i = 0; i < nn; i++) {
+        for (j = 0; j < on; j++)
+            if (strcmp(nv[i].path, ov[j].path) == 0)
+                break;
+        if (j == on) {
+            changed++;
+            if (dryrun) kv("added", "%s %llu", nv[i].path, nv[i].size);
+        } else if (strcmp(nv[i].digest, ov[j].digest) != 0) {
+            changed++;
+            if (dryrun) kv("changed", "%s %llu %llu", nv[i].path, ov[j].size, nv[i].size);
+        } else if (dryrun) {
+            kv("same", "%s", nv[i].path);
+        }
+    }
+    for (j = 0; j < on; j++) {
+        for (i = 0; i < nn; i++)
+            if (strcmp(nv[i].path, ov[j].path) == 0)
+                break;
+        if (i == nn) {
+            changed++;
+            if (dryrun) kv("gone", "%s", ov[j].path);
+        }
+    }
+    if (changed == 0)
+        warn("every file is identical to %s %s's: nothing changed but the version number",
+             em->name, em->version);
+}
+
 static int cmd_publish(const struct pkg_options *a)
 {
     struct built b;
@@ -2782,12 +2840,18 @@ static int cmd_publish(const struct pkg_options *a)
     size_t i;
     char *po = NULL, *mo = NULL, *so = NULL, s12[13];
     char mdigest[PKG_SHA256_HEXLEN + 1];
-    int rc = 1, new_channel;
+    int rc = 1, new_channel, keyless = 0;
 
     if (a->channel == NULL)
         return refuse_c(20, "name the channel with CHANNEL <dir>");
     new_channel = !pkg_fs_exists(a->channel);
-    if (load_key(a->sign, &k) != 0)
+    memset(&k, 0, sizeof k);
+    if (a->sign == NULL && dryrun) {
+        /* A preview needs no key: nobody should pick up someone else's key
+         * only to see what a publish would do. */
+        keyless = 1;
+        snprintf(k.pkhex, sizeof k.pkhex, "none");
+    } else if (load_key(a->sign, &k) != 0)
         return 1;
     if (build(a, &b) != 0) { built_free(&b); return 1; }
     if (strcmp(b.m.architecture, "generic") == 0
@@ -2808,9 +2872,16 @@ static int cmd_publish(const struct pkg_options *a)
             if (strcmp(ix.e[i].digest, mdigest) == 0) {
                 rc = republish(a, &ix, &b, &k, mdigest);
             } else {
-                refuse_c(15, "%s %s is already published with a different payload; a published "
-                       "version never changes, so publish this as a new version",
-                       b.m.name, ix.e[i].version);
+                if (b.ver_from[0])
+                    refuse_c(15, "%s %s is already published with a different payload, and %s "
+                             "came from the $VER cookie in %s: either this is a new build whose "
+                             "$VER was not raised (raise it, or give VERSION), or it is the old "
+                             "build, changed; check which before publishing",
+                             b.m.name, ix.e[i].version, ix.e[i].version, b.ver_from);
+                else
+                    refuse_c(15, "%s %s is already published with a different payload; a "
+                             "published version never changes, so publish this as a new version",
+                             b.m.name, ix.e[i].version);
             }
             free(ix.e);
             built_free(&b);
@@ -2830,7 +2901,14 @@ static int cmd_publish(const struct pkg_options *a)
             if (strcmp(ix.e[o].name, b.m.name) == 0
                 && (oldest == NULL || pkg_version_cmp(ix.e[o].version, oldest->version) < 0))
                 oldest = &ix.e[o];
-        if (oldest != NULL && claimed_signer(a->channel, oldest->digest, first_signer)
+        if (keyless && oldest != NULL && claimed_signer(a->channel, oldest->digest, first_signer)) {
+            kv("first-signer", "%s", first_signer);
+            hint("the real publish must be signed with the key that signed %s %s, %s: find out "
+                 "from whoever requested this whose key that is and whether it is theirs to use",
+                 b.m.name, oldest->version, first_signer);
+        } else if (keyless)
+            hint("the real publish needs a key: the requester's, if they have published before");
+        if (!keyless && oldest != NULL && claimed_signer(a->channel, oldest->digest, first_signer)
             && strcmp(first_signer, k.pkhex) != 0
             && (a->acceptkey == NULL || strcmp(a->acceptkey, k.pkhex) != 0)) {
             kv("signer", "%s", k.pkhex);
@@ -2870,7 +2948,7 @@ static int cmd_publish(const struct pkg_options *a)
                                  "already published as kind %s, not %s: this would replace it "
                                  "wherever it is installed. If the drawer holds the right "
                                  "program, add NAME <its package name>; nothing was published",
-                                 b.m.name, b.ver_from[0] ? b.ver_from : "the drawer",
+                                 b.m.name, b.name_from[0] ? b.name_from : "the drawer",
                                  em.name, em.kind, b.m.kind);
                         pkg_manifest_free(&em);
                         free(mbuf);
@@ -2880,6 +2958,7 @@ static int cmd_publish(const struct pkg_options *a)
                         memset(&k, 0, sizeof k);
                         return 1;
                     }
+                    compare_last(&em, &b);
                     if (strcmp(em.kind, b.m.kind) != 0)
                         warn("%s %s was published as kind %s, and this version is kind %s",
                              em.name, em.version, em.kind, b.m.kind);
@@ -2915,10 +2994,11 @@ static int cmd_publish(const struct pkg_options *a)
                b.m.deps[d].min ? b.m.deps[d].min : "");
         for (d = 0; d < b.m.nfiles; d++)
             kv("file", "%s %llu", b.m.files[d].path, b.m.files[d].size);
-        for (d = 0; d < b.ncontent; d++)
-            kv("content", "%s", b.content[d]);
+        for (d = 0; d < b.m.ncontent; d++)
+            kv("content", "%s %llu", b.m.content[d].path, b.m.content[d].size);
         kv("signer", "%s", k.pkhex);
         if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
+        if (b.name_from[0]) kv("name-from", "%s", b.name_from);
         if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
         for (d = 0; d < b.nleft; d++)
             kv("left-out", "%s", b.left_out[d]);
@@ -2932,12 +3012,13 @@ static int cmd_publish(const struct pkg_options *a)
                 say("  depends  nothing\n");
             for (d = 0; d < b.m.nfiles; d++)
                 say("  file     %s (%llu bytes)\n", b.m.files[d].path, b.m.files[d].size);
-            for (d = 0; d < b.ncontent; d++)
-                say("  content  %s bytes\n", b.content[d]);
+            for (d = 0; d < b.m.ncontent; d++)
+                say("  content  %s (%llu bytes)\n", b.m.content[d].path, b.m.content[d].size);
             for (d = 0; d < b.nleft; d++)
                 say("  left out %s\n", b.left_out[d]);
-            if (b.ver_from[0])
-                say("  name and version from $VER: in %s\n", b.ver_from);
+            if (b.ver_from[0] || b.name_from[0])
+                say("  %s from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
+                    : b.ver_from[0] ? "version" : "name", b.ver_from[0] ? b.ver_from : b.name_from);
         }
         if (new_channel)
             hint("there is no channel at %s yet: publishing creates it. Check it is the one "
@@ -2985,10 +3066,13 @@ static int cmd_publish(const struct pkg_options *a)
         kv("arch-from", "%s", b.arch_from);
     else if (b.arch_from[0])
         say("  architecture %s, read from %s\n", b.m.architecture, b.arch_from);
-    if (b.ver_from[0] && machine)
-        kv("version-from", "%s", b.ver_from);
-    else if (b.ver_from[0])
-        say("  name and version taken from $VER: in %s\n", b.ver_from);
+    if (machine) {
+        if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
+        if (b.name_from[0]) kv("name-from", "%s", b.name_from);
+    } else if (b.ver_from[0] || b.name_from[0]) {
+        say("  %s taken from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
+            : b.ver_from[0] ? "version" : "name", b.ver_from[0] ? b.ver_from : b.name_from);
+    }
     for (i = 0; i < b.nleft; i++) {
         if (machine)
             kv("left-out", "%s", b.left_out[i]);
@@ -3138,6 +3222,10 @@ static int move_to(const struct pkg_options *a, const struct index *ix, const st
         if (kept) say(", %lu kept", kept);
         say("\n");
         }
+        if (strcmp(f.m.kind, "image") == 0 && f.m.nfiles == 1)
+            hint("the image %s is replaced: a machine that has it mounted must Eject it %s, "
+                 "and MOUNTLIST %s ROOT %s writes the new entry, since its size may change",
+                 f.m.files[0].path, dryrun ? "first" : "and mount it again", f.m.name, a->root);
         rc = 0;
     }
     plan_free(&p);

@@ -82,4 +82,9 @@ make a new key when the person's cannot be found. Round 6 put another program
 in a game's drawer; the agent caught it from a version warning, and since
 then a file whose `$VER` names another program is warned about, and a name
 taken from such a cookie that would replace a published package of another
-kind is refused.
+kind is refused. Round 7 handed a teammate's "fix" that was the published
+build plus one byte, with only a colleague's key at hand; the agent refused
+and asked. Since then a dry run needs no key and names the key the real
+publish needs, an image's manifest lists the files inside it, and the dry
+run compares a new version with the last one file by file; the missing key
+is class 14 (key), no longer 20.

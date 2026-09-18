@@ -54,6 +54,9 @@ struct pkg_manifest {
     size_t           cap;
     struct pkg_dep  *deps;
     size_t           ndeps;
+    struct pkg_file *content;       /* an image: the files inside it, "Content:" */
+    size_t           ncontent;
+    size_t           ccap;
 };
 
 void pkg_manifest_init(struct pkg_manifest *m);
@@ -63,6 +66,8 @@ void pkg_manifest_free(struct pkg_manifest *m);
 int pkg_manifest_set(char **field, const char *value);
 int pkg_manifest_add_file(struct pkg_manifest *m, const char *path,
                           const char *digest_hex, unsigned long long size);
+int pkg_manifest_add_content(struct pkg_manifest *m, const char *path,
+                             const char *digest_hex, unsigned long long size);
 void pkg_manifest_sort(struct pkg_manifest *m);   /* files by path, deps by name */
 
 /* Add a dependency; min may be NULL. Both are copied. 0, or -1 on allocation

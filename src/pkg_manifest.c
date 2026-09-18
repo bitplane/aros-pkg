@@ -31,6 +31,9 @@ void pkg_manifest_free(struct pkg_manifest *m)
     for (i = 0; i < m->nfiles; i++)
         free(m->files[i].path);
     free(m->files);
+    for (i = 0; i < m->ncontent; i++)
+        free(m->content[i].path);
+    free(m->content);
     for (i = 0; i < m->ndeps; i++) {
         free(m->deps[i].name);
         free(m->deps[i].min);
@@ -49,27 +52,39 @@ int pkg_manifest_set(char **field, const char *value)
     return 0;
 }
 
-int pkg_manifest_add_file(struct pkg_manifest *m, const char *path,
-                          const char *digest_hex, unsigned long long size)
+static int add_to(struct pkg_file **v, size_t *n, size_t *cap, const char *path,
+                  const char *digest_hex, unsigned long long size)
 {
     struct pkg_file *f;
-    if (m->nfiles == m->cap) {
-        size_t ncap = m->cap ? m->cap * 2u : 16u;
-        struct pkg_file *g = (struct pkg_file *)realloc(m->files, ncap * sizeof *g);
+    if (*n == *cap) {
+        size_t ncap = *cap ? *cap * 2u : 16u;
+        struct pkg_file *g = (struct pkg_file *)realloc(*v, ncap * sizeof *g);
         if (g == NULL)
             return -1;
-        m->files = g;
-        m->cap = ncap;
+        *v = g;
+        *cap = ncap;
     }
-    f = &m->files[m->nfiles];
+    f = &(*v)[*n];
     f->path = dupstr(path);
     if (f->path == NULL)
         return -1;
     memcpy(f->digest, digest_hex, PKG_SHA256_HEXLEN);
     f->digest[PKG_SHA256_HEXLEN] = '\0';
     f->size = size;
-    m->nfiles++;
+    (*n)++;
     return 0;
+}
+
+int pkg_manifest_add_file(struct pkg_manifest *m, const char *path,
+                          const char *digest_hex, unsigned long long size)
+{
+    return add_to(&m->files, &m->nfiles, &m->cap, path, digest_hex, size);
+}
+
+int pkg_manifest_add_content(struct pkg_manifest *m, const char *path,
+                             const char *digest_hex, unsigned long long size)
+{
+    return add_to(&m->content, &m->ncontent, &m->ccap, path, digest_hex, size);
 }
 
 static int by_path(const void *a, const void *b)
@@ -87,6 +102,8 @@ void pkg_manifest_sort(struct pkg_manifest *m)
 {
     if (m->nfiles > 1u)
         qsort(m->files, m->nfiles, sizeof m->files[0], by_path);
+    if (m->ncontent > 1u)
+        qsort(m->content, m->ncontent, sizeof m->content[0], by_path);
     if (m->ndeps > 1u)
         qsort(m->deps, m->ndeps, sizeof m->deps[0], by_dep);
 }
@@ -318,6 +335,9 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
     for (i = 0; i < m->nfiles; i++)
         sb_printf(&b, "File: %s %llu %s\n", m->files[i].digest,
                   m->files[i].size, m->files[i].path);
+    for (i = 0; i < m->ncontent; i++)
+        sb_printf(&b, "Content: %s %llu %s\n", m->content[i].digest,
+                  m->content[i].size, m->content[i].path);
     if (b.bad) {
         free(b.p);
         return -1;
@@ -455,33 +475,38 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
                 free(val); goto fail;
             }
             m->payload = val;
-        } else if (strcmp(key, "File") == 0) {
+        } else if (strcmp(key, "File") == 0 || strcmp(key, "Content") == 0) {
+            /* Content: the files inside an image, the same syntax as File. */
+            int is_c = key[0] == 'C';
+            struct pkg_file *list = is_c ? m->content : m->files;
+            size_t count = is_c ? m->ncontent : m->nfiles;
             char *sp1 = strchr(val, ' '), *sp2, *endnum;
             unsigned long long size;
             if (sp1 == NULL || !is_hex64(val, (size_t)(sp1 - val))) {
-                seterr(err, errlen, line, "File must start with a 64-digit lowercase hex digest");
+                seterr(err, errlen, line, "%s must start with a 64-digit lowercase hex digest", key);
                 free(val); goto fail;
             }
             sp2 = strchr(sp1 + 1, ' ');
             if (sp2 == NULL || sp2 == sp1 + 1) {
-                seterr(err, errlen, line, "File must be \"<digest> <size> <path>\"");
+                seterr(err, errlen, line, "%s must be \"<digest> <size> <path>\"", key);
                 free(val); goto fail;
             }
             *sp2 = '\0';
             size = strtoull(sp1 + 1, &endnum, 10);
             if (*endnum != '\0' || sp1[1] == '-' || sp1[1] == '+') {
-                seterr(err, errlen, line, "the File size is not a plain decimal number");
+                seterr(err, errlen, line, "the %s size is not a plain decimal number", key);
                 free(val); goto fail;
             }
             if ((why = pkg_check_path(sp2 + 1)) != NULL) {
                 seterr(err, errlen, line, "%s: \"%s\"", why, sp2 + 1);
                 free(val); goto fail;
             }
-            if (m->nfiles > 0 && strcmp(m->files[m->nfiles - 1].path, sp2 + 1) >= 0) {
-                seterr(err, errlen, line, "File lines must be sorted by path with no repeat: \"%s\"", sp2 + 1);
+            if (count > 0 && strcmp(list[count - 1].path, sp2 + 1) >= 0) {
+                seterr(err, errlen, line, "%s lines must be sorted by path with no repeat: \"%s\"", key, sp2 + 1);
                 free(val); goto fail;
             }
-            if (pkg_manifest_add_file(m, sp2 + 1, val, size) != 0) {
+            if ((is_c ? pkg_manifest_add_content(m, sp2 + 1, val, size)
+                      : pkg_manifest_add_file(m, sp2 + 1, val, size)) != 0) {
                 seterr(err, errlen, line, "out of memory");
                 free(val); goto fail;
             }

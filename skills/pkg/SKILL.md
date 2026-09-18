@@ -144,7 +144,12 @@ to run, and names the components it needs with `DEPENDS`.
    into a channel where their packages do not exist yet. In a team, each
    package belongs to whoever published it first; whether the team shares
    one key or each person keeps their own is the requester's call, and
-   worth asking once. Keep a key where the person keeps secrets (outside the
+   worth asking once. A key file you can read is not a key you may use:
+   when the only key at hand is a colleague's, ask the requester before
+   signing with it, even when they are in a hurry. A `DRYRUN` needs no key
+   (`signer: none`, and `first-signer:` names the key the real publish
+   will need), so find out what a publish would do before the key question
+   is settled. Keep a key where the person keeps secrets (outside the
    channel and any repository), readable by them alone, backed up; never
    print, copy or commit it. The `public:` line is what may be shared.
 6. **Check the result, not only the code.** On AROS a command that cannot
@@ -201,9 +206,12 @@ carried over from the previous one; pass them again. Before publishing it,
 check that the drawer holds the new build: Pkg warns when `VERSION`
 contradicts the program's own `$VER` cookie (often the old build copied by
 mistake), when a dependency of the previous version is missing, and when
-the kind changes. Compare the dry run's `file:`/`content:` sizes with the
-previous version's (`SHOW`, or `MANIFEST` on the old drawer) when in doubt,
-and ask rather than publish a version whose program did not change.
+the kind changes. The dry run compares the new version with the last one
+published, file by file: `compared-with:`, then `changed:` (with old and new
+size), `same:`, `added:`, `gone:`. A program that should have changed and
+shows `same:`, or changed by a few bytes while its `$VER` still gives the old
+version (Pkg warns about that one by name), is the old build: ask rather
+than publish it.
 
 **One CPU ahead of another** (an x86_64 fix, the aarch64 build not ready):
 publish the new version for the CPU that has it, and nothing for the other.
