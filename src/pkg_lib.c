@@ -2866,6 +2866,10 @@ static void plan_free(struct plan *p)
     free(p->dep);
 }
 
+/* During a dry-run UPGRADE ALL, the version a package upgraded earlier in the
+ * same run would be at; NULL otherwise. Defined with UPGRADE ALL below. */
+static const char *planned_version(const char *name);
+
 /* Plan `name`: exactly `exact` when given, else the highest the channel offers,
  * which must be at least `min`. `from` is the package that needs it, NULL for
  * the one the person named. */
@@ -2875,6 +2879,7 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
     const struct entry *e;
     struct fetched f;
     struct pkg_manifest cur;
+    const char *have;
     size_t i;
 
     if (cancelled("while resolving, before anything was placed"))
@@ -2893,13 +2898,17 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
         tr("%s needs %s%s%s", from, name, min ? " >= " : "", min ? min : "");
     if (from != NULL) {
         if (load_installed(p->root, name, &cur, 1) == 0) {
-            int low = min != NULL && pkg_version_cmp(cur.version, min) < 0;
+            int low;
+            have = planned_version(name);
+            if (have == NULL)
+                have = cur.version;
+            low = min != NULL && pkg_version_cmp(have, min) < 0;
             if (!low)
-                tr("%s is satisfied by the installed %s %s", name, name, cur.version);
+                tr("%s is satisfied by the installed %s %s", name, name, have);
             if (low)
                 refuse_c(16, "%s needs %s >= %s, and %s has %s %s; nothing was changed. "
                          "Upgrading %s would change it for everything that uses it",
-                         from, name, min, p->root, name, cur.version, name);
+                         from, name, min, p->root, name, have, name);
             pkg_manifest_free(&cur);
             return low;
         }
@@ -4044,6 +4053,8 @@ static int move_to(const struct pkg_options *a, const struct index *ix, const st
     return rc;
 }
 
+static int upgrade_all(const struct pkg_options *a);
+
 static int cmd_upgrade(const struct pkg_options *a)
 {
     struct index ix;
@@ -4051,6 +4062,7 @@ static int cmd_upgrade(const struct pkg_options *a)
     struct pkg_manifest cur;
     int rc = 1, c;
 
+    if (a->all) return upgrade_all(a);
     if (need_root_channel(a) != 0) return 1;
     if (resolve_arch(a) != 0) return 1;
     if (load_installed(a->root, a->target, &cur, 0) != 0) return 1;
@@ -4432,6 +4444,374 @@ static int cmd_remove(const struct pkg_options *a)
     return 0;
 }
 
+/* ---- keeping a root current: STATUS and UPGRADE ALL ------------------- *
+ *
+ * Pkg carries no scheduler and no daemon: a person, a startup script or any
+ * scheduler runs these. STATUS compares every installed package with a
+ * channel, choosing as UPGRADE chooses; UPGRADE ALL upgrades each package a
+ * newer version is offered for, exactly as UPGRADE <name> would, a package
+ * before what depends on it, and stops at the first refusal. Neither asks
+ * anything, ever: what belongs to the requester (going back a version, a
+ * new key, an edited file) is refused or reported, never decided. */
+
+struct planned_up { const char *name, *version; };
+static struct planned_up *planned;
+static size_t nplanned;
+
+static const char *planned_version(const char *name)
+{
+    size_t i;
+    for (i = 0; i < nplanned; i++)
+        if (strcmp(planned[i].name, name) == 0)
+            return planned[i].version;
+    return NULL;
+}
+
+/* One installed package against the channel. */
+struct standing {
+    const struct pkg_manifest *m;
+    const struct entry *offer;   /* what UPGRADE <name> would take; NULL: nothing */
+    const char *state;           /* current, upgradable, withdrawn, not-offered, edited */
+    int newer;                   /* offer is higher than the installed version */
+    int withdrawn;               /* the installed version was withdrawn by its publisher */
+    int edited;                  /* a file differs from the installed manifest */
+};
+
+/* The machine UPGRADE <name> chooses for: the root's, else the installed
+ * package's own CPU. */
+static void arch_for(const char *base, const struct pkg_manifest *m)
+{
+    target_arch = base;
+    if (target_arch == NULL && strcmp(m->architecture, "generic") != 0)
+        target_arch = m->architecture;
+}
+
+static void stand(const char *root, const struct index *ix, const char *base,
+                  const struct pkg_manifest *m, struct standing *s)
+{
+    size_t i;
+    memset(s, 0, sizeof *s);
+    s->m = m;
+    arch_for(base, m);
+    for (i = 0; i < ix->n; i++) {
+        const struct entry *e = &ix->e[i];
+        if (e->withdrawn && strcmp(e->name, m->name) == 0
+            && pkg_version_cmp(e->version, m->version) == 0
+            && (strcmp(e->arch, m->architecture) == 0 || strcmp(e->arch, "generic") == 0))
+            s->withdrawn = 1;
+    }
+    s->offer = pick(ix, m->name, NULL);
+    s->newer = s->offer != NULL && pkg_version_cmp(s->offer->version, m->version) > 0;
+    /* The check VERIFY makes, size and digest, stopping at the first edit. */
+    for (i = 0; i < m->nfiles && !s->edited; i++)
+        s->edited = file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size) == 1;
+    if (s->offer == NULL)  s->state = s->withdrawn ? "withdrawn" : "not-offered";
+    else if (s->newer)     s->state = s->edited ? "edited" : "upgradable";
+    else if (s->withdrawn) s->state = "withdrawn";
+    else if (s->edited)    s->state = "edited";
+    else                   s->state = "current";
+    tr("%s %s: %s, the channel offers %s", m->name, m->version, s->state,
+       s->offer ? s->offer->version : "nothing for it");
+}
+
+static void note(const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    if (machine)
+        kv("note", "%s", buf);
+    else
+        say("  note: %s\n", buf);
+}
+
+/* ROOT and CHANNEL, the root's machine, the channel's index and every
+ * installed package. */
+static int keep_current_setup(const struct pkg_options *a, struct index *ix, struct installed *in)
+{
+    if (a->root == NULL)    return refuse_c(20, "name the root with ROOT <dir>");
+    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
+    if (!pkg_fs_is_dir(a->channel))
+        return refuse_c(11, "there is no channel at %s: not mounted, or not the path meant; "
+                        "nothing was checked or changed", a->channel);
+    if (resolve_arch(a) != 0) return 1;
+    if (read_index(a->channel, ix) != 0) return 1;
+    if (load_all(a->root, in) != 0) { free(ix->e); return 1; }
+    return 0;
+}
+
+static int cmd_status(const struct pkg_options *a)
+{
+    struct index ix;
+    struct installed in;
+    size_t i, shown = 0, upgradable = 0, at_e = 0, at_w = 0;
+    char edited[400], withdrawn[400];
+    const char *base;
+    int rc = 1;
+
+    if (keep_current_setup(a, &ix, &in) != 0) return 1;
+    base = target_arch;
+    edited[0] = withdrawn[0] = '\0';
+    if (a->target != NULL) {
+        for (i = 0; i < in.n && strcmp(in.m[i].name, a->target) != 0; i++)
+            ;
+        if (i == in.n) {
+            refuse_n(11, "use-install", "%s is not installed in %s", a->target, a->root);
+            goto out;
+        }
+    }
+    kv("result", "shown");
+    for (i = 0; i < in.n; i++) {
+        struct standing s;
+        const char *avail;
+        if (a->target != NULL && strcmp(in.m[i].name, a->target) != 0)
+            continue;
+        if (cancelled("while comparing the root with the channel; nothing was changed"))
+            goto out;
+        stand(a->root, &ix, base, &in.m[i], &s);
+        avail = s.offer ? s.offer->version : "-";
+        shown++;
+        if (s.newer)
+            upgradable++;
+        if (s.edited && at_e + 70 < sizeof edited)
+            at_e += (size_t)snprintf(edited + at_e, sizeof edited - at_e, "%s%s", at_e ? ", " : "",
+                                     s.m->name);
+        if (s.withdrawn && !s.newer && at_w + 70 < sizeof withdrawn)
+            at_w += (size_t)snprintf(withdrawn + at_w, sizeof withdrawn - at_w, "%s%s %s",
+                                     at_w ? ", " : "", s.m->name, s.m->version);
+        if (machine) {
+            char j[300];
+            snprintf(j, sizeof j, "%s %s %s %s", s.m->name, s.m->version, avail, s.state);
+            rec_item("package", j, "name", s.m->name, "installed", s.m->version,
+                     "available", avail, "state", s.state, NULL);
+            if (s.withdrawn && s.newer)
+                note("%s %s, installed, was withdrawn by its publisher; UPGRADE takes %s",
+                     s.m->name, s.m->version, avail);
+        } else {
+            char what[200];
+            if (strcmp(s.state, "upgradable") == 0)
+                snprintf(what, sizeof what, "upgradable to %s", avail);
+            else if (strcmp(s.state, "withdrawn") == 0)
+                snprintf(what, sizeof what, "withdrawn by its publisher%s%s",
+                         s.offer ? "; the channel offers " : ", and nothing else is offered",
+                         s.offer ? avail : "");
+            else if (strcmp(s.state, "not-offered") == 0)
+                snprintf(what, sizeof what, "no longer offered by the channel");
+            else if (strcmp(s.state, "edited") == 0)
+                snprintf(what, sizeof what, "files edited since install%s%s", s.newer ? "; " : "",
+                         s.newer ? "upgradable to " : "");
+            else
+                snprintf(what, sizeof what, "current");
+            say("%-24s %-12s %s%s%s\n", s.m->name, s.m->version, what,
+                strcmp(s.state, "edited") == 0 && s.newer ? avail : "",
+                s.withdrawn && s.newer ? " (the installed version was withdrawn)" : "");
+        }
+    }
+    kv("count", "%lu", (unsigned long)shown);
+    kv("upgradable", "%lu", (unsigned long)upgradable);
+    if (!machine) {
+        if (shown == 0)
+            say("nothing installed in %s\n", a->root);
+        else
+            say("%lu package%s in %s, %lu upgradable from %s\n", (unsigned long)shown,
+                shown == 1 ? "" : "s", a->root, (unsigned long)upgradable, a->channel);
+    }
+    if (upgradable > 0)
+        hint("UPGRADE ALL ROOT %s CHANNEL %s upgrades every one of them, a package before what "
+             "depends on it; with DRYRUN it only says what it would do", a->root, a->channel);
+    if (at_e > 0)
+        hint("files were edited in %s since install: VERIFY <name> names them. An upgrade that "
+             "would replace an edited file is refused; what to do with the edit is the "
+             "requester's decision", edited);
+    if (at_w > 0)
+        hint("%s: withdrawn by the publisher, with nothing newer offered. Going back to the "
+             "previous version (ROLLBACK) or waiting for a fixed one is the requester's decision",
+             withdrawn);
+    rc = 0;
+out:
+    installed_free(&in);
+    free(ix.e);
+    return rc;
+}
+
+/* The manifest a channel entry names, unverified: only for ordering. The
+ * upgrade itself fetches and checks it in full. */
+static void offered_manifest(const char *channel, const struct entry *e, struct pkg_manifest *m)
+{
+    char *mp = object_path(channel, e->digest, "manifest"), err[200];
+    unsigned char *buf;
+    size_t len;
+    pkg_manifest_init(m);
+    if (mp != NULL && pkg_fs_read(mp, &buf, &len) == 0) {
+        pkg_manifest_parse((const char *)buf, len, m, err, sizeof err);
+        free(buf);
+    }
+    free(mp);
+}
+
+static int names_dep(const struct pkg_manifest *m, const char *name)
+{
+    size_t d;
+    for (d = 0; d < m->ndeps; d++)
+        if (strcmp(m->deps[d].name, name) == 0)
+            return 1;
+    return 0;
+}
+
+/* UPGRADE ALL. The answer is one item per package upgraded, `package` (name
+ * from version), then result upgraded and count; or, at a refusal, the
+ * refusal's own records followed by upgraded (how many were done before it),
+ * untouched and partial. The exit code is the refusal's class, as for any
+ * refusal, so code and next agree: the packages upgraded before it stay
+ * upgraded, each complete, and running it again once the requester has
+ * decided goes on from there. */
+static int upgrade_all(const struct pkg_options *a)
+{
+    struct index ix;
+    struct installed in;
+    struct standing *st = NULL;
+    struct pkg_manifest *nm = NULL;
+    size_t *cand = NULL, *order = NULL, ncand = 0, i, j, pos, done = 0;
+    unsigned char *emitted = NULL;
+    const char *base;
+    int rc = 1, refused = 0;
+
+    if (a->target != NULL)
+        return refuse_c(20, "UPGRADE ALL upgrades every package a newer version is offered for; "
+                        "name no package with it (UPGRADE <name> upgrades one)");
+    if (a->version != NULL)
+        return refuse_c(20, "VERSION names one package's version; UPGRADE ALL takes, for each "
+                        "package, the version UPGRADE <name> would take");
+    if (a->downgrade || a->acceptkey != NULL)
+        return refuse_c(20, "%s is a decision about one package, never about all of them at "
+                        "once: UPGRADE ALL never downgrades and never accepts a new key. Give it "
+                        "to UPGRADE <name>", a->downgrade ? "DOWNGRADE" : "ACCEPTKEY");
+    if (keep_current_setup(a, &ix, &in) != 0) return 1;
+    base = target_arch;
+    st = (struct standing *)calloc(in.n ? in.n : 1, sizeof *st);
+    cand = (size_t *)calloc(in.n ? in.n : 1, sizeof *cand);
+    order = (size_t *)calloc(in.n ? in.n : 1, sizeof *order);
+    emitted = (unsigned char *)calloc(in.n ? in.n : 1, 1);
+    nm = (struct pkg_manifest *)calloc(in.n ? in.n : 1, sizeof *nm);
+    planned = (struct planned_up *)calloc(in.n ? in.n : 1, sizeof *planned);
+    nplanned = 0;
+    if (st == NULL || cand == NULL || order == NULL || emitted == NULL || nm == NULL || planned == NULL) {
+        refuse("out of memory");
+        goto out;
+    }
+    for (i = 0; i < in.n; i++) {
+        stand(a->root, &ix, base, &in.m[i], &st[i]);
+        if (st[i].newer) {
+            offered_manifest(a->channel, st[i].offer, &nm[ncand]);
+            cand[ncand++] = i;
+        } else if (st[i].withdrawn) {
+            note("%s %s was withdrawn by its publisher, and nothing newer is offered; going back "
+                 "is the requester's decision, and UPGRADE ALL never does it", in.m[i].name,
+                 in.m[i].version);
+        }
+    }
+    /* A package before what depends on it: by the dependencies of the
+     * version it moves to and of the one installed. Candidates are in name
+     * order, the database's; a cycle is left to the plan, which names it. */
+    for (pos = 0; pos < ncand; pos++) {
+        size_t next = ncand;
+        for (i = 0; i < ncand && next == ncand; i++) {
+            int blocked = 0;
+            if (emitted[i])
+                continue;
+            for (j = 0; j < ncand && !blocked; j++) {
+                const char *dn = st[cand[j]].m->name;
+                if (j != i && !emitted[j]
+                    && (names_dep(&nm[i], dn) || names_dep(st[cand[i]].m, dn)))
+                    blocked = 1;
+            }
+            if (!blocked)
+                next = i;
+        }
+        for (i = 0; next == ncand && i < ncand; i++)
+            if (!emitted[i])
+                next = i;
+        emitted[next] = 1;
+        order[pos] = next;
+        tr("upgrade %lu of %lu: %s %s to %s", (unsigned long)pos + 1, (unsigned long)ncand,
+           st[cand[next]].m->name, st[cand[next]].m->version, st[cand[next]].offer->version);
+    }
+    for (pos = 0; pos < ncand; pos++) {
+        const struct standing *s = &st[cand[order[pos]]];
+        struct plan p;
+        unsigned long placed, dropped, kept;
+        arch_for(base, s->m);
+        if (plan_target(&p, a, &ix, s->m->name, s->offer->version) != 0
+            || run_plan(&p, s->m, &placed, &dropped, &kept) != 0) {
+            plan_free(&p);
+            refused = 1;
+            break;
+        }
+        if (machine) {
+            char jn[300];
+            snprintf(jn, sizeof jn, "%s %s %s", s->m->name, s->m->version, s->offer->version);
+            rec_item("package", jn, "name", s->m->name, "from", s->m->version,
+                     "version", s->offer->version, NULL);
+        } else {
+            say("%s %s from %s to %s: %lu placed, %lu removed", dryrun ? "would upgrade" : "upgraded",
+                s->m->name, s->m->version, s->offer->version, placed, dropped);
+            if (kept) say(", %lu kept", kept);
+            say("\n");
+        }
+        {
+            const struct fetched *f = &p.f[p.n - 1];
+            if (strcmp(f->m.kind, "image") == 0 && f->m.nfiles == 1)
+                hint("the image %s is replaced: a machine that has it mounted must Eject it %s, "
+                     "and MOUNTLIST %s ROOT %s writes the new entry, since its size may change",
+                     f->m.files[0].path, dryrun ? "first" : "and mount it again", f->m.name, a->root);
+        }
+        plan_free(&p);
+        if (dryrun) {
+            planned[nplanned].name = s->m->name;
+            planned[nplanned].version = s->offer->version;
+            nplanned++;
+        }
+        done++;
+    }
+    if (refused) {
+        kv("upgraded", "%lu", (unsigned long)done);
+        kv("untouched", "%lu", (unsigned long)(ncand - done));
+        kv("partial", "%s", !dryrun && done > 0 ? "yes" : "no");
+        if (!machine)
+            say_err("pkg upgrade: %lu of %lu upgrades %s before this refusal%s; nothing after it "
+                    "was %s. Once the requester has decided, UPGRADE ALL again goes on from there\n",
+                    (unsigned long)done, (unsigned long)ncand, dryrun ? "would be done" : "done",
+                    done > 0 && !dryrun ? ", and they stay" : "", dryrun ? "checked" : "changed");
+        goto out;
+    }
+    kv("result", "%s", ncand == 0 ? "unchanged" : res("upgraded", "would-upgrade"));
+    kv("count", "%lu", (unsigned long)done);
+    if (!machine) {
+        if (ncand == 0)
+            say("nothing to upgrade in %s: %lu package%s, none with a newer version in %s\n",
+                a->root, (unsigned long)in.n, in.n == 1 ? "" : "s", a->channel);
+        else
+            say("%s %lu package%s in %s\n", dryrun ? "would upgrade" : "upgraded",
+                (unsigned long)done, done == 1 ? "" : "s", a->root);
+    }
+    rc = 0;
+out:
+    for (i = 0; nm != NULL && i < ncand; i++)
+        pkg_manifest_free(&nm[i]);
+    free(nm);
+    free(st);
+    free(cand);
+    free(order);
+    free(emitted);
+    free(planned);
+    planned = NULL;
+    nplanned = 0;
+    installed_free(&in);
+    free(ix.e);
+    return rc;
+}
 
 /* ---- the interface in pkg.h ------------------------------------------- */
 
@@ -4481,6 +4861,7 @@ int pkg_remove   (const struct pkg_sink *s, const struct pkg_options *o) { retur
 int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "image", cmd_image, o); }
 int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "mountlist", cmd_mountlist, o); }
 int pkg_show     (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "show", cmd_show, o); }
+int pkg_status   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "status", cmd_status, o); }
 
 static const char *usage_reason;
 static int usage_op(const struct pkg_options *o)

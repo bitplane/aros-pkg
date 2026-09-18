@@ -61,7 +61,7 @@
 #ifndef PKG_H
 #define PKG_H
 
-#define PKG_API_VERSION 1
+#define PKG_API_VERSION 2   /* 2: pkg_status, and all for pkg_upgrade */
 #define PKG_VERSION_STRING "0.3"   /* the tool's own version, as in its $VER */
 
 enum {
@@ -101,9 +101,9 @@ struct pkg_sink {
     /* Optional: asked between steps; non-zero stops the operation, which is
      * refused (10, next report) with anything it had placed taken back out,
      * files, records and the keys it pinned alike. It is asked once per
-     * package while resolving, once before each package is placed, and once
-     * per entry while SHOW checks a channel; placing one package's files is
-     * not interrupted. */
+     * package while resolving, once before each package is placed, once
+     * per entry while SHOW checks a channel, and once per package while
+     * STATUS compares; placing one package's files is not interrupted. */
     int  (*cancel)(void *user);
 };
 
@@ -134,6 +134,9 @@ struct pkg_options {
     int downgrade;          /* upgrade: moving to an older version was asked for */
     int orphans;            /* remove: remove what nothing needs, instead of target */
     int dryrun;             /* every check, no write; results read would-... */
+    int all;                /* upgrade: every package a newer version is offered for,
+                               target NULL; refused (20) with version, downgrade or
+                               acceptkey, which are decisions about one package */
 };
 
 /* What each operation answers in the structured form. `result` is always
@@ -182,6 +185,38 @@ struct pkg_options {
  *   upgrade,   result upgraded, downgraded, rolled-back or unchanged: name,
  *   rollback   from, version, root, placed, removed, signer, with
  *              dependency items as for install.
+ *   upgrade    with all set: every installed package whose channel offers a
+ *   all        higher version, as upgrade would pick it (the root's CPU,
+ *              withdrawn versions skipped), upgraded exactly as upgrade
+ *              with that name would, a package before what depends on it.
+ *              Per package done, [item] package (name from version), after
+ *              its dependency items; then result upgraded, count. Nothing
+ *              to do: result unchanged, count 0. A note per installed
+ *              version withdrawn with nothing newer: never downgraded.
+ *              Stops at the first refusal: the refusal's own fields, then
+ *              upgraded (how many were done before it, each listed above),
+ *              untouched (how many were not attempted, the refused one
+ *              included) and partial (yes when something was upgraded,
+ *              always no under dryrun). The code is the refusal's class,
+ *              as for any refusal; what was upgraded stays upgraded, and
+ *              calling again once the requester has decided goes on from
+ *              there. A key change or an edited file is such a refusal.
+ *   status     every installed package (or only target) against channel:
+ *              result shown; [item] package (name installed available
+ *              state), available "-" when the channel offers nothing for
+ *              it; state current, upgradable (available is what upgrade
+ *              would take), withdrawn (the installed version was withdrawn
+ *              by its publisher, nothing newer offered), not-offered (the
+ *              channel has no version for it), or edited (a file differs
+ *              from what was installed, by size or digest, as verify
+ *              checks; available higher means an upgrade is offered too).
+ *              note when an installed withdrawn version has a newer one;
+ *              count; upgradable, the packages upgrade all would attempt
+ *              (upgradable, and edited ones with a higher available);
+ *              hint how to upgrade them. Code 0 whether or not anything is
+ *              upgradable. A channel directory that does not exist is
+ *              refused (11), as for upgrade all, rather than read as
+ *              offering nothing.
  *   list       result listed; [item] package (name version kind files
  *              reason), reason explicit or dependency; count. A root that
  *              does not exist lists nothing and succeeds.
@@ -239,6 +274,7 @@ int pkg_remove   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_show     (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_status   (const struct pkg_sink *s, const struct pkg_options *o);  /* root, channel, [target] */
 
 /* A refusal of the request itself, answered in the same form as the
  * operations' own: for a front end that validates its input first. Returns

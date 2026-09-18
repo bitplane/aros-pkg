@@ -32,6 +32,7 @@ Goals and milestones: [GOAL.md](GOAL.md). What remains: [OPEN.md](OPEN.md). **Go
 | Machine contract, `MACHINE` or `PKG_OUTPUT=machine` | Built: `tests/e2e.sh` on macOS, `tests/aros-contract.sh` compares macOS and hosted AROS line for line |
 | Image route, `KIND image` and `IMAGE` | Built: FFS images, validated by amitools in `tests/image.sh`, mounted by the AROS FFS handler in `tests/goal2.sh` |
 | `Depends`, resolution, orphans, `REMOVE ORPHANS` | Built: `tests/deps.sh` on macOS, `tests/goal2.sh` on hosted AROS |
+| `STATUS`, `UPGRADE ALL`: checking and updating a root, unattended | Built: `tests/status.sh` on macOS, 66 checks |
 
 ## On hosted AROS
 
@@ -195,6 +196,60 @@ class: key
 code: 14
 reason: hello is signed by a different key than the one pinned ...
 ```
+
+### Keeping a root current, unattended
+
+Pkg carries no scheduler and no daemon. A person, a startup script or any
+external scheduler (cron, launchd, the Task Scheduler, `S:User-Startup`)
+runs two commands, and neither ever prompts or reads stdin:
+
+```
+pkg STATUS [<name>] ROOT <dir> CHANNEL <dir> MACHINE
+pkg UPGRADE ALL ROOT <dir> CHANNEL <dir> [DRYRUN] MACHINE
+```
+
+`STATUS` compares every installed package with the channel, choosing as
+`UPGRADE <name>` chooses (the root's CPU, withdrawn versions skipped), and
+answers one `package: name installed available state` line each, then
+`count:` and `upgradable:`. It exits 0 whether or not updates exist.
+
+| State | Meaning |
+|---|---|
+| `current` | nothing newer is offered |
+| `upgradable` | `available` is the version `UPGRADE` would take |
+| `withdrawn` | the installed version was withdrawn by its publisher, and nothing newer is offered |
+| `not-offered` | the channel has no version of the package for this root |
+| `edited` | a file differs from what was installed, by size or digest, the check `VERIFY` makes; `available` above `installed` means a newer version is offered too |
+
+`upgradable:` counts the packages `UPGRADE ALL` would attempt: the
+`upgradable` ones and the `edited` ones with a newer version. `available`
+is `-` when nothing is offered. A channel directory that is not there
+(a volume not mounted) is refused with 11 rather than read as offering
+nothing.
+
+`UPGRADE ALL` upgrades each of those packages exactly as `UPGRADE <name>`
+would, a package before what depends on it, and answers a `package: name
+from version` line per package upgraded, then `result: upgraded` and
+`count:`; `result: unchanged`, `count: 0` and exit 0 when nothing is
+upgradable. It never downgrades (a withdrawn version with nothing newer
+gets a `note:`) and never accepts a new key: with `VERSION`, `DOWNGRADE`,
+`ACCEPTKEY` or a package name it is a wrong command (20), since those are
+decisions about one package. `DRYRUN` runs every check and changes nothing.
+
+It stops at the first refusal. The packages listed before the refusal
+are upgraded, each complete, and stay so; nothing after it was changed.
+The answer is then the refusal's own records (`result: refused`,
+`class:`, `code:`, `reason:`, `next:`), followed by `upgraded:` (how many
+were done before it), `untouched:` (how many were not attempted, the
+refused one included) and `partial: yes` or `no` (always `no` under
+`DRYRUN`). **The exit code is the refusal's class**, 10 to 18, as for any
+refusal, not a new code for "partly done": the class is what says what to
+do next (a new key goes to the requester, a damaged payload is a stop), a
+second number would hide it, and `If ERROR` on AROS catches it the same
+way. "Partly done" is `partial: yes`. Running `UPGRADE ALL` again once the
+requester has decided goes on from where it stopped. An edited file that
+the new version ships is refused (15) as `UPGRADE` refuses it, and so is a
+key change (14).
 
 `tests/aros-contract.sh` runs one sequence, with every class among its
 refusals, on macOS and then from the AmigaDOS startup of hosted AROS against
@@ -439,6 +494,8 @@ export PKG_SIGNKEY=~/.pkg-dev.key
 ./build/pkg LIST ROOT ~/aros-root
 ./build/pkg VERIFY mytool ROOT ~/aros-root
 ./build/pkg UPGRADE mytool ROOT ~/aros-root CHANNEL ~/pkg-channel
+./build/pkg STATUS ROOT ~/aros-root CHANNEL ~/pkg-channel
+./build/pkg UPGRADE ALL ROOT ~/aros-root CHANNEL ~/pkg-channel
 ./build/pkg ROLLBACK mytool ROOT ~/aros-root CHANNEL ~/pkg-channel
 ./build/pkg REMOVE mytool ROOT ~/aros-root
 ```
@@ -513,6 +570,16 @@ The suite was run against three deliberate defects, each built separately:
 | Signature verification disabled | The altered signature installs, and its check fails. The unsigned refusal still holds, correctly, since it comes from the missing file |
 | Key pinning disabled | 6 checks fail, all in the substituted-key section |
 | Edited-file protection disabled | 3 checks fail, exactly the edited-file ones |
+
+`tests/status.sh` (STATUS and UPGRADE ALL, 66 checks) was run the same way
+against 28 deliberate defects, each on a copy of the tree: every state
+misjudged in turn, the root's CPU ignored, withdrawn versions picked,
+dependency order lost, no stop at the first refusal, `partial` never yes,
+the items not sent, `DRYRUN` ignored, a `getchar()` added, downgrades let
+through, STATUS writing into the root or failing when updates exist, and
+each usage refusal removed. Each made its own checks fail. The stdin check
+reads the offset of a descriptor the shell shares with the command: a
+program that reads its stdin moves it.
 
 A first run of that last control reported 38 failures. The mutated binary had
 been built without `-Werror` and its compiler output cut off, so the 38 measured

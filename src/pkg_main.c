@@ -155,6 +155,11 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
             a->dryrun = 1;
             continue;
         }
+        /* A switch for UPGRADE only, so INSTALL all still names a package. */
+        if (strcmp(verb_name, "upgrade") == 0 && ieq(argv[i], "ALL")) {
+            a->all = 1;
+            continue;
+        }
         if (ieq(argv[i], "TRACE")) {
             if (i + 1 >= argc)
                 return usage_errorf("TRACE needs a file, or - for stderr");
@@ -213,6 +218,10 @@ static int usage(void)
         "  pkg SIGN     <file> KEY <keyfile> OUT <sigfile>\n"
         "  pkg INSTALL  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>]\n"
         "  pkg UPGRADE  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <hex>]\n"
+        "  pkg UPGRADE  ALL ROOT <dir> CHANNEL <dir> [ARCH cpu]\n"
+        "               every package the channel has a newer version of, a package before what\n"
+        "               depends on it; never a downgrade or a new key; stops at the first refusal,\n"
+        "               exit code its class, with upgraded:, untouched: and partial: yes|no\n"
         "  pkg ROLLBACK <name> ROOT <dir> CHANNEL <dir>\n"
         "  pkg LIST     ROOT <dir>\n"
         "  pkg VERIFY   <name> ROOT <dir>\n"
@@ -221,6 +230,10 @@ static int usage(void)
         "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
         "  pkg MOUNTLIST <image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]\n"
         "  pkg SHOW     [<name>] CHANNEL <dir> [ROOT <dir>]\n"
+        "  pkg STATUS   [<name>] ROOT <dir> CHANNEL <dir>\n"
+        "               each installed package: current, upgradable, withdrawn, not-offered or\n"
+        "               edited; exit 0 whether or not updates exist. Nothing ever prompts:\n"
+        "               STATUS and UPGRADE ALL run unattended, from a script or any scheduler\n"
         "Every verb that changes something takes DRYRUN: all checks, no write.\n"
         "Exit code: 0 done, 10 to 18 refused (the number is the class), 20 a wrong command.\n"
         "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
@@ -255,7 +268,8 @@ static int run_verb(int argc, char **argv)
         { "REMOVE",    "remove",    pkg_remove },
         { "IMAGE",     "image",     pkg_image },
         { "MOUNTLIST", "mountlist", pkg_mountlist },
-        { "SHOW",      "show",      pkg_show }
+        { "SHOW",      "show",      pkg_show },
+        { "STATUS",    "status",    pkg_status }
     };
     struct pkg_options a;
     size_t i;

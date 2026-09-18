@@ -1,6 +1,6 @@
 ---
 name: pkg
-description: Drive Pkg, the AROS package tool, on behalf of a person - publish a program or a system component into a channel, install, upgrade, roll back, verify and remove it in a root, inspect a channel, mount an application image, on macOS, Linux, Windows or AROS. Use when asked to package, ship, install, update or remove AROS software, or to explain a Pkg refusal.
+description: Drive Pkg, the AROS package tool, on behalf of a person - publish a program or a system component into a channel, install, upgrade, roll back, verify and remove it in a root, check a root for updates and update everything (unattended too), inspect a channel, mount an application image, on macOS, Linux, Windows or AROS. Use when asked to package, ship, install, update or remove AROS software, or to explain a Pkg refusal.
 ---
 
 # Pkg, for agents
@@ -257,6 +257,8 @@ the other build later, same name and version, when it is ready.
 ```sh
 pkg INSTALL  <name> ROOT <root> CHANNEL <channel> [VERSION v] MACHINE
 pkg UPGRADE  <name> ROOT <root> CHANNEL <channel> [VERSION v] MACHINE
+pkg UPGRADE  ALL ROOT <root> CHANNEL <channel> MACHINE
+pkg STATUS   [<name>] ROOT <root> CHANNEL <channel> MACHINE
 pkg ROLLBACK <name> ROOT <root> CHANNEL <channel> MACHINE
 pkg VERIFY   <name> ROOT <root> MACHINE
 pkg LIST     ROOT <root> MACHINE
@@ -288,6 +290,8 @@ kind files explicit|dependency`.
 | WITHDRAW | `withdrawn`, or `unchanged` |
 | INSTALL | `installed`, `unchanged`, or `kept` (a dependency now kept for itself) |
 | UPGRADE, ROLLBACK | `upgraded`, `downgraded`, `rolled-back`, or `unchanged` |
+| UPGRADE ALL | `upgraded`, a `package:` line each, `count:`; `unchanged` with `count: 0` when nothing is upgradable |
+| STATUS | `shown`, `package:` lines, `count:`, `upgradable:` |
 | VERIFY | `intact`; `moved` (0) when the person moved the drawer by hand, their right, nothing to repair; `damaged` with exit 12 and `changed:`/`missing:` lines |
 | LIST | `listed`, `package:` lines, `count:` |
 | REMOVE | `removed`, `orphan:` lines for what nothing needs any more |
@@ -298,6 +302,63 @@ kind files explicit|dependency`.
 Under `DRYRUN` the results read `would-publish`, `would-install`,
 `would-upgrade`, `would-remove` and so on. The `result:` field is not always
 the first line: look for it by key.
+
+## Checking and updating everything
+
+When the person asks whether their software is up to date, or to update
+everything, or to set that up to happen by itself:
+
+```sh
+pkg STATUS ROOT <root> CHANNEL <channel> MACHINE
+pkg UPGRADE ALL ROOT <root> CHANNEL <channel> DRYRUN MACHINE
+pkg UPGRADE ALL ROOT <root> CHANNEL <channel> MACHINE
+```
+
+STATUS changes nothing and exits 0 whether or not updates exist. Its
+`package:` lines read `name installed available state`; `available` is
+what UPGRADE would take, `-` when the channel offers nothing for it.
+
+| `state` | What to tell the person |
+|---|---|
+| `current` | nothing to do |
+| `upgradable` | UPGRADE ALL (or UPGRADE `<name>`) takes `available` |
+| `withdrawn` | the publisher withdrew the installed version and offers nothing newer; whether to ROLLBACK or wait is their decision, and UPGRADE ALL never goes back |
+| `not-offered` | the channel no longer has the package; it keeps working, it just gets no updates from there |
+| `edited` | files were changed since install (VERIFY names them); if `available` is higher, the upgrade is refused while it would replace one of them |
+
+`upgradable:` is how many packages UPGRADE ALL would attempt. UPGRADE ALL
+upgrades them one at a time, a package before what depends on it, each
+exactly as UPGRADE `<name>` would, and says `package: name from version` for
+each one done. It never downgrades and never accepts a new key: it refuses
+`VERSION`, `DOWNGRADE`, `ACCEPTKEY` and a name with 20. At the first refusal
+it stops. Read it like any refusal (`class:`, `next:`); the lines after it
+say how far it got: `upgraded:` (done, and listed above as `package:`
+lines; they stay done), `untouched:`, and `partial: yes` when something
+was upgraded. The exit code is the refusal's class, not a separate
+"partial" code: do what `next:` says, and once the requester has decided
+(a new key: on their word, `UPGRADE <that name> ... ACCEPTKEY <key>`), run
+UPGRADE ALL again; it goes on from there.
+
+**Unattended.** Pkg has no scheduler and no daemon, and needs neither:
+nothing it does ever prompts or reads stdin, so a startup script, cron,
+launchd or the Task Scheduler runs these lines as they are. When the
+person asks for updates to happen by themselves, write that line into
+their scheduler or `S:User-Startup` with `MACHINE` and the output kept in
+a file, and tell them where. Choose with them between STATUS alone (report,
+let them decide) and UPGRADE ALL (update, report what was done); the
+latter only if they asked for it. On AROS:
+
+```
+C:FailAt 21
+Pkg UPGRADE ALL ROOT SYS: CHANNEL DEPOT: MACHINE >T:pkg-update.out
+If ERROR
+  Echo "Pkg stopped: see T:pkg-update.out"
+EndIf
+```
+
+A channel that is not reachable (`DEPOT:` not mounted) is refused with 11,
+never read as "nothing offered". An unattended run never takes the
+decisions that belong to the requester: it stops, and the report says why.
 
 ## When a published version is broken
 
