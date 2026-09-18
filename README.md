@@ -270,16 +270,16 @@ Homebrew casks were withdrawn on 2026-09-01. The owner runs the kit.
 ## AROS defects found along the way
 
 Each observed on hosted aarch64 AROS built from `jonx/AROS`, branch
-`aarch64-darwin-graft`. None of them has been reported upstream: that is the
-owner's call, and nothing here is posted anywhere public.
+`aarch64-darwin-graft`. Two are fixed and proposed upstream, at the owner's
+request (2026-09-18); the others are not reported.
 
 | Where | What happens | Seen in | Worked around by |
 |---|---|---|---|
 | `C:Unpack` | Does not load: "file is not executable", for the shipped binary and for one rebuilt from its sources | goal 1 bootstrap; board thread 17 | Bootstrap through `minigzip` |
-| identify.library, `IdAlert` | Every dead-end CPU alert decodes as "Unknown": `idalert.c` stores `ACPU_DivZero` and its neighbours with the dead-end bit (0x80000005) and searches with that bit masked off (`id & 0x7fffffff`), so the entry never matches | goal 2, `Guru 80000005` | The test decodes a recoverable alert, 04000001 |
+| identify.library, `IdAlert` | Every dead-end CPU alert decodes as "Unknown": `idalert.c` stores `ACPU_DivZero` and its neighbours with the dead-end bit (0x80000005) and searches with that bit masked off (`id & 0x7fffffff`), so the entry never matches | goal 2, `Guru 80000005` | The test decodes a recoverable alert, 04000001. Fixed: aros-development-team/AROS#1238, checked on hosted AROS (80000005 now reads Divide by zero, 84000001 Unknown gadget type) |
 | posixc `stdout` | Output written through posixc reaches no shell redirection | first AROS runs | Output goes through `dos.library` `Output()` |
 | posixc `errno` | No `EEXIST` for an existing directory, no `ENOENT` from `opendir` on an absent one | first AROS runs | Existence is tested, never inferred from errno |
-| Regina, aros-contrib | For an ARexx port, RC is set to the RESULT string instead of the numeric `rm_Result1` | goal 1 | `tools/aros/regina-arexx-rc.patch`, kept to offer upstream |
+| Regina, aros-contrib | For an ARexx port, RC is set to the RESULT string instead of the numeric `rm_Result1` | goal 1 | `tools/aros/regina-arexx-rc.patch`; proposed as aros-development-team/contrib#64 |
 | The darwin hosted build | Ships no FFS handler at all, so no FFS volume can mount | goal 2 | `tools/build-aros-extras.sh` builds `rom/filesys/afs` |
 | The shell, `$RC` | A command that cannot be loaded (file not found, volume not mounted) leaves `$RC` at its previous value, 0 or 10 alike, so a script reads success after it; not yet compared with AmigaOS | goal 2, then a four-case check | Scripts check each step's output, not only `$RC` |
 
