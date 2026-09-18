@@ -290,7 +290,7 @@ const char *pkg_next_words(const char *next)
 static const char *pending_next;   /* set by refuse_n for the next refusal */
 static const char *refused_next;
 static int quiet;                  /* SHOW checks entries without reporting refusals */
-static char quiet_reason[512];
+static char quiet_reason[2048];
 
 static int refuse_c(int cls, const char *fmt, ...)
 {
@@ -4330,8 +4330,12 @@ static void drop_installed(struct installed *in, const char *name)
 static int remove_orphans(const struct pkg_options *a)
 {
     struct installed in;
-    size_t *which, n, i, total = 0;
-    int loaded = 0;
+    size_t *which, n, i, total = 0, nfailed = 0, at_f = 0;
+    int loaded = 0, first_class = 0;
+    const char *first_next = NULL;
+    char failed[2048];              /* " name name ... ": those that could not go, not tried again */
+
+    failed[0] = '\0';
 
     for (;;) {
         /* A dry run works on the list in memory, since nothing leaves the disk. */
@@ -4341,13 +4345,44 @@ static int remove_orphans(const struct pkg_options *a)
         which = malloc((in.n ? in.n : 1) * sizeof *which);
         if (which == NULL) { installed_free(&in); return refuse("out of memory"); }
         n = find_orphans(&in, a->root, which);
+        {
+            /* the ones that already failed are not tried again */
+            size_t kept_n = 0;
+            for (i = 0; i < n; i++) {
+                char key[80];
+                snprintf(key, sizeof key, " %s ", in.m[which[i]].name);
+                if (strstr(failed, key) == NULL)
+                    which[kept_n++] = which[i];
+            }
+            n = kept_n;
+        }
         for (i = 0; i < n; i++) {
             const struct pkg_manifest *m = &in.m[which[i]];
             size_t r, k, g;
-            if (remove_files(a->root, m, &r, &k, &g, 1) != 0) {
-                free(which);
-                installed_free(&in);
-                return 1;
+            int ok_rm;
+            quiet = 1;
+            ok_rm = remove_files(a->root, m, &r, &k, &g, 1) == 0;
+            quiet = 0;
+            if (!ok_rm) {
+                /* this one stays, with its reason; the others still go */
+                char *q, jn[2600], codes[8];
+                for (q = quiet_reason; *q; q++) if (*q == '\n') *q = ' ';
+                if (first_class == 0) { first_class = refused_class; first_next = refused_next; }
+                snprintf(codes, sizeof codes, "%d", refused_class);
+                snprintf(jn, sizeof jn, "%s %s %s %s", m->name, m->version, class_name(refused_class),
+                         quiet_reason);
+                if (machine)
+                    rec_item("refused", jn, "name", m->name, "version", m->version, "class",
+                             class_name(refused_class), "code", codes, "reason", quiet_reason, NULL);
+                else
+                    say("%-24s not removed: %s\n", m->name, quiet_reason);
+                if (at_f + 80 < sizeof failed)
+                    at_f += (size_t)snprintf(failed + at_f, sizeof failed - at_f, "%s%s ",
+                                             at_f ? "" : " ", m->name);
+                nfailed++;
+                refused_class = 0;
+                refused_next = NULL;
+                continue;
             }
             total++;
             if (machine)
@@ -4375,11 +4410,35 @@ static int remove_orphans(const struct pkg_options *a)
         if (n == 0)
             break;              /* removing one orphan can orphan its own dependencies */
     }
-    kv("result", "%s", res("removed", "would-remove"));
-    kv("count", "%lu", (unsigned long)total);
-    if (!machine && total == 0)
-        say("no orphans in %s\n", a->root);
-    return 0;
+    {
+        char summary[600];
+        if (total == 0 && nfailed == 0)
+            snprintf(summary, sizeof summary, "nothing to remove: every installed package is "
+                     "wanted or needed by one that is");
+        else if (nfailed == 0)
+            snprintf(summary, sizeof summary, "%s %lu package%s nothing needed any more",
+                     dryrun ? "would remove" : "removed", (unsigned long)total, total == 1 ? "" : "s");
+        else
+            snprintf(summary, sizeof summary, "%s %lu package%s nothing needed; %lu could not be "
+                     "removed:%s", dryrun ? "would remove" : "removed", (unsigned long)total,
+                     total == 1 ? "" : "s", (unsigned long)nfailed, failed);
+        if (nfailed == 0) {
+            kv("result", "%s", total ? res("removed", "would-remove") : "unchanged");
+        } else {
+            refused_class = first_class;
+            refused_next = first_next;
+            kv("result", "refused");
+            kv("class", "%s", class_name(first_class));
+            kv("code", "%d", first_class);
+        }
+        kv("count", "%lu", (unsigned long)total);
+        kv("summary", "%s", summary);
+        if (nfailed)
+            kv("next", "%s", first_next ? first_next : next_default(first_class));
+        if (!machine)
+            say("%s\n", summary);
+    }
+    return nfailed ? 1 : 0;
 }
 
 static int cmd_remove(const struct pkg_options *a)
@@ -4611,6 +4670,14 @@ static int cmd_status(const struct pkg_options *a)
     }
     kv("count", "%lu", (unsigned long)shown);
     kv("upgradable", "%lu", (unsigned long)upgradable);
+    if (shown == 0)
+        kv("summary", "nothing is installed in this root");
+    else if (upgradable == 0)
+        kv("summary", "everything is up to date: %lu package%s, none with a newer version",
+           (unsigned long)shown, shown == 1 ? "" : "s");
+    else
+        kv("summary", "%lu of %lu package%s can be updated", (unsigned long)upgradable,
+           (unsigned long)shown, shown == 1 ? "" : "s");
     if (!machine) {
         if (shown == 0)
             say("nothing installed in %s\n", a->root);
@@ -4660,13 +4727,12 @@ static int names_dep(const struct pkg_manifest *m, const char *name)
     return 0;
 }
 
-/* UPGRADE ALL. The answer is one item per package upgraded, `package` (name
- * from version), then result upgraded and count; or, at a refusal, the
- * refusal's own records followed by upgraded (how many were done before it),
- * untouched and partial. The exit code is the refusal's class, as for any
- * refusal, so code and next agree: the packages upgraded before it stay
- * upgraded, each complete, and running it again once the requester has
- * decided goes on from there. */
+/* UPGRADE ALL, as far as possible: one item per package upgraded (package),
+ * refused (with its class and reason) or waiting for a refused one
+ * (skipped), then counts and a summary sentence. When something was not
+ * upgraded, the result is a refusal with the first one's class and next,
+ * which is the exit code; running it again once the requester has decided
+ * takes what waited. */
 static int upgrade_all(const struct pkg_options *a)
 {
     struct index ix;
@@ -4676,8 +4742,13 @@ static int upgrade_all(const struct pkg_options *a)
     size_t *cand = NULL, *order = NULL, ncand = 0, i, j, pos, done = 0;
     unsigned char *emitted = NULL;
     const char *base;
-    int rc = 1, refused = 0;
+    int rc = 1, first_class = 0;
+    const char *first_next = NULL;
+    size_t nrefused = 0, nskipped = 0, at_r = 0;
+    unsigned char *failed = NULL;
+    char refused_names[600];
 
+    refused_names[0] = '\0';
     if (a->target != NULL)
         return refuse_c(20, "UPGRADE ALL upgrades every package a newer version is offered for; "
                         "name no package with it (UPGRADE <name> upgrades one)");
@@ -4695,9 +4766,11 @@ static int upgrade_all(const struct pkg_options *a)
     order = (size_t *)calloc(in.n ? in.n : 1, sizeof *order);
     emitted = (unsigned char *)calloc(in.n ? in.n : 1, 1);
     nm = (struct pkg_manifest *)calloc(in.n ? in.n : 1, sizeof *nm);
+    failed = (unsigned char *)calloc(in.n ? in.n : 1, 1);
     planned = (struct planned_up *)calloc(in.n ? in.n : 1, sizeof *planned);
     nplanned = 0;
-    if (st == NULL || cand == NULL || order == NULL || emitted == NULL || nm == NULL || planned == NULL) {
+    if (st == NULL || cand == NULL || order == NULL || emitted == NULL || nm == NULL || planned == NULL
+        || failed == NULL) {
         refuse("out of memory");
         goto out;
     }
@@ -4742,12 +4815,65 @@ static int upgrade_all(const struct pkg_options *a)
         const struct standing *s = &st[cand[order[pos]]];
         struct plan p;
         unsigned long placed, dropped, kept;
+        size_t f;
+        int ok_plan, blocked_by = -1;
+        /* A package whose new version needs one that could not be upgraded
+         * waits: it is skipped, and said why. */
+        for (f = 0; f < pos && blocked_by < 0; f++)
+            if (failed[f] && names_dep(&nm[order[pos]], st[cand[order[f]]].m->name))
+                blocked_by = (int)f;
+        if (blocked_by >= 0) {
+            const char *dn = st[cand[order[blocked_by]]].m->name;
+            failed[pos] = 1;
+            nskipped++;
+            if (machine) {
+                char jn[300];
+                snprintf(jn, sizeof jn, "%s %s %s", s->m->name, s->m->version, dn);
+                rec_item("skipped", jn, "name", s->m->name, "installed", s->m->version,
+                         "waits-for", dn, NULL);
+            } else {
+                say("%-24s skipped: it needs %s, which could not be upgraded\n", s->m->name, dn);
+            }
+            continue;
+        }
         arch_for(base, s->m);
-        if (plan_target(&p, a, &ix, s->m->name, s->offer->version) != 0
-            || run_plan(&p, s->m, &placed, &dropped, &kept) != 0) {
+        quiet = 1;
+        ok_plan = plan_target(&p, a, &ix, s->m->name, s->offer->version) == 0
+                  && run_plan(&p, s->m, &placed, &dropped, &kept) == 0;
+        quiet = 0;
+        if (!ok_plan) {
+            char codes[8];
             plan_free(&p);
-            refused = 1;
-            break;
+            failed[pos] = 1;
+            nrefused++;
+            if (first_class == 0) {
+                first_class = refused_class;
+                first_next = refused_next;
+            }
+            snprintf(codes, sizeof codes, "%d", refused_class);
+            {
+                /* one line, as every record: a reason may have several */
+                char *q;
+                for (q = quiet_reason; *q; q++)
+                    if (*q == '\n') *q = ' ';
+            }
+            if (machine) {
+                char jn[2600];
+                /* the reason last, since it has spaces: "<name> <version> <class> <reason>" */
+                snprintf(jn, sizeof jn, "%s %s %s %s", s->m->name, s->m->version,
+                         class_name(refused_class), quiet_reason);
+                rec_item("refused", jn, "name", s->m->name, "installed", s->m->version,
+                         "class", class_name(refused_class), "code", codes, "reason", quiet_reason,
+                         "next", refused_next ? refused_next : next_default(refused_class), NULL);
+            } else {
+                say("%-24s not upgraded: %s\n", s->m->name, quiet_reason);
+            }
+            if (at_r + 80 < sizeof refused_names)
+                at_r += (size_t)snprintf(refused_names + at_r, sizeof refused_names - at_r, "%s%s (%s)",
+                                         at_r ? ", " : "", s->m->name, class_name(refused_class));
+            refused_class = 0;
+            refused_next = NULL;
+            continue;
         }
         if (machine) {
             char jn[300];
@@ -4775,28 +4901,45 @@ static int upgrade_all(const struct pkg_options *a)
         }
         done++;
     }
-    if (refused) {
-        kv("upgraded", "%lu", (unsigned long)done);
-        kv("untouched", "%lu", (unsigned long)(ncand - done));
-        kv("partial", "%s", !dryrun && done > 0 ? "yes" : "no");
-        if (!machine)
-            say_err("pkg upgrade: %lu of %lu upgrades %s before this refusal%s; nothing after it "
-                    "was %s. Once the requester has decided, UPGRADE ALL again goes on from there\n",
-                    (unsigned long)done, (unsigned long)ncand, dryrun ? "would be done" : "done",
-                    done > 0 && !dryrun ? ", and they stay" : "", dryrun ? "checked" : "changed");
-        goto out;
-    }
-    kv("result", "%s", ncand == 0 ? "unchanged" : res("upgraded", "would-upgrade"));
-    kv("count", "%lu", (unsigned long)done);
-    if (!machine) {
+    {
+        char summary[900];
         if (ncand == 0)
-            say("nothing to upgrade in %s: %lu package%s, none with a newer version in %s\n",
-                a->root, (unsigned long)in.n, in.n == 1 ? "" : "s", a->channel);
+            snprintf(summary, sizeof summary, "nothing needs an update: %lu package%s, none with a "
+                     "newer version in the channel", (unsigned long)in.n, in.n == 1 ? "" : "s");
+        else if (nrefused + nskipped == 0)
+            snprintf(summary, sizeof summary, "%s %lu package%s", dryrun ? "would update" : "updated",
+                     (unsigned long)done, done == 1 ? "" : "s");
         else
-            say("%s %lu package%s in %s\n", dryrun ? "would upgrade" : "upgraded",
-                (unsigned long)done, done == 1 ? "" : "s", a->root);
+        {
+            char waiting[80] = "";
+            if (nskipped)
+                snprintf(waiting, sizeof waiting, "; %lu waiting for one of them", (unsigned long)nskipped);
+            snprintf(summary, sizeof summary, "%s %lu of %lu package%s; not upgraded: %s%s. "
+                     "Everything else went ahead", dryrun ? "would update" : "updated",
+                     (unsigned long)done, (unsigned long)ncand, ncand == 1 ? "" : "s",
+                     refused_names, waiting);
+        }
+        if (nrefused + nskipped == 0) {
+            kv("result", "%s", ncand == 0 ? "unchanged" : res("upgraded", "would-upgrade"));
+        } else {
+            /* Some needed a decision: the answer is a refusal, with the class
+             * of the first, so the exit code and next say what to do. */
+            refused_class = first_class;
+            refused_next = first_next;
+            kv("result", "refused");
+            kv("class", "%s", class_name(first_class));
+            kv("code", "%d", first_class);
+        }
+        kv("upgraded", "%lu", (unsigned long)done);
+        kv("not-upgraded", "%lu", (unsigned long)(nrefused + nskipped));
+        kv("count", "%lu", (unsigned long)done);
+        kv("summary", "%s", summary);
+        if (nrefused + nskipped > 0)
+            kv("next", "%s", first_next ? first_next : next_default(first_class));
+        if (!machine)
+            say("%s\n", summary);
+        rc = nrefused + nskipped == 0 ? 0 : 1;
     }
-    rc = 0;
 out:
     for (i = 0; nm != NULL && i < ncand; i++)
         pkg_manifest_free(&nm[i]);
@@ -4805,6 +4948,7 @@ out:
     free(cand);
     free(order);
     free(emitted);
+    free(failed);
     free(planned);
     planned = NULL;
     nplanned = 0;

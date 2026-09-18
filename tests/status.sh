@@ -150,61 +150,68 @@ awk '/^package: zlib 1.0 2.0$/{z=NR} /^package: app 1.0 2.0$/{a=NR} END{exit !(z
 has "$T/ua" '^note: wd 1.1 was withdrawn by its publisher';          ok $? "and that is reported as a note"
 [ "$(cat "$R/Libs/ed.library")" = "my own settings" ];               ok $? "the edited file, in a package with nothing newer, is untouched"
 $PKG UPGRADE ALL ROOT "$R" CHANNEL "$CH" MACHINE > "$T/ua2" 2>&1
-[ $? -eq 0 ] && has "$T/ua2" '^result: unchanged$' && has "$T/ua2" '^count: 0$'
-                                                                     ok $? "nothing upgradable: result unchanged, exit 0"
+[ $? -eq 0 ] && has "$T/ua2" '^result: unchanged$' && has "$T/ua2" '^summary: nothing needs an update'
+                                                                     ok $? "nothing upgradable: result unchanged, exit 0, and a sentence that says so"
 $PKG UPGRADE ALL ROOT "$R" CHANNEL "$CH" > "$T/ua3" 2>&1
-[ $? -eq 0 ] && has "$T/ua3" '^nothing to upgrade in ';              ok $? "and in text says so"
+[ $? -eq 0 ] && has "$T/ua3" '^nothing needs an update';             ok $? "and in text says so"
 
-echo "stop_at_first_refusal"
+echo "as_far_as_possible"
+# aa, bb and cc are independent; dd needs bb. bb 2.0 is signed by another
+# key: it waits for the requester, dd waits for bb, aa and cc go ahead.
 C2="$T/ch2"
 R2="$T/root2"
 R3="$T/root3"
 for n in aa bb cc; do pub "$C2" "$n" 1.0 - > /dev/null; done
-for n in aa bb cc; do $PKG INSTALL "$n" ROOT "$R2" CHANNEL "$C2" > /dev/null 2>&1; done
+pub "$C2" dd 1.0 "bb" > /dev/null
+for n in aa bb cc dd; do $PKG INSTALL "$n" ROOT "$R2" CHANNEL "$C2" > /dev/null 2>&1; done
 $PKG INSTALL cc ROOT "$R3" CHANNEL "$C2" > /dev/null 2>&1
 pub "$C2" aa 2.0 - > /dev/null
 (PKG_SIGNKEY="$T/other.key"; export PKG_SIGNKEY; pub "$C2" bb 2.0 - ACCEPTKEY "$OTHERPUB" > /dev/null)
                                                                      ok $? "bb 2.0 signed by another key"
 pub "$C2" cc 2.0 - > /dev/null
+pub "$C2" dd 2.0 "bb >= 2.0" > /dev/null
 before=$(snap "$R2")
 $PKG UPGRADE ALL ROOT "$R2" CHANNEL "$C2" DRYRUN MACHINE > "$T/pd" 2>&1
-[ $? -eq 14 ] && has "$T/pd" '^package: aa 1.0 2.0$' && has "$T/pd" '^partial: no$'
-                                                                     ok $? "DRYRUN meets the key change too (14), partial no"
+[ $? -eq 14 ] && has "$T/pd" '^package: aa 1.0 2.0$' && has "$T/pd" '^package: cc 1.0 2.0$' \
+    && has "$T/pd" '^refused: bb 1.0 key ';           ok $? "DRYRUN goes as far as possible too, and names what it would refuse"
 [ "$(snap "$R2")" = "$before" ];                                     ok $? "and changes nothing"
-printf 'y\n' > "$T/answers"
-exec 5< "$T/answers"
-$PKG UPGRADE ALL ROOT "$R2" CHANNEL "$C2" MACHINE > "$T/pr" 2> "$T/pr.err" <&5
+printf 'y' > "$T/input"
+exec 5<"$T/input"
+$PKG UPGRADE ALL ROOT "$R2" CHANNEL "$C2" MACHINE <&5 > "$T/pr" 2> "$T/pr.err"
 rc=$?
-IFS= read -r left <&5
+left=$(dd bs=1 count=1 <&5 2>/dev/null)
 exec 5<&-
-[ "$rc" -eq 14 ];                                                    ok $? "a key change stops it, exit 14, the refusal's class"
+[ "$rc" -eq 14 ];                                                    ok $? "a key change is a refusal: exit 14, its class"
 [ "$left" = y ] && [ ! -s "$T/pr.err" ];                             ok $? "no prompt, stdin unread, stderr empty"
 has "$T/pr" '^result: refused$' && has "$T/pr" '^class: key$' && has "$T/pr" '^next: ask-requester$'
-                                                                     ok $? "the refusal's normal records: class key, next ask-requester"
-awk '/^package: aa 1.0 2.0$/{p=NR} /^result: refused$/{r=NR} END{exit !(p && r && p<r)}' "$T/pr"
-                                                                     ok $? "aa, done before it, is listed before the refusal"
-has "$T/pr" '^upgraded: 1$' && has "$T/pr" '^untouched: 2$' && has "$T/pr" '^partial: yes$'
-                                                                     ok $? "upgraded 1, untouched 2, partial yes"
-! has "$T/pr" '^package: bb' && ! has "$T/pr" '^package: cc';        ok $? "bb and cc are not reported as done"
-[ "$(cat "$R2/Libs/aa.library")" = "lib aa 2.0" ];                   ok $? "aa is at 2.0"
-[ "$(cat "$R2/Libs/bb.library")" = "lib bb 1.0" ] && [ "$(cat "$R2/Libs/cc.library")" = "lib cc 1.0" ] \
+                                                                     ok $? "the answer carries class key and next ask-requester"
+has "$T/pr" '^package: aa 1.0 2.0$' && has "$T/pr" '^package: cc 1.0 2.0$'
+                                                                     ok $? "aa and cc, which need no decision, are upgraded"
+grep -q '^refused: bb 1.0 key .*signed by' "$T/pr"
+                                                                     ok $? "bb is refused, with its reason"
+has "$T/pr" '^skipped: dd 1.0 bb$';                                  ok $? "dd, which needs bb 2.0, waits for it and says so"
+has "$T/pr" '^upgraded: 2$' && has "$T/pr" '^not-upgraded: 2$' \
+    && has "$T/pr" '^summary: updated 2 of 4 packages; not upgraded: bb (key); 1 waiting'
+                                                                     ok $? "the summary says what went ahead and what did not, and why"
+[ "$(cat "$R2/Libs/aa.library")" = "lib aa 2.0" ] && [ "$(cat "$R2/Libs/cc.library")" = "lib cc 2.0" ]
+                                                                     ok $? "aa and cc are at 2.0"
+[ "$(cat "$R2/Libs/bb.library")" = "lib bb 1.0" ] && [ "$(cat "$R2/Libs/dd.library")" = "lib dd 1.0" ] \
     && [ "$(head -c 64 "$R2/.pkg/keys/bb")" != "$OTHERPUB" ]
-                                                                     ok $? "bb and cc unchanged, bb's key still the first one"
+                                                                     ok $? "bb and dd unchanged, bb's key still the first one"
 $PKG UPGRADE ALL ROOT "$R2" CHANNEL "$C2" > "$T/prt" 2> "$T/prt.err"
-[ $? -eq 14 ] && has "$T/prt.err" '0 of 2 upgrades done before this refusal'
-                                                                     ok $? "in text, the partial account goes with the refusal"
+[ $? -eq 14 ] && has "$T/prt" 'not upgraded: bb (key)';              ok $? "in text, the same account"
 $PKG UPGRADE bb ROOT "$R2" CHANNEL "$C2" ACCEPTKEY "$OTHERPUB" > /dev/null 2>&1
                                                                      ok $? "the requester accepts bb's new key, for bb alone"
 $PKG UPGRADE ALL ROOT "$R2" CHANNEL "$C2" MACHINE > "$T/pr2" 2>&1
-[ $? -eq 0 ] && has "$T/pr2" '^package: cc 1.0 2.0$' && has "$T/pr2" '^count: 1$'
-                                                                     ok $? "UPGRADE ALL again goes on from there: cc"
+[ $? -eq 0 ] && has "$T/pr2" '^package: dd 1.0 2.0$' && has "$T/pr2" '^upgraded: 1$'
+                                                                     ok $? "UPGRADE ALL again takes dd, which no longer waits"
 
 printf 'my cc\n' > "$R3/Libs/cc.library"
 $PKG STATUS ROOT "$R3" CHANNEL "$C2" MACHINE > "$T/s3"
 has "$T/s3" '^package: cc 1.0 2.0 edited$' && has "$T/s3" '^upgradable: 1$'
                                                                      ok $? "edited with a newer version offered: state edited, counted upgradable"
 $PKG UPGRADE ALL ROOT "$R3" CHANNEL "$C2" MACHINE > "$T/pe" 2>&1
-[ $? -eq 15 ] && has "$T/pe" '^class: conflict$' && has "$T/pe" '^partial: no$' && has "$T/pe" '^upgraded: 0$'
+[ $? -eq 15 ] && has "$T/pe" '^class: conflict$' && has "$T/pe" '^upgraded: 0$'
                                                                      ok $? "an upgrade that would replace an edited file is refused (15), as UPGRADE refuses it"
 [ "$(cat "$R3/Libs/cc.library")" = "my cc" ];                        ok $? "and the edit is kept"
 

@@ -61,7 +61,7 @@
 #ifndef PKG_H
 #define PKG_H
 
-#define PKG_API_VERSION 2   /* 2: pkg_status, and all for pkg_upgrade */
+#define PKG_API_VERSION 1   /* stays 1 until the first official release */
 #define PKG_VERSION_STRING "0.3"   /* the tool's own version, as in its $VER */
 
 enum {
@@ -193,14 +193,16 @@ struct pkg_options {
  *              its dependency items; then result upgraded, count. Nothing
  *              to do: result unchanged, count 0. A note per installed
  *              version withdrawn with nothing newer: never downgraded.
- *              Stops at the first refusal: the refusal's own fields, then
- *              upgraded (how many were done before it, each listed above),
- *              untouched (how many were not attempted, the refused one
- *              included) and partial (yes when something was upgraded,
- *              always no under dryrun). The code is the refusal's class,
- *              as for any refusal; what was upgraded stays upgraded, and
- *              calling again once the requester has decided goes on from
- *              there. A key change or an edited file is such a refusal.
+ *              Goes as far as possible: a package that needs a decision
+ *              (a key change, an edited file) is not upgraded, [item]
+ *              refused (name installed class reason, with code and next);
+ *              one whose new version needs a refused one waits, [item]
+ *              skipped (name installed waits-for); every other goes ahead.
+ *              Then upgraded, not-upgraded, count, summary (a sentence);
+ *              result upgraded or unchanged, or, when something was not
+ *              upgraded, result refused with the class, code and next of
+ *              the first refusal, which is also the exit code. Calling
+ *              again once the requester has decided takes what waited.
  *   status     every installed package (or only target) against channel:
  *              result shown; [item] package (name installed available
  *              state), available "-" when the channel offers nothing for

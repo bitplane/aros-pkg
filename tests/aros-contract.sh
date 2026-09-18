@@ -196,6 +196,7 @@ while read -r name code args; do
     norm_host "$H/$name.o" > "$work/$name.h"
     norm_aros "$share/out/$name.o" > "$work/$name.a" 2>/dev/null
     cmp -s "$work/$name.h" "$work/$name.a";           ok $? "$name: the output is identical on both hosts"
+    cmp -s "$work/$name.h" "$work/$name.a" || diff "$work/$name.h" "$work/$name.a" | head -6
     if ! cmp -s "$work/$name.h" "$work/$name.a"; then diff "$work/$name.h" "$work/$name.a" | sed 's/^/      /'; fi
     # Through the port: the same code, and the same record, which the port
     # hands over without its final newline.

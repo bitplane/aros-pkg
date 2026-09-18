@@ -330,14 +330,15 @@ what UPGRADE would take, `-` when the channel offers nothing for it.
 upgrades them one at a time, a package before what depends on it, each
 exactly as UPGRADE `<name>` would, and says `package: name from version` for
 each one done. It never downgrades and never accepts a new key: it refuses
-`VERSION`, `DOWNGRADE`, `ACCEPTKEY` and a name with 20. At the first refusal
-it stops. Read it like any refusal (`class:`, `next:`); the lines after it
-say how far it got: `upgraded:` (done, and listed above as `package:`
-lines; they stay done), `untouched:`, and `partial: yes` when something
-was upgraded. The exit code is the refusal's class, not a separate
-"partial" code: do what `next:` says, and once the requester has decided
-(a new key: on their word, `UPGRADE <that name> ... ACCEPTKEY <key>`), run
-UPGRADE ALL again; it goes on from there.
+`VERSION`, `DOWNGRADE`, `ACCEPTKEY` and a name with 20. It goes as far as
+it can: a package that needs a decision (a key change, an edited file) is
+listed as `refused: <name> <version> <class> <reason>`, one that needs it
+waits (`skipped: <name> <version> <waits-for>`), and everything else is
+upgraded. `summary:` says it in a sentence. When something was not
+upgraded, the answer is a refusal with the first one's class and `next:`,
+and that is the exit code: do what `next:` says, and once the requester
+has decided (a new key: on their word, `UPGRADE <that name> ...
+ACCEPTKEY <key>`), run UPGRADE ALL again; it takes what waited.
 
 **Unattended.** Pkg has no scheduler and no daemon, and needs neither:
 nothing it does ever prompts or reads stdin, so a startup script, cron,

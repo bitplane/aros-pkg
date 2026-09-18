@@ -92,7 +92,7 @@ has "$T/ro" '^package: mid 1.0$' && has "$T/ro" '^package: base 1.0$' && has "$T
                                                         ok $? "takes out mid, then base, which mid alone needed"
 [ -z "$(files_in "$R" | grep -v '^./.pkg/prev/')" ];    ok $? "the root holds nothing but its pinned keys"
 $PKG REMOVE ORPHANS ROOT "$R" > "$T/ro2" 2>&1
-has "$T/ro2" 'no orphans';                              ok $? "a second pass finds none"
+has "$T/ro2" '^nothing to remove';                      ok $? "a second pass finds none, and says so in a sentence"
 
 echo "no_false_orphans"
 pub loner 1 application - > /dev/null
