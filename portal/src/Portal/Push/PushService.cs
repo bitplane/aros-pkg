@@ -360,7 +360,16 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         if (refusedItems.Count > 0) parts.Add($"{refusedItems.Count} refused, each with its reason above");
         if (stats.SkippedBytes > 0) parts.Add($"{Record.Size(stats.SkippedBytes)} not sent again");
         r.Add("summary", parts.Count == 0 ? "nothing to publish: the channel already has all of it" : string.Join("; ", parts));
-        if (published == 0 && refusedItems.Count > 0) r.Add("next", "read each refusal, fix it, and push again: accepted files stay staged for 24 hours");
+        if (published == 0 && refusedItems.Count > 0)
+        {
+            // Nothing went in: the class of the first refusal is the answer's,
+            // so that the client exits with it.
+            var first = refusedItems[0].Split(' ');
+            var code = first.Select(w => int.TryParse(w, out var c) && c is >= 10 and <= 20 ? c : 0).FirstOrDefault(c => c > 0);
+            if (code == 0) code = 12;
+            r.Add("class", Record.ClassName(code)).Add("code", code);
+            r.Add("next", "read each refusal, fix it, and push again: accepted files stay staged for 24 hours");
+        }
         log.LogInformation("commit {Channel} by {Who}: {Summary}", channel, who.Name, r.Get("summary"));
         return r;
     }

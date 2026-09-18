@@ -17,6 +17,8 @@ out="$here/publish"
 
 make -C "$repo" build/pkg-linux-x86_64
 rm -rf "$out"
+# From the portal directory, so that its global.json chooses the SDK.
+cd "$here"
 "$dotnet" publish "$here/src/Portal/Portal.csproj" -c Release -r linux-x64 --self-contained false -o "$out/app"
 cp "$repo/build/pkg-linux-x86_64" "$out/app/pkg"
 ( cd "$out/app" && rm -f ../portal.zip && zip -qr ../portal.zip . )
