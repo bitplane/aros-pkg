@@ -10,7 +10,8 @@
  * refusal sets RC to its class code, the same number the command line exits
  * with on every host (10 to 18, and 20 for usage), and leaves RESULT unset,
  * which is what ARexx does with a failing command anyway; LASTERROR then
- * returns the refusal's text, so an agent reads what a person would read.
+ * returns the refusal: its text, or with MACHINE its record, the same bytes
+ * the command line would print.
  */
 
 #include "pkg_port.h"
@@ -130,13 +131,22 @@ int pkg_port_serve(const char *name, pkg_run_fn run)
                     result = out ? out : "";
                     result_len = out_len;
                 } else {
+                    /* A MACHINE refusal is a record on stdout, the same bytes
+                     * the command line prints; a human one is text on stderr.
+                     * LASTERROR returns whichever the command wrote. */
                     free(lasterr);
-                    lasterr = err;
-                    lasterr_len = err_len;
+                    if (err_len == 0 && out != NULL) {
+                        lasterr = out;
+                        lasterr_len = out_len;
+                        out = NULL;
+                    } else {
+                        lasterr = err;
+                        lasterr_len = err_len;
+                        err = NULL;
+                    }
                     /* The text ends in a newline on the command line; not here. */
                     while (lasterr && lasterr_len > 0 && lasterr[lasterr_len - 1] == '\n')
                         lasterr[--lasterr_len] = '\0';
-                    err = NULL;
                 }
             }
 

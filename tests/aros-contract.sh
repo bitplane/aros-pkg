@@ -55,58 +55,14 @@ ok() {
 
 # ---- the channel, published on the host --------------------------------
 
-mkdir -p "$share/bin" "$share/out" "$work/host" "$work/d12/C" "$work/d12/Libs"
-printf 'binary\000$VER: Hello 1.2 (18.9.2026)\000tail' > "$work/d12/C/Hello"
-printf 'library data\n' > "$work/d12/Libs/data.txt"
-cp -R "$work/d12" "$work/d13"
-printf 'binary 2\000$VER: Hello 1.3 (19.9.2026)\000tail' > "$work/d13/C/Hello"
-cp -R "$work/d12" "$work/d14"
-printf 'binary 3\000$VER: Hello 1.4 (20.9.2026)\000tail' > "$work/d14/C/Hello"
-"$host_pkg" KEYGEN FILE "$work/dev.key" > /dev/null
-"$host_pkg" KEYGEN FILE "$work/other.key" > /dev/null
-for v in 12 13; do
-    PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/d$v" CHANNEL "$share/channel" > /dev/null \
-        || { echo "aros-contract: cannot publish $v" >&2; exit 1; }
-done
-PKG_SIGNKEY="$work/other.key" "$host_pkg" PUBLISH "$work/d14" CHANNEL "$share/channel" > /dev/null \
-    || { echo "aros-contract: cannot publish 14" >&2; exit 1; }
-
-m12=$(awk '$1=="hello" && $2=="1.2"{print $3}' "$share/channel/index")
-p12=$(awk '/^Payload:/{print $2}' "$share/channel/objects/$m12.manifest")
-cp -R "$share/channel" "$share/tampered"
-python3 -c "
-import sys
-p=sys.argv[1]; b=bytearray(open(p,'rb').read()); b[len(b)//2]^=1; open(p,'wb').write(b)
-" "$share/tampered/objects/$p12.pkg"
-cp -R "$share/channel" "$share/unsigned"
-rm "$share/unsigned/objects/$m12.sig"
+mkdir -p "$share/bin" "$share/out" "$work/host"
+sh "$repo_root/tests/contract-channel.sh" "$host_pkg" "$work" "$share" \
+    || { echo "aros-contract: cannot publish the channel" >&2; exit 1; }
 cp "$aros_pkg" "$share/bin/Pkg"
 
 # ---- the sequence ------------------------------------------------------
-#
-# name  expected-code  arguments ({R} {R2} {R3} root, {CH} {T} {U} channel).
-# A name starting with h_ runs without MACHINE: only its code is compared.
-# The step "edit" is not a Pkg command; it replaces C/Hello in the root.
 
-steps='i12  0  INSTALL hello VERSION 1.2 ROOT {R} CHANNEL {CH} MACHINE
-list  0  LIST ROOT {R} MACHINE
-ver   0  VERIFY hello ROOT {R} MACHINE
-u13   0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
-same  0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
-down  18 UPGRADE hello VERSION 1.2 ROOT {R} CHANNEL {CH} MACHINE
-rb    0  ROLLBACK hello ROOT {R} CHANNEL {CH} MACHINE
-dup   15 INSTALL hello ROOT {R} CHANNEL {CH} MACHINE
-nf    11 INSTALL nosuch ROOT {R} CHANNEL {CH} MACHINE
-key   14 UPGRADE hello ROOT {R} CHANNEL {CH} MACHINE
-use   20 FROB MACHINE
-tam   12 INSTALL hello VERSION 1.2 ROOT {R2} CHANNEL {T} MACHINE
-uns   13 INSTALL hello VERSION 1.2 ROOT {R3} CHANNEL {U} MACHINE
-h_tam 12 INSTALL hello VERSION 1.2 ROOT {R2} CHANNEL {T}
-h_key 14 UPGRADE hello ROOT {R} CHANNEL {CH}
-edit  -  -
-dmg   12 VERIFY hello ROOT {R} MACHINE
-rm    0  REMOVE hello ROOT {R} MACHINE
-h_nf  11 INSTALL nosuch ROOT {R} CHANNEL {CH}'
+steps=$(grep -v '^#' "$repo_root/tests/contract-steps.txt")
 
 expand() {  # expand <R> <R2> <R3> <CH> <T> <U> <args...>
     r=$1 r2=$2 r3=$3 ch=$4 t=$5 u=$6
@@ -181,6 +137,8 @@ EOF
 
 grep -q "^package: hello 1.2 " "$share/out/list.o";   ok $? "the AROS list output is the package, read on the host"
 grep -q '^changed: C/Hello$' "$share/out/dmg.o";      ok $? "AROS names the edited file"
+grep -q '^dependency: hlib 1.0$' "$share/out/app.o" && grep -q '^orphan: hlib 1.0$' "$share/out/arm.o"
+                                                      ok $? "AROS brings hlib in with happ, and reports it orphaned after"
 
 # The comparison must be able to fail.
 cp "$work/i12.a" "$work/control.a"

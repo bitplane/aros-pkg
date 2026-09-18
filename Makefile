@@ -25,6 +25,27 @@ build/pkg: src/pkg_main.c $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(CORE) $(HOST)
 
+# Windows, cross-built with mingw-w64. tools/make-windows-kit.sh wraps it in a
+# test kit to run on a Windows machine.
+WINCC ?= x86_64-w64-mingw32-gcc
+WINHOST = src/pkg_fs_win32.c src/pkg_out.c src/pkg_port.c
+
+build/pkg.exe: src/pkg_main.c $(CORE) $(WINHOST) $(HDR)
+	@mkdir -p build
+	$(WINCC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(CORE) $(WINHOST) \
+		-lbcrypt -ladvapi32 -lshell32
+
+# macOS, one universal binary for Apple silicon and Intel.
+build/pkg-macos: src/pkg_main.c $(CORE) $(HOST) $(HDR)
+	@mkdir -p build
+	cc $(CFLAGS) $(CPPFLAGS) -arch arm64 -arch x86_64 -o $@ src/pkg_main.c $(CORE) $(HOST)
+
+# Linux, static against musl, cross-built with zig so no Linux toolchain is
+# needed here.
+build/pkg-linux-%: src/pkg_main.c $(CORE) $(HOST) $(HDR)
+	@mkdir -p build
+	zig cc -target $*-linux-musl $(CFLAGS) $(CPPFLAGS) -static -o $@ src/pkg_main.c $(CORE) $(HOST)
+
 build/test_%: tests/test_%.c $(CORE) $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $< $(CORE)

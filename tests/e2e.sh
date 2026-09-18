@@ -50,6 +50,9 @@ printf 'library data\n' > "$D/Libs/data.txt"
 printf 'echo started\n' > "$D/S/My Startup"
 printf 'finder junk' > "$D/.DS_Store"
 printf 'appledouble' > "$D/Libs/._data.txt"
+mkdir -p "$D/.git/objects"; printf 'repo' > "$D/.git/objects/x"
+printf 'workbench state' > "$D/.backdrop"
+printf 'an icon' > "$D/C.info"
 CH="$T/channel"
 R="$T/root"
 
@@ -58,6 +61,8 @@ has "$T/m1" '^Name: hello$';                          ok $? "name from \$VER:, l
 has "$T/m1" '^Version: 1.2$';                         ok $? "version from \$VER:"
 ! has "$T/m1" 'DS_Store';                             ok $? ".DS_Store left out"
 ! has "$T/m1" '\._data';                              ok $? "AppleDouble left out"
+! has "$T/m1" '\.git' && ! has "$T/m1" 'backdrop';    ok $? "a hidden directory and the Workbench .backdrop left out"
+has "$T/m1" ' C\.info$';                              ok $? "an Amiga icon, Name.info, is kept"
 has "$T/m1" ' S/My Startup$';                         ok $? "a path with a space"
 grep '^File:' "$T/m1" | awk '{print $4" "$5}' > "$T/order"
 sort "$T/order" | cmp -s - "$T/order";                ok $? "File lines sorted"
@@ -68,7 +73,8 @@ has "$T/m1" "^File: $want 13 Libs/data.txt$";         ok $? "digest agrees with 
 $PKG PUBLISH "$D" CHANNEL "$CH" > "$T/pub" 2>&1;      ok $? "publish succeeds"
 has "$T/pub" 'published hello 1.2';                   ok $? "publish reports what it did"
 has "$T/pub" "signed by $(echo "$PUB" | cut -c1-16)"; ok $? "publish names the signing key"
-has "$T/pub" 'skipped 2 host metadata';               ok $? "publish reports skipped files"
+has "$T/pub" 'left out \.DS_Store,' && has "$T/pub" 'left out Libs/\._data\.txt,'
+                                                      ok $? "publish names each host file it left out"
 digest=$(awk '$1=="hello"{print $3}' "$CH/index")
 payload=$(awk '/^Payload:/{print $2}' "$CH/objects/$digest.manifest")
 [ "$(shasum -a 256 "$CH/objects/$digest.manifest" | cut -d' ' -f1)" = "$digest" ]
@@ -94,7 +100,7 @@ cmp -s "$D/S/My Startup" "$R/S/My Startup";           ok $? "S/My Startup byte-i
 [ "$(head -c 64 "$R/.pkg/keys/hello")" = "$PUB" ];    ok $? "the signing key is pinned on first install"
 
 $PKG LIST ROOT "$R" > "$T/list" 2>&1;                 ok $? "list succeeds"
-has "$T/list" '^hello  *1.2  *application  *3 files'; ok $? "list shows the package"
+has "$T/list" '^hello  *1.2  *application  *4 files'; ok $? "list shows the package"
 
 $PKG VERIFY hello ROOT "$R" > "$T/ver" 2>&1;          ok $? "verify passes when intact"
 has "$T/ver" 'all intact';                            ok $? "and says so"

@@ -58,10 +58,15 @@ default, and macOS and Windows have none at all.
    application still runs once Pkg is removed.
 5. Where Regina is installed by Pkg, the same sequence through the `PKG` port
    gives identical results.
+6. **A skill for the agents who drive Pkg**, `skills/pkg/SKILL.md`: few people
+   will run these commands by hand, so the agent acting for them needs the
+   contract, the everyday tasks, what to do with each refusal class, and the
+   decisions that stay with the person (a new key, a downgrade, removing
+   orphans). Added 2026-09-18 at the owner's request.
 
 | | Milestone | Done when |
 |---|---|---|
 | **M1 ✓** | **The contract.** Done 2026-09-18. Exit codes by class, `MACHINE` output, the port's RC equal to the class code | `tests/e2e.sh` on macOS, `tests/aros-contract.sh` identical on macOS and hosted AROS, `tests/goal.sh` with RC 12 and 14 |
-| M2 | **Image route and dependencies on macOS.** An `image` kind, a mountable read-only image, `Depends` resolution `[PKG2]`, orphans | Publish and install with a dependency on macOS, and its refusals |
-| M3 | **The sequence on hosted AROS, without ARexx.** | Steps 2 and 4 pass from an AmigaDOS script |
-| M4 | **Windows.** A Win32 host layer and a cross-compiled binary with a test kit the owner runs; the optional ARexx equivalence | Step 3 on Windows when the owner runs the kit, step 5 on AROS |
+| **M2 ✓** | **Image route and dependencies on macOS.** Done 2026-09-18. An `image` kind writing FFS volumes, `Depends` resolution `[PKG2]`, orphans and `REMOVE ORPHANS` | `tests/deps.sh`, 44 checks; `tests/image.sh`, 12 checks against amitools |
+| **M3 ✓** | **The sequence on hosted AROS, without ARexx.** Done 2026-09-18. Guru and identify.library from the AROS sources, the FFS handler as a component | `tests/goal2.sh`, 51 checks, steps 1, 2 and 4, and step 3 on AROS and macOS |
+| M4 | **Windows.** Built 2026-09-18: the Win32 host layer, `pkg.exe` cross-built with mingw-w64, and `build/pkg-windows-kit.zip`. Waiting for its run on Windows; the optional ARexx equivalence | Step 3 on Windows when the owner runs the kit, step 5 on AROS |

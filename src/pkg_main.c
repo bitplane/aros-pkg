@@ -429,8 +429,22 @@ struct drawer {
     const char    *root;
     struct loaded *v;
     size_t         n, cap;
+    char         **left_out;        /* host files not packaged, dirs with '/' */
+    size_t         nleft;
     char           err[512];
 };
+
+static void leave_out(const char *rel, int is_dir, void *ctx)
+{
+    struct drawer *d = (struct drawer *)ctx;
+    char **g = (char **)realloc(d->left_out, (d->nleft + 1) * sizeof *g);
+    size_t n = strlen(rel) + 2;
+    char *s = (char *)malloc(n);
+    if (g == NULL || s == NULL) { free(s); if (g) d->left_out = g; return; }
+    d->left_out = g;
+    snprintf(s, n, "%s%s", rel, is_dir ? "/" : "");
+    d->left_out[d->nleft++] = s;
+}
 
 static int load_one(const char *rel, void *ctx)
 {
@@ -472,6 +486,8 @@ static void drawer_free(struct drawer *d)
     size_t i;
     for (i = 0; i < d->n; i++) { free(d->v[i].rel); free(d->v[i].data); }
     free(d->v);
+    for (i = 0; i < d->nleft; i++) free(d->left_out[i]);
+    free(d->left_out);
 }
 
 /* Find "$VER: name version" in the files, first file in path order wins. */
@@ -584,13 +600,20 @@ struct built {
     size_t         text_len;
     char           ver_from[512];
     unsigned       skipped;
+    char         **left_out;
+    size_t         nleft;
 };
 
 static void built_free(struct built *b)
 {
+    size_t i;
     pkg_manifest_free(&b->m);
     free(b->pkg);
     free(b->text);
+    for (i = 0; i < b->nleft; i++) free(b->left_out[i]);
+    free(b->left_out);
+    b->left_out = NULL;
+    b->nleft = 0;
 }
 
 static int build(const struct args *a, struct built *out)
@@ -611,7 +634,7 @@ static int build(const struct args *a, struct built *out)
         return refuse_c(20, "\"%s\" is not a directory", a->pos);
 
     d.root = a->pos;
-    if (pkg_fs_walk(a->pos, load_one, &d, &out->skipped, d.err, sizeof d.err) != 0) {
+    if (pkg_fs_walk(a->pos, load_one, leave_out, &d, &out->skipped, d.err, sizeof d.err) != 0) {
         refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
         drawer_free(&d);
         return 1;
@@ -621,6 +644,10 @@ static int build(const struct args *a, struct built *out)
         return refuse_c(20, "\"%s\" holds no files", a->pos);
     }
     qsort(d.v, d.n, sizeof d.v[0], by_rel);
+    out->left_out = d.left_out;          /* reported by PUBLISH, freed with out */
+    out->nleft = d.nleft;
+    d.left_out = NULL;
+    d.nleft = 0;
 
     name = a->name;
     version = a->version;
@@ -1255,12 +1282,15 @@ static int needed_by(const struct installed *in, const char *name, char *out, si
     int found = 0;
     out[0] = '\0';
     for (i = 0; i < in->n; i++)
-        for (j = 0; j < in->m[i].ndeps; j++)
-            if (strcmp(in->m[i].deps[j].name, name) == 0 && at + 70 < len) {
+        for (j = 0; j < in->m[i].ndeps; j++) {
+            if (strcmp(in->m[i].deps[j].name, name) != 0)
+                continue;
+            /* Found counts whether or not the name still fits in `out`. */
+            if (at + 70 < len)
                 at += (size_t)snprintf(out + at, len - at, "%s%s %s", found ? ", " : "",
                                        in->m[i].name, in->m[i].version);
-                found = 1;
-            }
+            found = 1;
+        }
     return found;
 }
 
@@ -1459,7 +1489,7 @@ static int plan_target(struct plan *p, const struct args *a, const struct index 
 static size_t find_orphans(const struct installed *in, const char *root, size_t *which)
 {
     size_t i, n = 0;
-    char who[8];
+    char who[1];
     for (i = 0; i < in->n; i++)
         if (is_auto(root, in->m[i].name) && !needed_by(in, in->m[i].name, who, sizeof who))
             which[n++] = i;
@@ -1480,7 +1510,7 @@ static int cmd_image(const struct args *a)
     if (!pkg_fs_is_dir(a->pos)) return refuse_c(20, "\"%s\" is not a directory", a->pos);
     memset(&d, 0, sizeof d);
     d.root = a->pos;
-    if (pkg_fs_walk(a->pos, load_one, &d, &skipped, d.err, sizeof d.err) != 0) {
+    if (pkg_fs_walk(a->pos, load_one, leave_out, &d, &skipped, d.err, sizeof d.err) != 0) {
         refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
         drawer_free(&d);
         return 1;
@@ -1596,11 +1626,12 @@ static int cmd_publish(const struct args *a)
         kv("version-from", "%s", b.ver_from);
     else if (b.ver_from[0])
         pkg_out("  name and version taken from $VER: in %s\n", b.ver_from);
-    if (b.skipped && machine)
-        kv("skipped", "%u", b.skipped);
-    else if (b.skipped)
-        pkg_out("  skipped %u host metadata file%s (.DS_Store, ._*)\n",
-               b.skipped, b.skipped == 1u ? "" : "s");
+    for (i = 0; i < b.nleft; i++) {
+        if (machine)
+            kv("left-out", "%s", b.left_out[i]);
+        else
+            pkg_out("  left out %s, host metadata no Amiga uses\n", b.left_out[i]);
+    }
     rc = 0;
 out:
     memset(&k, 0, sizeof k);
@@ -2039,6 +2070,11 @@ static int run_verb(int argc, char **argv)
 int main(int argc, char **argv)
 {
     int rc;
+
+    if (pkg_host_args(&argc, &argv) != 0) {
+        pkg_err("pkg: cannot read the command line\n");
+        return PKGRC_IO;
+    }
 
     /* PORT is not a verb the port itself may run, so it is handled here. */
     if (argc >= 2 && ieq(argv[1], "PORT")) {

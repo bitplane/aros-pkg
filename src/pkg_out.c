@@ -126,9 +126,28 @@ void pkg_outraw(const char *buf, size_t len)
 
 #else
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+/* Binary mode, so "\n" stays one byte: the machine contract is the same
+ * bytes on every host, and text mode would turn each newline into CR LF. */
+static void binary_once(void)
+{
+    static int done;
+    if (!done) {
+        done = 1;
+        _setmode(_fileno(stdout), _O_BINARY);
+        _setmode(_fileno(stderr), _O_BINARY);
+    }
+}
+#else
+static void binary_once(void) { }
+#endif
+
 void pkg_out(const char *fmt, ...)
 {
     va_list ap;
+    binary_once();
     va_start(ap, fmt);
     if (capturing) cap_vadd(&cap_out, fmt, ap); else vfprintf(stdout, fmt, ap);
     va_end(ap);
@@ -137,6 +156,7 @@ void pkg_out(const char *fmt, ...)
 void pkg_err(const char *fmt, ...)
 {
     va_list ap;
+    binary_once();
     va_start(ap, fmt);
     if (capturing) cap_vadd(&cap_err, fmt, ap); else vfprintf(stderr, fmt, ap);
     va_end(ap);
@@ -144,11 +164,13 @@ void pkg_err(const char *fmt, ...)
 
 void pkg_verr(const char *fmt, va_list ap)
 {
+    binary_once();
     if (capturing) cap_vadd(&cap_err, fmt, ap); else vfprintf(stderr, fmt, ap);
 }
 
 void pkg_outraw(const char *buf, size_t len)
 {
+    binary_once();
     if (capturing) cap_add(&cap_out, buf, len); else fwrite(buf, 1, len, stdout);
 }
 

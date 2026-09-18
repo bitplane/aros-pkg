@@ -94,6 +94,17 @@ has "$T/ro" '^package: mid 1.0$' && has "$T/ro" '^package: base 1.0$' && has "$T
 $PKG REMOVE ORPHANS ROOT "$R" > "$T/ro2" 2>&1
 has "$T/ro2" 'no orphans';                              ok $? "a second pass finds none"
 
+echo "no_false_orphans"
+pub loner 1 application - > /dev/null
+$PKG INSTALL app ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
+$PKG INSTALL loner ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
+$PKG REMOVE loner ROOT "$R" MACHINE > "$T/rl" 2>&1;     ok $? "remove a package nothing else relates to"
+! has "$T/rl" '^orphan:';                               ok $? "reports no orphan while app still needs mid and base"
+$PKG REMOVE ORPHANS ROOT "$R" MACHINE > "$T/ro3" 2>&1
+has "$T/ro3" '^count: 0$' && [ -f "$R/Libs/mid.library" ]; ok $? "and REMOVE ORPHANS takes nothing out"
+$PKG REMOVE app ROOT "$R" > /dev/null 2>&1
+$PKG REMOVE ORPHANS ROOT "$R" > /dev/null 2>&1
+
 echo "kept_for_itself"
 $PKG INSTALL app ROOT "$R" CHANNEL "$CH" > /dev/null 2>&1
 $PKG INSTALL mid ROOT "$R" CHANNEL "$CH" > "$T/k" 2>&1; ok $? "installing mid by name after it came as a dependency"

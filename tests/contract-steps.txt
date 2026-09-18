@@ -1,0 +1,28 @@
+# The contract sequence, run on every host against tests/contract-channel.sh.
+# name  expected-code  arguments ({R} {R2} {R3} roots, {CH} {T} {U} channels)
+# A name starting with h_ runs without MACHINE: only its code is compared.
+# The step "edit" is not a Pkg command: it writes "edited\n" over C/Hello.
+i12   0  INSTALL hello VERSION 1.2 ROOT {R} CHANNEL {CH} MACHINE
+list  0  LIST ROOT {R} MACHINE
+ver   0  VERIFY hello ROOT {R} MACHINE
+u13   0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
+same  0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
+down  18 UPGRADE hello VERSION 1.2 ROOT {R} CHANNEL {CH} MACHINE
+rb    0  ROLLBACK hello ROOT {R} CHANNEL {CH} MACHINE
+dup   15 INSTALL hello ROOT {R} CHANNEL {CH} MACHINE
+nf    11 INSTALL nosuch ROOT {R} CHANNEL {CH} MACHINE
+key   14 UPGRADE hello ROOT {R} CHANNEL {CH} MACHINE
+use   20 FROB MACHINE
+tam   12 INSTALL hello VERSION 1.2 ROOT {R2} CHANNEL {T} MACHINE
+uns   13 INSTALL hello VERSION 1.2 ROOT {R3} CHANNEL {U} MACHINE
+h_tam 12 INSTALL hello VERSION 1.2 ROOT {R2} CHANNEL {T}
+h_key 14 UPGRADE hello ROOT {R} CHANNEL {CH}
+app   0  INSTALL happ ROOT {R} CHANNEL {CH} MACHINE
+alist 0  LIST ROOT {R} MACHINE
+needs 16 REMOVE hlib ROOT {R} MACHINE
+arm   0  REMOVE happ ROOT {R} MACHINE
+orph  0  REMOVE ORPHANS ROOT {R} MACHINE
+edit  -  -
+dmg   12 VERIFY hello ROOT {R} MACHINE
+rm    0  REMOVE hello ROOT {R} MACHINE
+h_nf  11 INSTALL nosuch ROOT {R} CHANNEL {CH}

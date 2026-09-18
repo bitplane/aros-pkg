@@ -12,9 +12,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+int pkg_host_args(int *argc, char ***argv)
+{
+    (void)argc;
+    (void)argv;
+    return 0;
+}
 
 char *pkg_join(const char *a, const char *b)
 {
@@ -231,13 +239,15 @@ void pkg_fs_prune_empty_parents(const char *root, const char *rel)
     free(r);
 }
 
+/* What pkg_fs.h says a walk leaves out: the same rule on every host, since
+ * drawers travel between them. */
 static int skip_host_metadata(const char *name)
 {
-    return strcmp(name, ".DS_Store") == 0 || strncmp(name, "._", 2) == 0;
+    return name[0] == '.' || strcmp(name, "Icon\r") == 0
+        || strcasecmp(name, "Thumbs.db") == 0 || strcasecmp(name, "desktop.ini") == 0;
 }
-
-static int walk(const char *root, const char *rel, pkg_fs_walk_fn fn, void *ctx,
-                unsigned *skipped, char *err, size_t errlen)
+static int walk(const char *root, const char *rel, pkg_fs_walk_fn fn, pkg_fs_skip_fn skip,
+                void *ctx, unsigned *skipped, char *err, size_t errlen)
 {
     char *dir = rel[0] ? pkg_join(root, rel) : strdup(root);
     DIR *d;
@@ -258,17 +268,16 @@ static int walk(const char *root, const char *rel, pkg_fs_walk_fn fn, void *ctx,
 
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
             continue;
-        if (skip_host_metadata(e->d_name)) {
-            if (skipped) (*skipped)++;
-            continue;
-        }
         child_rel = rel[0] ? pkg_join(rel, e->d_name) : strdup(e->d_name);
         child = child_rel ? pkg_join(root, child_rel) : NULL;
-        if (child == NULL || lstat(child, &st) != 0) {
+        if (child != NULL && skip_host_metadata(e->d_name)) {
+            if (skipped) (*skipped)++;
+            if (skip) skip(child_rel, lstat(child, &st) == 0 && S_ISDIR(st.st_mode), ctx);
+        } else if (child == NULL || lstat(child, &st) != 0) {
             snprintf(err, errlen, "cannot read \"%s\"", child ? child : e->d_name);
             rc = -1;
         } else if (S_ISDIR(st.st_mode)) {
-            rc = walk(root, child_rel, fn, ctx, skipped, err, errlen);
+            rc = walk(root, child_rel, fn, skip, ctx, skipped, err, errlen);
         } else if (S_ISREG(st.st_mode)) {
             rc = fn(child_rel, ctx);
         } else {
@@ -284,14 +293,14 @@ static int walk(const char *root, const char *rel, pkg_fs_walk_fn fn, void *ctx,
     return rc;
 }
 
-int pkg_fs_walk(const char *root, pkg_fs_walk_fn fn, void *ctx,
+int pkg_fs_walk(const char *root, pkg_fs_walk_fn fn, pkg_fs_skip_fn skip, void *ctx,
                 unsigned *skipped, char *err, size_t errlen)
 {
     if (skipped)
         *skipped = 0;
     if (errlen)
         err[0] = '\0';
-    return walk(root, "", fn, ctx, skipped, err, errlen);
+    return walk(root, "", fn, skip, ctx, skipped, err, errlen);
 }
 
 static int cmp_str(const void *a, const void *b)

@@ -14,7 +14,7 @@ directory of signed index snapshots and content-addressed objects.
 
 ## State
 
-Goals and milestones: [GOAL.md](GOAL.md). **Goal 1 is met**: all four milestones, and the whole sequence passes as one run, `tests/goal.sh`, 25 checks. **Goal 2 is under way**: an application arrives with its dependencies and runs, checked from outside, with no ARexx anywhere. Its M1, the contract below, is done.
+Goals and milestones: [GOAL.md](GOAL.md). **Goal 1 is met**: all four milestones, and the whole sequence passes as one run, `tests/goal.sh`, 25 checks. **Goal 2 is under way**: an application arrives with its dependencies and runs, checked from outside, with no ARexx anywhere. M1 to M3 are done: the contract, the image route with dependencies, and the whole sequence on hosted AROS, `tests/goal2.sh`, 51 checks. M4 is built, a Windows layer and a test kit, and waits for its run on a Windows machine.
 
 | Piece | State |
 |---|---|
@@ -30,6 +30,8 @@ Goals and milestones: [GOAL.md](GOAL.md). **Goal 1 is met**: all four milestones
 | AROS client | Built with `tools/build-aros.sh`; `make check-aros` and `tests/aros-handler.sh` on hosted AROS |
 | ARexx port `PKG` | Built: `Pkg PORT` on AROS, every verb, RESULT on success, RC the class code and `LASTERROR` on refusal |
 | Machine contract, `MACHINE` or `PKG_OUTPUT=machine` | Built: `tests/e2e.sh` on macOS, `tests/aros-contract.sh` compares macOS and hosted AROS line for line |
+| Image route, `KIND image` and `IMAGE` | Built: FFS images, validated by amitools in `tests/image.sh`, mounted by the AROS FFS handler in `tests/goal2.sh` |
+| `Depends`, resolution, orphans, `REMOVE ORPHANS` | Built: `tests/deps.sh` on macOS, `tests/goal2.sh` on hosted AROS |
 
 ## On hosted AROS
 
@@ -72,6 +74,13 @@ Four things the hosted runs established, none of them guessed beforehand:
   an on-disk format has to declare whether its state survives a downgrade, and
   ROLLBACK has to honour that declaration. Not built yet; recorded as the next
   piece of the version model.
+
+## For agents
+
+`skills/pkg/SKILL.md` is written for the agent that drives Pkg for a person:
+the contract, publishing, installing, mounting an image, AmigaDOS scripts,
+and the rules an agent must keep (never accept a new key or downgrade on its
+own, never work around codes 12 to 14).
 
 ## The contract an agent reads
 
@@ -154,13 +163,117 @@ What it took, beyond the tool:
   load: the shell answers "file is not executable" for the shipped binary and
   for one rebuilt from its sources with `tools/build-aros-unpack.sh`. The
   bootstrap uses the `minigzip` AROS ships instead: `Pkg` is one file, so that
-  file compressed is its plain archive. The `Unpack` defect is AROS's, recorded
-  here and reported.
+  file compressed is its plain archive. The `Unpack` defect is AROS's; see
+  "AROS defects found along the way".
 
 ```sh
 sh tools/build-aros.sh && sh tools/build-aros-regina.sh
 PKG_HANDLER_V14=<dir> PKG_HANDLER_V15=<dir> sh tests/goal.sh
 ```
+
+## Goal 2: an application and its dependency, with no ARexx
+
+`tests/goal2.sh`, 51 checks, one boot, driven by the AmigaDOS startup and
+nothing else. Hosted AROS installs no ARexx interpreter, and the test checks
+that none is present and that the script names none.
+
+1. On macOS, Guru, the alert decoder that ships with identify.library in the
+   AROS sources, is published as a signed image at 2.0 and 2.1 (2.1 adds the
+   `Function` tool), depending on `identify >= 37.1`, published as a library
+   component. The AROS FFS handler is published as a device component, since
+   the hosted build ships none. Every version is the one in the binary's
+   `$VER`.
+2. On hosted AROS: `Pkg` bootstraps and installs itself; installs the FFS
+   handler; installs Guru 2.0, which brings identify in first. The image is
+   write-protected, mounted through `fdsk.device`, and Guru runs from it. A
+   control run first, before the root's `Libs` joins `LIBS:`, must fail with
+   "Could not open version 37 or higher of library identify.library" and RC 20.
+   Then upgrade to 2.1, rollback to 2.0, each image ejected, replaced and
+   mounted again, Guru run and the volume listed each time.
+3. `VERIFY` finds the image intact after three mounts: nothing wrote to it.
+4. A tampered image is refused with 12, a badly signed dependency with 13 and
+   nothing placed. `Pkg` removes itself and Guru still runs. Last, a
+   bootstrapped `Pkg` refuses to remove identify while Guru needs it (16),
+   removes Guru, reports identify as an orphan, and `REMOVE ORPHANS` takes it
+   out; the FFS handler, installed by name, stays.
+
+Guru's output is compared on the host with the strings in its own sources:
+`exec/alerts.h`, the two catalogue descriptions and the table in `idalert.c`.
+
+```sh
+make && sh tools/build-aros.sh && sh tools/build-aros-extras.sh
+sh tests/goal2.sh
+```
+
+### The image route
+
+`KIND image` turns the drawer into a Fast File System volume, `DOS\3`, written
+once in memory by `src/pkg_image.c`, and the package holds that one file,
+`<name>.hdf`. `pkg IMAGE <drawer> OUT <file>` writes the same file without a
+channel. Geometry is fixed (512-byte blocks, 32 per track, two reserved), so
+the size in the signed manifest gives the mount entry. The same drawer always
+gives the same bytes.
+
+FFS rather than AFS+, which settles one of the open questions in the planning
+repository's packaging README. An application image is read-only, written
+once, and has to outlive handler revisions; AFS+ changes its on-disk format
+without keeping legacy readers, and a revision 14 handler already refuses a
+revision 15 image. Every AmigaOS, AROS and MorphOS FFS reads a `DOS\3`
+volume, and UAE mounts it as a hardfile. Block compression, the other open
+question, is not done: the image is stored whole.
+
+The writer is judged by readers written apart from it: amitools validates and
+unpacks every image in `tests/image.sh`, and the AROS FFS handler mounts them
+in `tests/goal2.sh`.
+
+### Dependencies
+
+`Depends: <name>` or `Depends: <name> >= <version>` in the manifest, set with
+`DEPENDS "a >= 1.0, b"` at publish. An install, upgrade or rollback plans the
+whole graph first, fetching and verifying every package, and places nothing
+until all of it is settled; then dependencies go in before what needs them.
+A failure while placing takes the new dependencies back out. Refused with 16,
+nothing applied: a dependency the channel lacks, a version it cannot meet, an
+installed version too old (the refusal names `UPGRADE`), and a cycle, named
+with its path. A package installed as a dependency is marked in `.pkg/auto`;
+`REMOVE` refuses while something needs a package and names what, reports what
+it leaves orphaned, and `REMOVE ORPHANS` takes those out, repeating until none
+is left. `tests/deps.sh`, 44 checks.
+
+## Windows
+
+`make build/pkg.exe` cross-builds Pkg for x86_64 Windows with mingw-w64;
+`src/pkg_fs_win32.c` is the host layer. Paths stay UTF-8 inside Pkg and go
+through the wide API, so names outside the ANSI code page work, and the
+command line is read back as UTF-16 for the same reason. Replacement is
+`MoveFileExW` with write-through, a signing key is created with a DACL for
+its owner alone from the first instant, randomness comes from
+`BCryptGenRandom`, and output is in binary mode so a newline stays one byte.
+
+`sh tools/make-windows-kit.sh` writes `build/pkg-windows-kit.zip`: `pkg.exe`,
+the contract channel, `tests/contract-steps.txt` (the sequence hosted AROS
+runs too), what macOS answered to each step, and `run.ps1`, which compares
+every exit code and machine output byte for byte, then checks the key's ACL,
+a root named outside the ANSI code page, and an image written on Windows
+against the macOS bytes. It writes `report.txt`.
+
+The Windows run itself has not happened yet: no Windows machine here, and
+Wine's Homebrew casks were withdrawn on 2026-09-01. The owner runs the kit.
+
+## AROS defects found along the way
+
+Each observed on hosted aarch64 AROS built from `jonx/AROS`, branch
+`aarch64-darwin-graft`. None of them has been reported upstream: that is the
+owner's call, and nothing here is posted anywhere public.
+
+| Where | What happens | Seen in | Worked around by |
+|---|---|---|---|
+| `C:Unpack` | Does not load: "file is not executable", for the shipped binary and for one rebuilt from its sources | goal 1 bootstrap; board thread 17 | Bootstrap through `minigzip` |
+| identify.library, `IdAlert` | Every dead-end CPU alert decodes as "Unknown": `idalert.c` stores `ACPU_DivZero` and its neighbours with the dead-end bit (0x80000005) and searches with that bit masked off (`id & 0x7fffffff`), so the entry never matches | goal 2, `Guru 80000005` | The test decodes a recoverable alert, 04000001 |
+| posixc `stdout` | Output written through posixc reaches no shell redirection | first AROS runs | Output goes through `dos.library` `Output()` |
+| posixc `errno` | No `EEXIST` for an existing directory, no `ENOENT` from `opendir` on an absent one | first AROS runs | Existence is tested, never inferred from errno |
+| Regina, aros-contrib | For an ARexx port, RC is set to the RESULT string instead of the numeric `rm_Result1` | goal 1 | `tools/aros/regina-arexx-rc.patch`, kept to offer upstream |
+| The darwin hosted build | Ships no FFS handler at all, so no FFS volume can mount | goal 2 | `tools/build-aros-extras.sh` builds `rom/filesys/afs` |
 
 ## Use, on macOS
 
