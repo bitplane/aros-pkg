@@ -627,7 +627,9 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
 /* https: the system's curl, with no shell in between. */
 static int get_with_curl(const char *url, const char *tmp, char *err, size_t errlen)
 {
-    char *argv[] = { "curl", "-sS", "-f", "-L", "--max-redirs", "5", "-o", (char *)tmp, (char *)url, NULL };
+    /* -s alone: a 404 for a file that may not exist (a withdrawal) is no
+     * error, and the exit code says the rest */
+    char *argv[] = { "curl", "-s", "-f", "-L", "--max-redirs", "5", "-o", (char *)tmp, (char *)url, NULL };
     pid_t pid;
     int st;
     if (posix_spawnp(&pid, "curl", NULL, NULL, argv, environ) != 0) {

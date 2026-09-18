@@ -610,7 +610,7 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
     if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
     snprintf(tmp, dl + 8, "%s.part", dest);
     if (mkparents(tmp) != 0) { free(tmp); snprintf(err, errlen, "cannot create the cache directory"); return -1; }
-    rc = _spawnlp(_P_WAIT, "curl.exe", "curl.exe", "-sS", "-f", "-L", "--max-redirs", "5", "-o", tmp, url, (char *)NULL);
+    rc = _spawnlp(_P_WAIT, "curl.exe", "curl.exe", "-s", "-f", "-L", "--max-redirs", "5", "-o", tmp, url, (char *)NULL);
     if (rc == -1) { free(tmp); snprintf(err, errlen, "fetching a channel needs curl.exe, part of Windows 10 and later"); return -1; }
     if (rc == 22) { pkg_fs_unlink(tmp); free(tmp); return 1; }
     if (rc != 0) { pkg_fs_unlink(tmp); free(tmp); snprintf(err, errlen, "curl failed with exit code %d fetching %s", (int)rc, url); return -1; }
