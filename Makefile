@@ -5,29 +5,40 @@ CC       ?= cc
 CFLAGS   ?= -std=c99 -Wall -Wextra -Werror -O2
 CPPFLAGS  = -Iinclude
 
-SRC = src/pkg_container.c
-HDR = include/pkg_container.h
+# Portable C99: everything except the host filesystem layer.
+CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_manifest.c
+# The host layer. POSIX covers macOS and Linux; AROS gets its own.
+HOST = src/pkg_fs_posix.c
+HDR  = $(wildcard include/*.h)
+
+UNITS = test_container test_sha256 test_manifest
 
 .PHONY: all test test-ubsan check-portability check-m68k check clean
+
+all: build/pkg
 
 # Every check this tree knows how to run.
 check: check-portability test test-ubsan check-m68k
 
-all: build/test_container
+build/pkg: src/pkg_main.c $(CORE) $(HOST) $(HDR)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(CORE) $(HOST)
 
-# `test` removes the binary first, deliberately. Editing a source and running
+build/test_%: tests/test_%.c $(CORE) $(HDR)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $< $(CORE)
+
+# `test` removes every binary first, deliberately. Editing a source and running
 # the test inside the same second left a stale binary here once, and the test
 # then reported the previous state of the code. A build this small buys nothing
 # by being incremental, and a test that can report the wrong state is worse
 # than a slow one.
 test:
-	@rm -f build/test_container
-	@$(MAKE) --no-print-directory build/test_container
-	./build/test_container
-
-build/test_container: tests/test_container.c $(SRC) $(HDR)
-	@mkdir -p build
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_container.c $(SRC)
+	@rm -f build/pkg $(UNITS:%=build/%)
+	@$(MAKE) --no-print-directory build/pkg $(UNITS:%=build/%)
+	@for t in $(UNITS); do echo "== $$t"; ./build/$$t || exit 1; done
+	@echo "== e2e"
+	@PKG=./build/pkg sh tests/e2e.sh
 
 # Byte order is expressed in pkg_be32_get and pkg_be32_put and nowhere else.
 # This refuses the constructs that would quietly reintroduce a host-order
@@ -43,26 +54,37 @@ check-portability:
 		echo "check-portability: PASS, byte order lives only in the accessors"; \
 	fi
 
-# The misaligned-buffer test is the point of this one: a struct mapped over the
-# stream would pass the plain build and fail here, the way it would fault on a
-# 68000.
-test-ubsan:
-	@mkdir -p build
-	$(CC) -std=c99 -Wall -Wextra -Werror -O1 -g \
-		-fsanitize=undefined,address -fno-omit-frame-pointer \
-		$(CPPFLAGS) -o build/test_ubsan tests/test_container.c $(SRC)
-	./build/test_ubsan
+# Unit tests and the end-to-end run again, under the sanitizers. The
+# misaligned-buffer test is the point for the container: a struct mapped over
+# the stream would pass the plain build and fail here, the way it would fault
+# on a 68000.
+SAN = -O1 -g -fsanitize=undefined,address -fno-omit-frame-pointer
 
-# A big-endian COMPILE. Running on a big-endian target is separate work and is
-# not claimed here.
+test-ubsan:
+	@mkdir -p build/san
+	@for t in $(UNITS); do \
+		$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \
+			-o build/san/$$t tests/$$t.c $(CORE) || exit 1; \
+		./build/san/$$t > /dev/null || { echo "test-ubsan: $$t FAILED"; exit 1; }; \
+	done
+	@$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \
+		-o build/san/pkg src/pkg_main.c $(CORE) $(HOST)
+	@PKG=./build/san/pkg sh tests/e2e.sh > build/san/e2e.log 2>&1 \
+		|| { tail -20 build/san/e2e.log; echo "test-ubsan: e2e FAILED"; exit 1; }
+	@echo "test-ubsan: PASS, units and e2e under -fsanitize=undefined,address"
+
+# A big-endian COMPILE of the portable core. Running on a big-endian target is
+# separate work and is not claimed here.
 M68K_CC ?= $(HOME)/aros-m68k-build/bin/darwin-aarch64/tools/crosstools/m68k-aros-gcc
 
 check-m68k:
 	@if [ -x "$(M68K_CC)" ]; then \
-		mkdir -p build; \
-		$(M68K_CC) -std=c99 -Wall -Wextra -Werror -O2 $(CPPFLAGS) \
-			-c $(SRC) -o build/pkg_container.m68k.o && \
-		echo "check-m68k: PASS, builds for a big-endian target"; \
+		mkdir -p build/m68k; \
+		for f in $(CORE); do \
+			$(M68K_CC) -std=c99 -Wall -Wextra -Werror -O2 $(CPPFLAGS) \
+				-c $$f -o build/m68k/$$(basename $$f .c).o || exit 1; \
+		done; \
+		echo "check-m68k: PASS, the portable core builds for a big-endian target"; \
 	else \
 		echo "check-m68k: SKIP, no m68k compiler at $(M68K_CC)"; \
 	fi

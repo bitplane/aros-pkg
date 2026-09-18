@@ -14,13 +14,43 @@ directory of signed index snapshots and content-addressed objects.
 
 ## State
 
+Goal and milestones: [GOAL.md](GOAL.md). **M1, the macOS loop, is done.**
+
 | Piece | State |
 |---|---|
 | `.pkg` container, reader and writer | Built, with its test |
-| Byte-order discipline and its four checks | Built, `make check` |
-| Manifest | Not started |
-| Digests (SHA-256) and signatures (Ed25519) | Not started |
-| Channel index, resolution, install engine | Not started |
+| Byte-order discipline and its checks | Built |
+| SHA-256 | Built, checked against the NIST vectors |
+| Text manifest | Built, strict parser, with its test |
+| Host filesystem layer | POSIX (macOS, Linux). The AROS layer comes with M3 |
+| `MANIFEST`, `PUBLISH`, `INSTALL ROOT`, `LIST`, `VERIFY`, `REMOVE` | Built, end-to-end test on macOS |
+| Ed25519 signatures, key pinning | M2 |
+| `UPGRADE`, `ROLLBACK`, version selection beyond highest and exact | M2 |
+| AROS client | M3 |
+| ARexx port | M4 |
+
+## Use, on macOS
+
+```sh
+make
+./build/pkg PUBLISH ~/dev/MyTool CHANNEL ~/pkg-channel
+./build/pkg INSTALL mytool ROOT ~/aros-root CHANNEL ~/pkg-channel
+./build/pkg LIST ROOT ~/aros-root
+./build/pkg VERIFY mytool ROOT ~/aros-root
+./build/pkg REMOVE mytool ROOT ~/aros-root
+```
+
+Name and version come from the `$VER:` cookie when `NAME` and `VERSION` are
+not given. Keywords are case-insensitive, AmigaDOS style.
+
+A channel is a directory: `index` holds one `name version digest` line per
+published version, and `objects/` holds each payload and its manifest under the
+payload's SHA-256. A root keeps its own database in `.pkg/db`, so a machine can
+hold several roots without interference.
+
+Host metadata the Amiga side has no use for, `.DS_Store` and AppleDouble `._`
+files, is left out of every package and counted in the publish report. Without
+that, the same drawer would give different manifests on two Macs.
 
 ## Build and test
 
@@ -28,8 +58,38 @@ directory of signed index snapshots and content-addressed objects.
 make test
 ```
 
-`cc -std=c99 -Wall -Wextra -Werror`. `make test` removes the binary before
-rebuilding, deliberately: see the comment in the `Makefile`.
+`cc -std=c99 -Wall -Wextra -Werror`. `make check` runs everything: the
+portability grep, the unit tests, the end-to-end run, all of them again under
+`-fsanitize=undefined,address`, and a big-endian compile of the portable core.
+`make test` removes the binaries before rebuilding, deliberately: see the
+comment in the `Makefile`.
+
+### What the end-to-end run proves, and how it was checked
+
+`tests/e2e.sh` publishes a drawer, installs it into a root, lists, verifies,
+edits a file, verifies again, removes, and then runs the refusals: a republished
+version with different bytes, a payload with one byte flipped, a second install,
+an overwrite of a file already in the root, an unknown package, an absent
+version, and three channel entries **forged in Python** rather than by `pkg`: a
+traversal in the manifest, a container disagreeing with its manifest, and a
+payload aimed at the package database.
+
+Its oracles are independent of the code: `shasum -a 256` for every digest, `cmp`
+for installed bytes, and Python for the forged entries.
+
+The suite was run against three deliberate defects, each built separately:
+
+| Defect | Result |
+|---|---|
+| Whole-payload digest check disabled | 1 check fails, the one pinning that refusal's message. The tampered payload is **still refused**, by the per-file digests, so the two layers are independent and each is exercised |
+| Unsafe-path refusal disabled | 4 checks fail, including "nothing written outside the root": with the guard gone, `../evil` **was** written outside it |
+| macOS metadata filter disabled | 5 checks fail, exactly the metadata ones |
+
+A first run of that last control reported 38 failures. The mutated binary had
+been built without `-Werror` and its compiler output cut off, so the 38 measured
+a broken build and said nothing about the filter. Rerun with the build verified
+first, it gave the 5 above. Recorded because a control that fails for the wrong
+reason looks exactly like one that works.
 
 ## The container
 
