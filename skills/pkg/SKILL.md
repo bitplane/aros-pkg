@@ -178,6 +178,26 @@ Under `DRYRUN` the results read `would-publish`, `would-install`,
 `would-upgrade`, `would-remove` and so on. The `result:` field is not always
 the first line: look for it by key.
 
+## When a published version is broken
+
+Nothing published is ever deleted; three things are possible instead.
+
+- **It works badly** (crashes, wrong behaviour): its publisher withdraws it.
+  `pkg WITHDRAW <name> VERSION <v> CHANNEL <dir> MACHINE`, signed with the
+  key that signed that version (`DRYRUN` first). It stays in the channel,
+  but INSTALL and UPGRADE no longer pick it, asking for it by version is
+  refused, and SHOW marks it `withdrawn`. Machines that already have it
+  ROLLBACK, or UPGRADE once a fixed version is out. Withdrawing is the
+  requester's decision.
+- **Its files in the channel are damaged** (SHOW says `integrity` or
+  `signature`): its publisher publishes the same drawer again, same name and
+  version, same key. Pkg writes the damaged objects again and answers
+  `repaired`. Without the original drawer and key it cannot be repaired:
+  say so, and WITHDRAW it if the key is at hand.
+- **Meanwhile**, anyone can install an intact version by asking for it
+  with `VERSION`: Pkg never falls back on its own from a damaged or
+  withdrawn highest version.
+
 ## Running an application image on AROS
 
 INSTALL of an image answers `image:` (the file, at the top of the root) and
