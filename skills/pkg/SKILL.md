@@ -256,7 +256,7 @@ kind files explicit|dependency`.
 | WITHDRAW | `withdrawn`, or `unchanged` |
 | INSTALL | `installed`, `unchanged`, or `kept` (a dependency now kept for itself) |
 | UPGRADE, ROLLBACK | `upgraded`, `downgraded`, `rolled-back`, or `unchanged` |
-| VERIFY | `intact`; `damaged` with exit 12 and `changed:`/`missing:` lines |
+| VERIFY | `intact`; `moved` (0) when the person moved the drawer by hand, their right, nothing to repair; `damaged` with exit 12 and `changed:`/`missing:` lines |
 | LIST | `listed`, `package:` lines, `count:` |
 | REMOVE | `removed`, `orphan:` lines for what nothing needs any more |
 | REMOVE ORPHANS | `removed`, a `package:` line each, `count:` |

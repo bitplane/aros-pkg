@@ -3373,6 +3373,40 @@ static int cmd_list(const struct pkg_options *a)
     return 0;
 }
 
+/* Files a person moved by hand: found elsewhere in the root under the same
+ * name with the same bytes. Moving software is the Amiga tradition; Pkg
+ * reports it and claims nothing. */
+struct moved_search {
+    const char                *root;
+    const struct pkg_manifest *m;
+    const unsigned char       *missing;   /* per file: 1 if missing */
+    char                     **found;     /* per file: where it is now */
+};
+
+static const char *base_of(const char *p)
+{
+    const char *b = strrchr(p, '/');
+    return b ? b + 1 : p;
+}
+
+static int moved_one(const char *rel, void *ctx)
+{
+    struct moved_search *ms = (struct moved_search *)ctx;
+    size_t i;
+    if (strncmp(rel, ".pkg/", 5) == 0)
+        return 0;
+    for (i = 0; i < ms->m->nfiles; i++)
+        if (ms->missing[i] && ms->found[i] == NULL
+            && strcmp(base_of(rel), base_of(ms->m->files[i].path)) == 0
+            && file_state(ms->root, rel, ms->m->files[i].digest, ms->m->files[i].size) == 0) {
+            ms->found[i] = (char *)malloc(strlen(rel) + 1);
+            if (ms->found[i] != NULL)
+                memcpy(ms->found[i], rel, strlen(rel) + 1);
+            break;
+        }
+    return 0;
+}
+
 static int cmd_verify(const struct pkg_options *a)
 {
     struct pkg_manifest m;
@@ -3391,10 +3425,50 @@ static int cmd_verify(const struct pkg_options *a)
             if (machine) kv("changed", "%s", m.files[i].path);
             else say("  changed  %s\n", m.files[i].path);
         }
-        if (s == 2) {
-            missing++;
-            if (machine) kv("missing", "%s", m.files[i].path);
-            else say("  missing  %s\n", m.files[i].path);
+        if (s == 2)
+            missing++;          /* reported below, once moved files are known */
+    }
+    if (missing > 0) {
+        unsigned char *miss = (unsigned char *)calloc(m.nfiles, 1);
+        char **found = (char **)calloc(m.nfiles, sizeof *found);
+        size_t moved = 0;
+        if (miss != NULL && found != NULL) {
+            struct moved_search ms;
+            unsigned skipped;
+            char err[200];
+            for (i = 0; i < m.nfiles; i++)
+                miss[i] = file_state(a->root, m.files[i].path, m.files[i].digest,
+                                     m.files[i].size) == 2;
+            ms.root = a->root; ms.m = &m; ms.missing = miss; ms.found = found;
+            pkg_fs_walk(a->root, moved_one, NULL, &ms, &skipped, err, sizeof err);
+            for (i = 0; i < m.nfiles; i++)
+                if (found[i] != NULL) {
+                    moved++;
+                    if (machine) kv("moved", "%s %s", m.files[i].path, found[i]);
+                    else say("  moved    %s -> %s\n", m.files[i].path, found[i]);
+                } else if (miss[i]) {
+                    if (machine) kv("missing", "%s", m.files[i].path);
+                    else say("  missing  %s\n", m.files[i].path);
+                }
+        } else {
+            for (i = 0; i < m.nfiles; i++)
+                if (file_state(a->root, m.files[i].path, m.files[i].digest, m.files[i].size) == 2) {
+                    if (machine) kv("missing", "%s", m.files[i].path);
+                    else say("  missing  %s\n", m.files[i].path);
+                }
+        }
+        for (i = 0; found != NULL && i < m.nfiles; i++) free(found[i]);
+        free(found);
+        free(miss);
+        if (moved == missing && changed == 0) {
+            kv("result", "moved");
+            if (!machine)
+                say("%s %s: moved by hand, every file intact where it is now\n", m.name, m.version);
+            hint("moving an installed drawer is the person's right, and the package stays listed. "
+                 "REMOVE and UPGRADE act on the places Pkg recorded: the moved files are left "
+                 "where they are, and an upgrade installs beside them");
+            pkg_manifest_free(&m);
+            return 0;
         }
     }
     if (changed + missing == 0) {

@@ -2,6 +2,7 @@
 # name  expected-code  arguments ({R} {R2} {R3} roots, {CH} {T} {U} channels)
 # A name starting with h_ runs without MACHINE: only its code is compared.
 # The step "edit" is not a Pkg command: it writes "edited\n" over C/Hello.
+# Nor are "move" and "back": C/Hello moved by hand to Tools/Hello, and back.
 i12   0  INSTALL hello VERSION 1.2 ROOT {R} CHANNEL {CH} MACHINE
 list  0  LIST ROOT {R} MACHINE
 ver   0  VERIFY hello ROOT {R} MACHINE
@@ -9,6 +10,9 @@ u13   0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
 same  0  UPGRADE hello VERSION 1.3 ROOT {R} CHANNEL {CH} MACHINE
 down  18 UPGRADE hello VERSION 1.2 ROOT {R} CHANNEL {CH} MACHINE
 rb    0  ROLLBACK hello ROOT {R} CHANNEL {CH} MACHINE
+move  -  -
+mvd   0  VERIFY hello ROOT {R} MACHINE
+back  -  -
 dup   15 INSTALL hello ROOT {R} CHANNEL {CH} MACHINE
 nf    11 INSTALL nosuch ROOT {R} CHANNEL {CH} MACHINE
 key   14 UPGRADE hello ROOT {R} CHANNEL {CH} MACHINE

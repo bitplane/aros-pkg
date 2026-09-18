@@ -177,8 +177,11 @@ struct pkg_options {
  *   list       result listed; [item] package (name version kind files
  *              reason), reason explicit or dependency; count. A root that
  *              does not exist lists nothing and succeeds.
- *   verify     name, version, files; changed and missing per file; result
- *              intact, or damaged with code 12.
+ *   verify     name, version, files; changed and missing per file; moved
+ *              (recorded path, where it is now) per file found elsewhere in
+ *              the root with the same name and bytes; result intact, moved
+ *              (every missing file found moved, nothing changed: code 0), or
+ *              damaged with code 12.
  *   remove     result removed: name, version, root, removed, gone, kept per
  *              edited file left in place, [item] orphan (name version) per
  *              package nothing needs any more. With orphans set: [item]

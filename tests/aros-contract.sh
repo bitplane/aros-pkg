@@ -86,6 +86,8 @@ expand() {  # expand <R> <R2> <R3> <CH> <T> <U> <args...>
 H="$work/host"
 printf '%s\n' "$steps" | while read -r name code args; do
     if [ "$name" = edit ]; then printf 'edited\n' > "$H/root/C/Hello"; continue; fi
+    if [ "$name" = move ]; then mkdir -p "$H/root/Tools"; mv "$H/root/C/Hello" "$H/root/Tools/Hello"; continue; fi
+    if [ "$name" = back ]; then mv "$H/root/Tools/Hello" "$H/root/C/Hello"; continue; fi
     # shellcheck disable=SC2046
     "$host_pkg" $(expand "$H/root" "$H/root2" "$H/root3" "$share/channel" "$share/tampered" \
         "$share/unsigned" $args) > "$H/$name.o" 2> "$H/$name.e"
@@ -99,6 +101,14 @@ nl='
 while read -r name code args; do
     if [ "$name" = edit ]; then
         startup="$startup${nl}C:Echo edited >RAM:root/C/Hello"
+        continue
+    fi
+    if [ "$name" = move ]; then
+        startup="$startup${nl}C:MakeDir RAM:root/Tools${nl}C:Rename RAM:root/C/Hello RAM:root/Tools/Hello"
+        continue
+    fi
+    if [ "$name" = back ]; then
+        startup="$startup${nl}C:Rename RAM:root/Tools/Hello RAM:root/C/Hello"
         continue
     fi
     cmd=$(expand RAM:root RAM:root2 RAM:root3 MacRW:channel MacRW:tampered MacRW:unsigned $args)
@@ -118,6 +128,15 @@ EOF
     while read -r name code args; do
         if [ "$name" = edit ]; then
             echo "address command 'C:Echo edited >RAM:xroot/C/Hello'"
+            continue
+        fi
+        if [ "$name" = move ]; then
+            echo "address command 'C:MakeDir RAM:xroot/Tools'"
+            echo "address command 'C:Rename RAM:xroot/C/Hello RAM:xroot/Tools/Hello'"
+            continue
+        fi
+        if [ "$name" = back ]; then
+            echo "address command 'C:Rename RAM:xroot/Tools/Hello RAM:xroot/C/Hello'"
             continue
         fi
         cmd=$(expand RAM:xroot RAM:xroot2 RAM:xroot3 MacRW:channel MacRW:tampered MacRW:unsigned $args)
@@ -166,7 +185,7 @@ norm_aros() {
 }
 
 while read -r name code args; do
-    [ "$name" = edit ] && continue
+    case $name in edit|move|back) continue ;; esac
     hrc=$(cat "$H/$name.rc" 2>/dev/null)
     arc=$(cat "$share/out/$name.rc" 2>/dev/null | tr -d ' \r')
     [ "$hrc" = "$code" ];                             ok $? "$name: macOS exits $code (got $hrc)"
@@ -196,6 +215,8 @@ grep -q '^name: regina$' "$share/out/rx-install.o" && grep -q '^result: installe
                                                       ok $? "Pkg installed Regina, the ARexx interpreter, like any package"
 grep -q "^package: hello 1.2 " "$share/out/list.o";   ok $? "the AROS list output is the package, read on the host"
 grep -q '^changed: C/Hello$' "$share/out/dmg.o";      ok $? "AROS names the edited file"
+grep -q '^moved: C/Hello Tools/Hello$' "$share/out/mvd.o" && grep -q '^result: moved$' "$share/out/mvd.o"
+                                                      ok $? "AROS finds a file moved by hand with Rename"
 grep -q '^dependency: hlib 1.0$' "$share/out/app.o" && grep -q '^orphan: hlib 1.0$' "$share/out/arm.o"
                                                       ok $? "AROS brings hlib in with happ, and reports it orphaned after"
 

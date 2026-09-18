@@ -553,6 +553,24 @@ $PKG UPGRADE tool ROOT "$NV/r" CHANNEL "$NV/ch" MACHINE > "$T/n3" 2>&1
 has "$T/n3" '^hint: the image tool.hdf is replaced: a machine that has it mounted must Eject it'
                                                       ok $? "UPGRADE of an image says to eject it and mount it again"
 
+echo "moved_by_hand"
+# The Amiga tradition: an installed drawer moved elsewhere by the person.
+MV="$T/mv"; mkdir -p "$MV/d/Tool/C"
+printf 'x\000$VER: tool 1.0 (1.1.2026)\000' > "$MV/d/Tool/C/Tool"; printf 'doc' > "$MV/d/Tool/ReadMe"
+$PKG PUBLISH "$MV/d" CHANNEL "$MV/ch" KIND application > /dev/null 2>&1
+$PKG INSTALL tool ROOT "$MV/r" CHANNEL "$MV/ch" > /dev/null 2>&1
+mkdir -p "$MV/r/Work"; mv "$MV/r/Tool" "$MV/r/Work/"
+$PKG VERIFY tool ROOT "$MV/r" MACHINE > "$T/mv1" 2>&1
+[ $? -eq 0 ] && has "$T/mv1" '^result: moved$' && has "$T/mv1" '^moved: Tool/C/Tool Work/Tool/C/Tool$' \
+    && ! has "$T/mv1" '^missing:';                   ok $? "VERIFY reports a hand-moved drawer as moved, not damaged"
+$PKG LIST ROOT "$MV/r" MACHINE | grep -q '^package: tool 1.0 '; ok $? "and the package stays listed"
+printf 'y' >> "$MV/r/Work/Tool/ReadMe"
+$PKG VERIFY tool ROOT "$MV/r" MACHINE > "$T/mv2" 2>&1
+[ $? -eq 12 ] && has "$T/mv2" '^moved: Tool/C/Tool' && has "$T/mv2" '^missing: Tool/ReadMe$'
+                                                      ok $? "a moved file that was also changed is not taken for the package's"
+$PKG REMOVE tool ROOT "$MV/r" > /dev/null 2>&1
+[ -f "$MV/r/Work/Tool/C/Tool" ];                      ok $? "REMOVE leaves the moved files where the person put them"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]
