@@ -31,6 +31,11 @@ void pkg_manifest_free(struct pkg_manifest *m)
     for (i = 0; i < m->nfiles; i++)
         free(m->files[i].path);
     free(m->files);
+    for (i = 0; i < m->ndeps; i++) {
+        free(m->deps[i].name);
+        free(m->deps[i].min);
+    }
+    free(m->deps);
     pkg_manifest_init(m);
 }
 
@@ -73,10 +78,70 @@ static int by_path(const void *a, const void *b)
                   ((const struct pkg_file *)b)->path);
 }
 
+static int by_dep(const void *a, const void *b)
+{
+    return strcmp(((const struct pkg_dep *)a)->name, ((const struct pkg_dep *)b)->name);
+}
+
 void pkg_manifest_sort(struct pkg_manifest *m)
 {
     if (m->nfiles > 1u)
         qsort(m->files, m->nfiles, sizeof m->files[0], by_path);
+    if (m->ndeps > 1u)
+        qsort(m->deps, m->ndeps, sizeof m->deps[0], by_dep);
+}
+
+int pkg_manifest_add_dep(struct pkg_manifest *m, const char *name, const char *min)
+{
+    struct pkg_dep *g = (struct pkg_dep *)realloc(m->deps, (m->ndeps + 1u) * sizeof *g);
+    if (g == NULL)
+        return -1;
+    m->deps = g;
+    g[m->ndeps].name = dupstr(name);
+    g[m->ndeps].min = (min != NULL && *min) ? dupstr(min) : NULL;
+    if (g[m->ndeps].name == NULL || (min != NULL && *min && g[m->ndeps].min == NULL)) {
+        free(g[m->ndeps].name);
+        free(g[m->ndeps].min);
+        return -1;
+    }
+    m->ndeps++;
+    return 0;
+}
+
+const char *pkg_parse_dep(const char *text, char *name, size_t name_len,
+                          char *min, size_t min_len)
+{
+    const char *sp = strchr(text, ' ');
+    size_t nl = sp ? (size_t)(sp - text) : strlen(text);
+    const char *why;
+
+    if (nl == 0u || nl >= name_len)
+        return "a dependency must name a package";
+    memcpy(name, text, nl);
+    name[nl] = '\0';
+    if ((why = pkg_check_name(name)) != NULL)
+        return why;
+    min[0] = '\0';
+    if (sp == NULL)
+        return NULL;
+    if (strncmp(sp, " >= ", 4) != 0)
+        return "a dependency is \"name\" or \"name >= version\"";
+    if (strlen(sp + 4) >= min_len)
+        return "the dependency's version is too long";
+    strcpy(min, sp + 4);
+    return pkg_check_version(min);
+}
+
+const char *pkg_check_deps(const struct pkg_manifest *m)
+{
+    size_t i;
+    for (i = 0; i < m->ndeps; i++) {
+        if (m->name != NULL && strcmp(m->deps[i].name, m->name) == 0)
+            return "a package cannot depend on itself";
+        if (i > 0 && strcmp(m->deps[i - 1].name, m->deps[i].name) >= 0)
+            return "Depends lines must be sorted by name, each package once";
+    }
+    return NULL;
 }
 
 /* ---- validation ------------------------------------------------------- */
@@ -176,7 +241,7 @@ const char *pkg_check_kind(const char *s)
 {
     static const char *const kinds[] = {
         "application", "library", "device", "boot", "class", "font",
-        "catalog", "startup", "data", "slave", "sdk"
+        "catalog", "startup", "data", "slave", "sdk", "image"
     };
     size_t i;
     if (s == NULL || *s == '\0')
@@ -185,7 +250,7 @@ const char *pkg_check_kind(const char *s)
         if (strcmp(s, kinds[i]) == 0)
             return NULL;
     return "unknown kind; expected one of application, library, device, boot, "
-           "class, font, catalog, startup, data, slave, sdk";
+           "class, font, catalog, startup, data, slave, sdk, image";
 }
 
 int pkg_version_cmp(const char *a, const char *b)
@@ -242,6 +307,12 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
     sb_printf(&b, "Version: %s\n", m->version);
     sb_printf(&b, "Architecture: %s\n", m->architecture);
     sb_printf(&b, "Kind: %s\n", m->kind);
+    for (i = 0; i < m->ndeps; i++) {
+        if (m->deps[i].min)
+            sb_printf(&b, "Depends: %s >= %s\n", m->deps[i].name, m->deps[i].min);
+        else
+            sb_printf(&b, "Depends: %s\n", m->deps[i].name);
+    }
     if (m->payload)
         sb_printf(&b, "Payload: %s\n", m->payload);
     for (i = 0; i < m->nfiles; i++)
@@ -363,6 +434,21 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
             ONCE(architecture, pkg_check_arch);
         } else if (strcmp(key, "Kind") == 0) {
             ONCE(kind, pkg_check_kind);
+        } else if (strcmp(key, "Depends") == 0) {
+            char dn[65], dv[64];
+            if ((why = pkg_parse_dep(val, dn, sizeof dn, dv, sizeof dv)) != NULL) {
+                seterr(err, errlen, line, "%s: \"%s\"", why, val);
+                free(val); goto fail;
+            }
+            if (m->ndeps > 0 && strcmp(m->deps[m->ndeps - 1].name, dn) >= 0) {
+                seterr(err, errlen, line, "Depends lines must be sorted by name, each package once: \"%s\"", dn);
+                free(val); goto fail;
+            }
+            if (pkg_manifest_add_dep(m, dn, dv) != 0) {
+                seterr(err, errlen, line, "out of memory");
+                free(val); goto fail;
+            }
+            free(val);
         } else if (strcmp(key, "Payload") == 0) {
             if (m->payload != NULL || !is_hex64(val, vl)) {
                 seterr(err, errlen, line, "Payload must appear once, as 64 lowercase hex digits");
@@ -412,6 +498,7 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
     if (m->version == NULL) { seterr(err, errlen, line, "Version is missing"); goto fail; }
     if (m->architecture == NULL) { seterr(err, errlen, line, "Architecture is missing"); goto fail; }
     if (m->kind == NULL)    { seterr(err, errlen, line, "Kind is missing"); goto fail; }
+    if ((why = pkg_check_deps(m)) != NULL) { seterr(err, errlen, line, "%s", why); goto fail; }
     return 0;
 
 fail:

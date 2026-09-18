@@ -7,19 +7,19 @@ CPPFLAGS  = -Iinclude
 
 # Portable C99: everything except the host filesystem layer.
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
-       src/pkg_manifest.c
+       src/pkg_manifest.c src/pkg_image.c
 # The host layer. POSIX covers macOS and Linux; AROS gets its own.
 HOST = src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c
 HDR  = $(wildcard include/*.h)
 
-UNITS = test_container test_sha256 test_manifest test_ed25519
+UNITS = test_container test_sha256 test_manifest test_ed25519 test_image
 
-.PHONY: all test test-ubsan check-portability check-m68k check check-aros clean
+.PHONY: all test test-ubsan check-portability check-m68k check-image check check-aros clean
 
 all: build/pkg
 
 # Every check this tree knows how to run.
-check: check-portability test test-ubsan check-m68k
+check: check-portability test test-ubsan check-m68k check-image
 
 build/pkg: src/pkg_main.c $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
@@ -40,6 +40,13 @@ test:
 	@for t in $(UNITS); do echo "== $$t"; ./build/$$t || exit 1; done
 	@echo "== e2e"
 	@PKG=./build/pkg sh tests/e2e.sh
+	@echo "== deps"
+	@PKG=./build/pkg sh tests/deps.sh
+
+# The image writer judged by amitools, an FFS written apart from it. Needs the
+# amitools virtualenv described at the top of tests/image.sh.
+check-image: build/pkg
+	@PKG=./build/pkg sh tests/image.sh
 
 # Byte order is expressed in pkg_be32_get and pkg_be32_put and nowhere else.
 # This refuses the constructs that would quietly reintroduce a host-order
@@ -55,7 +62,7 @@ check-portability:
 		echo "check-portability: PASS, byte order lives only in the accessors"; \
 	fi
 
-# Unit tests and the end-to-end run again, under the sanitizers. The
+# Unit tests and the host runs again, under the sanitizers. The
 # misaligned-buffer test is the point for the container: a struct mapped over
 # the stream would pass the plain build and fail here, the way it would fault
 # on a 68000.
@@ -72,7 +79,11 @@ test-ubsan:
 		-o build/san/pkg src/pkg_main.c $(CORE) $(HOST)
 	@PKG=./build/san/pkg sh tests/e2e.sh > build/san/e2e.log 2>&1 \
 		|| { tail -20 build/san/e2e.log; echo "test-ubsan: e2e FAILED"; exit 1; }
-	@echo "test-ubsan: PASS, units and e2e under -fsanitize=undefined,address"
+	@PKG=./build/san/pkg sh tests/deps.sh > build/san/deps.log 2>&1 \
+		|| { tail -20 build/san/deps.log; echo "test-ubsan: deps FAILED"; exit 1; }
+	@PKG=./build/san/pkg sh tests/image.sh > build/san/image.log 2>&1 \
+		|| { tail -20 build/san/image.log; echo "test-ubsan: image FAILED"; exit 1; }
+	@echo "test-ubsan: PASS, units, e2e, deps and image under -fsanitize=undefined,address"
 
 # A big-endian COMPILE of the portable core. Running on a big-endian target is
 # separate work and is not claimed here.

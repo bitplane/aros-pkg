@@ -9,6 +9,7 @@
  *   Version: 1.2
  *   Architecture: generic
  *   Kind: application
+ *   Depends: hello-lib >= 1.0
  *   Payload: <sha256 of the .pkg container, hex>
  *   File: <sha256 hex> <size> <path>
  *
@@ -16,6 +17,10 @@
  * produces the same manifest. Paths are relative to the root the package is
  * installed into, '/'-separated, and may contain spaces: the path is the rest
  * of the line after the size.
+ *
+ * Depends is optional and repeatable: a package name, alone or followed by
+ * ">= <version>", the lowest version that will do. Depends lines are sorted by
+ * name, name each package once, and never the package itself.
  *
  * Parsing is strict. An unknown key, a duplicate key, a missing required key,
  * an unsafe path or a malformed digest is a refusal, never a guess.
@@ -33,6 +38,11 @@ struct pkg_file {
     unsigned long long  size;
 };
 
+struct pkg_dep {
+    char *name;
+    char *min;                      /* NULL: any version */
+};
+
 struct pkg_manifest {
     char            *name;
     char            *version;
@@ -42,6 +52,8 @@ struct pkg_manifest {
     struct pkg_file *files;
     size_t           nfiles;
     size_t           cap;
+    struct pkg_dep  *deps;
+    size_t           ndeps;
 };
 
 void pkg_manifest_init(struct pkg_manifest *m);
@@ -51,7 +63,19 @@ void pkg_manifest_free(struct pkg_manifest *m);
 int pkg_manifest_set(char **field, const char *value);
 int pkg_manifest_add_file(struct pkg_manifest *m, const char *path,
                           const char *digest_hex, unsigned long long size);
-void pkg_manifest_sort(struct pkg_manifest *m);
+void pkg_manifest_sort(struct pkg_manifest *m);   /* files by path, deps by name */
+
+/* Add a dependency; min may be NULL. Both are copied. 0, or -1 on allocation
+ * failure. Validity is checked by pkg_check_deps once all are added. */
+int pkg_manifest_add_dep(struct pkg_manifest *m, const char *name, const char *min);
+
+/* Parse "name" or "name >= version" into the two buffers; min becomes "" when
+ * absent. NULL when well formed, or why not. */
+const char *pkg_parse_dep(const char *text, char *name, size_t name_len,
+                          char *min, size_t min_len);
+
+/* Sorted, unique, and not the package itself. NULL, or why not. */
+const char *pkg_check_deps(const struct pkg_manifest *m);
 
 /* Caller frees *out. Return 0, or -1 on allocation failure. */
 int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len);

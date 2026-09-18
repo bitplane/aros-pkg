@@ -4,7 +4,7 @@
  * Pkg, command line. Keywords follow AmigaDOS usage and are case-insensitive.
  *
  *   pkg KEYGEN   FILE <keyfile>
- *   pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k]
+ *   pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS d]
  *   pkg PUBLISH  <drawer> CHANNEL <dir> [SIGN <keyfile>] [NAME n] [VERSION v] ...
  *   pkg SIGN     <file>   KEY <keyfile> OUT <sigfile>
  *   pkg INSTALL  <name>   ROOT <dir> CHANNEL <dir> [VERSION v] [ACCEPTKEY <hex>]
@@ -13,6 +13,16 @@
  *   pkg LIST              ROOT <dir>
  *   pkg VERIFY   <name>   ROOT <dir>
  *   pkg REMOVE   <name>   ROOT <dir>
+ *   pkg REMOVE   ORPHANS  ROOT <dir>
+ *   pkg IMAGE    <drawer> OUT <file> [NAME <volume>]
+ *
+ * DEPENDS takes a comma-separated list, each "name" or "name >= version". An
+ * install resolves the whole graph, fetching and verifying every package,
+ * before it places a single file; dependencies go in first and are marked as
+ * such in `.pkg/auto`, and REMOVE ORPHANS takes out the ones nothing needs.
+ *
+ * KIND image turns the drawer into a read-only FFS volume, pkg_image.h, and
+ * the package holds that one file, <name>.hdf.
  *
  * A channel is a directory: `index` holds one "name version digest" line per
  * published version, `objects/` holds each payload, its manifest and its
@@ -31,6 +41,7 @@
 #include "pkg_container.h"
 #include "pkg_ed25519.h"
 #include "pkg_fs.h"
+#include "pkg_image.h"
 #include "pkg_manifest.h"
 #include "pkg_out.h"
 #include "pkg_port.h"
@@ -187,8 +198,8 @@ static int fromhex(unsigned char *b, size_t n, const char *hex)
 struct args {
     const char *pos;
     const char *root, *channel, *name, *version, *arch, *kind;
-    const char *file, *sign, *key, *out, *acceptkey;
-    int downgrade;
+    const char *file, *sign, *key, *out, *acceptkey, *depends;
+    int downgrade, orphans;
 };
 
 static int ieq(const char *a, const char *b)
@@ -210,7 +221,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "SIGN",      offsetof(struct args, sign) },
         { "KEY",       offsetof(struct args, key) },
         { "OUT",       offsetof(struct args, out) },
-        { "ACCEPTKEY", offsetof(struct args, acceptkey) }
+        { "ACCEPTKEY", offsetof(struct args, acceptkey) },
+        { "DEPENDS",   offsetof(struct args, depends) }
 };
 
 static int takes_value(const char *w)
@@ -247,6 +259,10 @@ static int parse_args(int argc, char **argv, struct args *a)
         const char **slot = NULL;
         if (ieq(argv[i], "DOWNGRADE")) {
             a->downgrade = 1;
+            continue;
+        }
+        if (ieq(argv[i], "ORPHANS")) {
+            a->orphans = 1;
             continue;
         }
         if (ieq(argv[i], "MACHINE")) {
@@ -488,6 +504,78 @@ static int find_ver(const struct drawer *d, char *name, size_t nl,
     return 0;
 }
 
+/* DEPENDS "a >= 1.0, b": each item a name, alone or with ">=" and the lowest
+ * version that will do, spaces optional around ">=". */
+static int add_depends(struct pkg_manifest *m, const char *list)
+{
+    const char *p = list, *why;
+    while (p != NULL && *p) {
+        const char *end = strchr(p, ',');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        char item[160], norm[170], dn[65], dv[64], *ge;
+        size_t a = 0, b;
+        if (len >= sizeof item)
+            return refuse_c(20, "a DEPENDS item is too long");
+        memcpy(item, p, len);
+        item[len] = '\0';
+        p = end ? end + 1 : NULL;
+        while (item[a] == ' ') a++;
+        b = strlen(item);
+        while (b > a && item[b - 1] == ' ') item[--b] = '\0';
+        if (b == a)
+            continue;
+        ge = strstr(item + a, ">=");
+        if (ge != NULL) {
+            char *l = ge, *r = ge + 2;
+            while (l > item + a && l[-1] == ' ') l--;
+            while (*r == ' ') r++;
+            *l = '\0';
+            snprintf(norm, sizeof norm, "%s >= %s", item + a, r);
+        } else {
+            snprintf(norm, sizeof norm, "%s", item + a);
+        }
+        if ((why = pkg_parse_dep(norm, dn, sizeof dn, dv, sizeof dv)) != NULL)
+            return refuse_c(20, "DEPENDS \"%s\": %s", norm, why);
+        if (pkg_manifest_add_dep(m, dn, dv) != 0)
+            return refuse("out of memory");
+    }
+    pkg_manifest_sort(m);
+    if ((why = pkg_check_deps(m)) != NULL)
+        return refuse_c(20, "DEPENDS: %s", why);
+    return 0;
+}
+
+/* Replace the drawer's files by one: the drawer as an FFS volume named after
+ * the package, <name>.hdf. */
+static int to_image(struct drawer *d, const char *name)
+{
+    struct pkg_image_entry *e = calloc(d->n ? d->n : 1, sizeof *e);
+    unsigned char *img;
+    size_t len, i;
+    char err[300], rel[80];
+
+    if (e == NULL) return refuse("out of memory");
+    for (i = 0; i < d->n; i++) {
+        e[i].path = d->v[i].rel;
+        e[i].data = d->v[i].data;
+        e[i].len = d->v[i].len;
+    }
+    if (pkg_image_build(e, d->n, name, &img, &len, err, sizeof err) != 0) {
+        free(e);
+        return refuse_c(20, "the drawer cannot become an image: %s", err);
+    }
+    free(e);
+    snprintf(rel, sizeof rel, "%s.hdf", name);
+    for (i = 0; i < d->n; i++) { free(d->v[i].rel); free(d->v[i].data); }
+    d->v[0].rel = malloc(strlen(rel) + 1);
+    if (d->v[0].rel == NULL) { free(img); d->n = 0; return refuse("out of memory"); }
+    strcpy(d->v[0].rel, rel);
+    d->v[0].data = img;
+    d->v[0].len = len;
+    d->n = 1;
+    return 0;
+}
+
 struct built {
     struct pkg_manifest m;
     unsigned char *pkg;
@@ -558,12 +646,21 @@ static int build(const struct args *a, struct built *out)
         return refuse_c(20, "%s", why);
     }
 
-    w = pkg_writer_new();
-    if (w == NULL) { drawer_free(&d); return refuse("out of memory"); }
     pkg_manifest_set(&out->m.name, name);
     pkg_manifest_set(&out->m.version, version);
     pkg_manifest_set(&out->m.architecture, arch);
     pkg_manifest_set(&out->m.kind, kind);
+    if (add_depends(&out->m, a->depends) != 0) {
+        drawer_free(&d);
+        return 1;
+    }
+    if (strcmp(kind, "image") == 0 && to_image(&d, name) != 0) {
+        drawer_free(&d);
+        return 1;
+    }
+
+    w = pkg_writer_new();
+    if (w == NULL) { drawer_free(&d); return refuse("out of memory"); }
     for (i = 0; i < d.n; i++) {
         char hex[PKG_SHA256_HEXLEN + 1];
         pkg_sha256_hex(d.v[i].data, d.v[i].len, hex);
@@ -1076,7 +1173,339 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     return 0;
 }
 
+/* ---- dependencies ----------------------------------------------------- */
+
+/* A package installed only because another needed it carries a mark in
+ * .pkg/auto. REMOVE ORPHANS takes out marked packages nothing depends on. */
+static int is_auto(const char *root, const char *name)
+{
+    char *p = root_path(root, "auto", name);
+    int there = p != NULL && pkg_fs_exists(p);
+    free(p);
+    return there;
+}
+
+static void set_auto(const char *root, const char *name, int on)
+{
+    char *p = root_path(root, "auto", name);
+    if (p == NULL)
+        return;
+    if (on) {
+        if (pkg_fs_write_atomic(p, "dependency\n", 11) != 0)
+            warn("%s could not be marked as a dependency", name);
+    } else if (pkg_fs_exists(p)) {
+        pkg_fs_unlink(p);
+    }
+    free(p);
+}
+
+struct installed {
+    struct pkg_manifest *m;
+    size_t               n;
+};
+
+static void installed_free(struct installed *in)
+{
+    size_t i;
+    for (i = 0; i < in->n; i++)
+        pkg_manifest_free(&in->m[i]);
+    free(in->m);
+    in->m = NULL;
+    in->n = 0;
+}
+
+/* Every package in the root's database. */
+static int load_all(const char *root, struct installed *in)
+{
+    char *dir = pkg_join(root, ".pkg/db"), **names;
+    size_t n, i;
+
+    in->m = NULL;
+    in->n = 0;
+    if (dir == NULL)
+        return refuse("out of memory");
+    if (!pkg_fs_exists(dir)) {
+        free(dir);
+        return 0;
+    }
+    if (pkg_fs_list(dir, &names, &n) != 0) {
+        free(dir);
+        return refuse_c(17, "cannot read the database of %s", root);
+    }
+    free(dir);
+    in->m = calloc(n ? n : 1, sizeof *in->m);
+    if (in->m == NULL) {
+        for (i = 0; i < n; i++) free(names[i]);
+        free(names);
+        return refuse("out of memory");
+    }
+    for (i = 0; i < n; i++) {
+        if (load_installed(root, names[i], &in->m[in->n], 1) == 0)
+            in->n++;
+        free(names[i]);
+    }
+    free(names);
+    return 0;
+}
+
+/* The installed packages that name `name` among their Depends, comma-joined. */
+static int needed_by(const struct installed *in, const char *name, char *out, size_t len)
+{
+    size_t i, j, at = 0;
+    int found = 0;
+    out[0] = '\0';
+    for (i = 0; i < in->n; i++)
+        for (j = 0; j < in->m[i].ndeps; j++)
+            if (strcmp(in->m[i].deps[j].name, name) == 0 && at + 70 < len) {
+                at += (size_t)snprintf(out + at, len - at, "%s%s %s", found ? ", " : "",
+                                       in->m[i].name, in->m[i].version);
+                found = 1;
+            }
+    return found;
+}
+
+/* What an install, upgrade or rollback will do, decided and verified in full
+ * before anything is placed: dependencies first, the named package last. */
+struct plan {
+    struct fetched *f;
+    int            *dep;         /* 1: pulled in as a dependency */
+    size_t          n;
+    const char     *stack[32];   /* the path being resolved, for cycles */
+    size_t          depth;
+    const char     *root, *channel, *acceptkey;
+    const struct index *ix;
+};
+
+static void plan_free(struct plan *p)
+{
+    size_t i;
+    for (i = 0; i < p->n; i++)
+        fetched_free(&p->f[i]);
+    free(p->f);
+    free(p->dep);
+}
+
+/* Plan `name`: exactly `exact` when given, else the highest the channel offers,
+ * which must be at least `min`. `from` is the package that needs it, NULL for
+ * the one the person named. */
+static int plan_one(struct plan *p, const char *name, const char *min, const char *exact,
+                    const char *from)
+{
+    const struct entry *e;
+    struct fetched f;
+    struct pkg_manifest cur;
+    size_t i;
+
+    for (i = 0; i < p->depth; i++) {
+        if (strcmp(p->stack[i], name) == 0) {
+            char path[512];
+            size_t at = 0, j;
+            for (j = i; j < p->depth && at + 70 < sizeof path; j++)
+                at += (size_t)snprintf(path + at, sizeof path - at, "%s -> ", p->stack[j]);
+            snprintf(path + at, sizeof path - at, "%s", name);
+            return refuse_c(16, "the dependencies form a cycle: %s; nothing was changed", path);
+        }
+    }
+    if (from != NULL) {
+        if (load_installed(p->root, name, &cur, 1) == 0) {
+            int low = min != NULL && pkg_version_cmp(cur.version, min) < 0;
+            if (low)
+                refuse_c(16, "%s needs %s >= %s, and %s has %s %s; nothing was changed. "
+                         "UPGRADE %s first", from, name, min, p->root, name, cur.version, name);
+            pkg_manifest_free(&cur);
+            return low;
+        }
+        for (i = 0; i < p->n; i++)
+            if (strcmp(p->f[i].m.name, name) == 0) {
+                if (min != NULL && pkg_version_cmp(p->f[i].m.version, min) < 0)
+                    return refuse_c(16, "%s needs %s >= %s, and this install brings %s %s; "
+                                    "nothing was changed", from, name, min, name, p->f[i].m.version);
+                return 0;
+            }
+    }
+    e = pick(p->ix, name, exact);
+    if (e == NULL) {
+        if (from == NULL) {
+            say_not_found(p->ix, name, exact, p->channel);
+            return 1;
+        }
+        return refuse_c(16, "%s depends on %s%s%s, which the channel %s does not offer; "
+                        "nothing was changed", from, name, min ? " >= " : "", min ? min : "",
+                        p->channel);
+    }
+    if (min != NULL && pkg_version_cmp(e->version, min) < 0)
+        return refuse_c(16, "%s needs %s >= %s, and the highest the channel offers is %s; "
+                        "nothing was changed", from ? from : "the request", name, min, e->version);
+    if (p->depth >= sizeof p->stack / sizeof p->stack[0])
+        return refuse_c(16, "the dependencies of %s go more than %u levels deep", name,
+                        (unsigned)(sizeof p->stack / sizeof p->stack[0]));
+    if (fetch(p->channel, e, &f) != 0) {
+        fetched_free(&f);
+        return 1;
+    }
+    if (check_pin(p->root, e->name, f.signer, p->acceptkey) != 0) {
+        fetched_free(&f);
+        return 1;
+    }
+    p->stack[p->depth++] = f.m.name;
+    for (i = 0; i < f.m.ndeps; i++) {
+        if (plan_one(p, f.m.deps[i].name, f.m.deps[i].min, NULL, f.m.name) != 0) {
+            p->depth--;
+            fetched_free(&f);
+            return 1;
+        }
+    }
+    p->depth--;
+    {
+        struct fetched *g = realloc(p->f, (p->n + 1) * sizeof *g);
+        int *d;
+        if (g == NULL) { fetched_free(&f); return refuse("out of memory"); }
+        p->f = g;
+        d = realloc(p->dep, (p->n + 1) * sizeof *d);
+        if (d == NULL) { fetched_free(&f); return refuse("out of memory"); }
+        p->dep = d;
+        p->f[p->n] = f;
+        p->dep[p->n] = from != NULL;
+        p->n++;
+    }
+    return 0;
+}
+
+/* Remove a package's unchanged files and its records. Edited files stay. */
+static int remove_files(const char *root, const struct pkg_manifest *m,
+                        size_t *removed, size_t *kept, size_t *gone, int report)
+{
+    size_t i;
+    char *dbp, *pp;
+    *removed = *kept = *gone = 0;
+    for (i = 0; i < m->nfiles; i++) {
+        int s = file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size);
+        if (s == 0) {
+            char *p = pkg_join(root, m->files[i].path);
+            if (p != NULL && pkg_fs_unlink(p) == 0) {
+                (*removed)++;
+                pkg_fs_prune_empty_parents(root, m->files[i].path);
+            }
+            free(p);
+        } else if (s == 1) {
+            (*kept)++;
+            if (!report)
+                continue;
+            if (machine) kv("kept", "%s", m->files[i].path);
+            else pkg_out("  kept     %s (changed since install, so it is yours now)\n", m->files[i].path);
+        } else {
+            (*gone)++;
+        }
+    }
+    dbp = root_path(root, "db", m->name);
+    if (dbp == NULL || pkg_fs_unlink(dbp) != 0) {
+        free(dbp);
+        return refuse_c(17, "the files of %s are removed but its database entry could not be: %s",
+                        m->name, strerror(errno));
+    }
+    free(dbp);
+    pp = root_path(root, "prev", m->name);
+    if (pp != NULL && pkg_fs_exists(pp)) pkg_fs_unlink(pp);
+    free(pp);
+    set_auto(root, m->name, 0);
+    /* The pinned key stays: reinstalling the package later is still held to it. */
+    return 0;
+}
+
+/* Carry out a plan. The last entry is the named package, moved from `cur`
+ * (NULL for a fresh install); the others are new dependencies. A failure
+ * takes the dependencies this run placed back out. */
+static int run_plan(struct plan *p, const struct pkg_manifest *cur,
+                    unsigned long *placed, unsigned long *dropped, unsigned long *kept)
+{
+    size_t i;
+    for (i = 0; i < p->n; i++) {
+        int last = i + 1 == p->n;
+        unsigned long pl, dr, ke;
+        if (apply(p->root, last ? cur : NULL, &p->f[i], &pl, &dr, &ke) != 0) {
+            while (i-- > 0) {
+                size_t r, k, g;
+                remove_files(p->root, &p->f[i].m, &r, &k, &g, 0);
+            }
+            return 1;
+        }
+        if (!last) {
+            set_auto(p->root, p->f[i].m.name, 1);
+            if (machine)
+                kv("dependency", "%s %s", p->f[i].m.name, p->f[i].m.version);
+            else
+                pkg_out("  added    %s %s, a dependency\n", p->f[i].m.name, p->f[i].m.version);
+        } else {
+            *placed = pl;
+            *dropped = dr;
+            *kept = ke;
+        }
+    }
+    return 0;
+}
+
+static int plan_target(struct plan *p, const struct args *a, const struct index *ix,
+                       const char *name, const char *exact)
+{
+    memset(p, 0, sizeof *p);
+    p->root = a->root;
+    p->channel = a->channel;
+    p->acceptkey = a->acceptkey;
+    p->ix = ix;
+    return plan_one(p, name, NULL, exact, NULL);
+}
+
+/* The marked packages nothing installed depends on. */
+static size_t find_orphans(const struct installed *in, const char *root, size_t *which)
+{
+    size_t i, n = 0;
+    char who[8];
+    for (i = 0; i < in->n; i++)
+        if (is_auto(root, in->m[i].name) && !needed_by(in, in->m[i].name, who, sizeof who))
+            which[n++] = i;
+    return n;
+}
+
 /* ---- verbs ------------------------------------------------------------ */
+
+/* The image alone, for a person who wants the file without a channel. */
+static int cmd_image(const struct args *a)
+{
+    struct drawer d;
+    unsigned skipped = 0;
+    const char *vol;
+
+    if (a->pos == NULL) return refuse_c(20, "name the drawer to turn into an image");
+    if (a->out == NULL) return refuse_c(20, "name the image file with OUT <file>");
+    if (!pkg_fs_is_dir(a->pos)) return refuse_c(20, "\"%s\" is not a directory", a->pos);
+    memset(&d, 0, sizeof d);
+    d.root = a->pos;
+    if (pkg_fs_walk(a->pos, load_one, &d, &skipped, d.err, sizeof d.err) != 0) {
+        refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
+        drawer_free(&d);
+        return 1;
+    }
+    qsort(d.v, d.n, sizeof d.v[0], by_rel);
+    vol = a->name ? a->name : "image";
+    if (d.n == 0) {
+        drawer_free(&d);
+        return refuse_c(20, "\"%s\" holds no files", a->pos);
+    }
+    if (to_image(&d, vol) != 0) { drawer_free(&d); return 1; }
+    if (pkg_fs_write_atomic(a->out, d.v[0].data, d.v[0].len) != 0) {
+        drawer_free(&d);
+        return refuse_c(17, "cannot write \"%s\": %s", a->out, strerror(errno));
+    }
+    kv("result", "created");
+    kv("file", "%s", a->out);
+    kv("volume", "%s", vol);
+    kv("blocks", "%lu", (unsigned long)(d.v[0].len / PKG_IMAGE_BLOCK));
+    if (!machine)
+        pkg_out("wrote %s: volume %s, %lu blocks of %u bytes\n", a->out, vol,
+                (unsigned long)(d.v[0].len / PKG_IMAGE_BLOCK), PKG_IMAGE_BLOCK);
+    drawer_free(&d);
+    return 0;
+}
 
 static int cmd_manifest(const struct args *a)
 {
@@ -1195,7 +1624,7 @@ static int cmd_install(const struct args *a)
 {
     struct index ix;
     const struct entry *e;
-    struct fetched f;
+    struct plan p;
     struct pkg_manifest cur;
     unsigned long placed, dropped, kept;
     char s12[13];
@@ -1206,15 +1635,29 @@ static int cmd_install(const struct args *a)
     e = pick(&ix, a->pos, a->version);
     if (e == NULL) { say_not_found(&ix, a->pos, a->version, a->channel); free(ix.e); return 1; }
     if (load_installed(a->root, e->name, &cur, 1) == 0) {
+        if (is_auto(a->root, cur.name)) {
+            /* Asked for by name now: no longer an orphan candidate. */
+            set_auto(a->root, cur.name, 0);
+            kv("result", "kept");
+            kv("name", "%s", cur.name);
+            kv("version", "%s", cur.version);
+            if (!machine)
+                pkg_out("%s %s was installed as a dependency; it is now kept for itself\n",
+                        cur.name, cur.version);
+            pkg_manifest_free(&cur);
+            free(ix.e);
+            return 0;
+        }
         refuse_c(15, "%s %s is already installed in %s; use UPGRADE, or REMOVE it first",
                cur.name, cur.version, a->root);
         pkg_manifest_free(&cur);
         free(ix.e);
         return 1;
     }
-    if (fetch(a->channel, e, &f) == 0
-        && check_pin(a->root, e->name, f.signer, a->acceptkey) == 0
-        && apply(a->root, NULL, &f, &placed, &dropped, &kept) == 0) {
+    if (plan_target(&p, a, &ix, e->name, e->version) == 0
+        && run_plan(&p, NULL, &placed, &dropped, &kept) == 0) {
+        const struct fetched *t = &p.f[p.n - 1];
+        struct fetched f = *t;
         short12(f.m.payload, s12);
         kv("result", "installed");
         kv("name", "%s", f.m.name);
@@ -1228,21 +1671,21 @@ static int cmd_install(const struct args *a)
                f.m.name, f.m.version, a->root, placed, s12, f.signer);
         rc = 0;
     }
-    fetched_free(&f);
+    plan_free(&p);
     free(ix.e);
     return rc;
 }
 
-static int move_to(const struct args *a, const struct entry *e, struct pkg_manifest *cur,
-                   const char *verb)
+static int move_to(const struct args *a, const struct index *ix, const struct entry *e,
+                   struct pkg_manifest *cur, const char *verb)
 {
-    struct fetched f;
+    struct plan p;
     unsigned long placed, dropped, kept;
     int rc = 1;
 
-    if (fetch(a->channel, e, &f) == 0
-        && check_pin(a->root, e->name, f.signer, a->acceptkey) == 0
-        && apply(a->root, cur, &f, &placed, &dropped, &kept) == 0) {
+    if (plan_target(&p, a, ix, e->name, e->version) == 0
+        && run_plan(&p, cur, &placed, &dropped, &kept) == 0) {
+        struct fetched f = p.f[p.n - 1];
         kv("result", "%s", verb[0] == 'u' ? "upgraded" : verb[0] == 'd' ? "downgraded" : "rolled-back");
         kv("name", "%s", f.m.name);
         kv("from", "%s", cur->version);
@@ -1259,7 +1702,7 @@ static int move_to(const struct args *a, const struct entry *e, struct pkg_manif
         }
         rc = 0;
     }
-    fetched_free(&f);
+    plan_free(&p);
     return rc;
 }
 
@@ -1294,7 +1737,7 @@ static int cmd_upgrade(const struct args *a)
                e->name, e->version, cur.version);
         goto out;
     }
-    rc = move_to(a, e, &cur, c < 0 ? "downgraded" : "upgraded");
+    rc = move_to(a, &ix, e, &cur, c < 0 ? "downgraded" : "upgraded");
 out:
     pkg_manifest_free(&cur);
     free(ix.e);
@@ -1342,7 +1785,7 @@ static int cmd_rollback(const struct args *a)
         refuse_c(11, "the previous version of %s, %s, is no longer in the channel %s",
                a->pos, prev.version, a->channel);
     else
-        rc = move_to(a, e, &cur, "rolled back");
+        rc = move_to(a, &ix, e, &cur, "rolled back");
     pkg_manifest_free(&cur);
     free(ix.e);
     return rc;
@@ -1364,11 +1807,13 @@ static int cmd_list(const struct args *a)
     for (i = 0; i < n; i++) {
         struct pkg_manifest m;
         if (load_installed(a->root, names[i], &m, 0) == 0) {
+            int dep = is_auto(a->root, m.name);
             if (machine)
-                kv("package", "%s %s %s %lu", m.name, m.version, m.kind, (unsigned long)m.nfiles);
+                kv("package", "%s %s %s %lu %s", m.name, m.version, m.kind,
+                   (unsigned long)m.nfiles, dep ? "dependency" : "explicit");
             else
-                pkg_out("%-24s %-10s %-12s %lu files\n", m.name, m.version, m.kind,
-                        (unsigned long)m.nfiles);
+                pkg_out("%-24s %-10s %-12s %lu files%s\n", m.name, m.version, m.kind,
+                        (unsigned long)m.nfiles, dep ? ", a dependency" : "");
             pkg_manifest_free(&m);
         }
         free(names[i]);
@@ -1422,44 +1867,68 @@ static int cmd_verify(const struct args *a)
     return 1;
 }
 
+static int remove_orphans(const struct args *a)
+{
+    struct installed in;
+    size_t *which, n, i, total = 0;
+
+    for (;;) {
+        if (load_all(a->root, &in) != 0)
+            return 1;
+        which = malloc((in.n ? in.n : 1) * sizeof *which);
+        if (which == NULL) { installed_free(&in); return refuse("out of memory"); }
+        n = find_orphans(&in, a->root, which);
+        for (i = 0; i < n; i++) {
+            const struct pkg_manifest *m = &in.m[which[i]];
+            size_t r, k, g;
+            if (remove_files(a->root, m, &r, &k, &g, 1) != 0) {
+                free(which);
+                installed_free(&in);
+                return 1;
+            }
+            total++;
+            if (machine)
+                kv("package", "%s %s", m->name, m->version);
+            else
+                pkg_out("removed %s %s, which nothing needed: %lu files removed%s\n", m->name,
+                        m->version, (unsigned long)r, k ? ", edited files kept" : "");
+        }
+        free(which);
+        installed_free(&in);
+        if (n == 0)
+            break;              /* removing one orphan can orphan its own dependencies */
+    }
+    kv("result", "removed");
+    kv("count", "%lu", (unsigned long)total);
+    if (!machine && total == 0)
+        pkg_out("no orphans in %s\n", a->root);
+    return 0;
+}
+
 static int cmd_remove(const struct args *a)
 {
     struct pkg_manifest m;
-    size_t i, removed = 0, kept = 0, gone = 0;
-    char *dbp, *pp;
+    struct installed in;
+    size_t removed, kept, gone, i, n, *which;
+    char who[400];
 
-    if (a->pos == NULL)  return refuse_c(20, "name the package to remove");
     if (a->root == NULL) return refuse_c(20, "name the root with ROOT <dir>");
+    if (a->orphans && a->pos == NULL) return remove_orphans(a);
+    if (a->pos == NULL)  return refuse_c(20, "name the package to remove, or ORPHANS");
     if (load_installed(a->root, a->pos, &m, 0) != 0) return 1;
-    for (i = 0; i < m.nfiles; i++) {
-        int s = file_state(a->root, m.files[i].path, m.files[i].digest, m.files[i].size);
-        if (s == 0) {
-            char *p = pkg_join(a->root, m.files[i].path);
-            if (p != NULL && pkg_fs_unlink(p) == 0) {
-                removed++;
-                pkg_fs_prune_empty_parents(a->root, m.files[i].path);
-            }
-            free(p);
-        } else if (s == 1) {
-            kept++;
-            if (machine) kv("kept", "%s", m.files[i].path);
-            else pkg_out("  kept     %s (changed since install, so it is yours now)\n", m.files[i].path);
-        } else {
-            gone++;
-        }
-    }
-    dbp = root_path(a->root, "db", m.name);
-    if (dbp == NULL || pkg_fs_unlink(dbp) != 0) {
-        free(dbp);
+    if (load_all(a->root, &in) != 0) { pkg_manifest_free(&m); return 1; }
+    if (needed_by(&in, m.name, who, sizeof who)) {
+        installed_free(&in);
+        refuse_c(16, "%s is needed by %s; nothing was removed. Remove %s first",
+                 m.name, who, strchr(who, ',') ? "them" : "it");
         pkg_manifest_free(&m);
-        return refuse_c(17, "the files are removed but the database entry could not be: %s",
-                      strerror(errno));
+        return 1;
     }
-    free(dbp);
-    pp = root_path(a->root, "prev", m.name);
-    if (pp != NULL) pkg_fs_unlink(pp);
-    free(pp);
-    /* The pinned key stays: reinstalling the package later is still held to it. */
+    installed_free(&in);
+    if (remove_files(a->root, &m, &removed, &kept, &gone, 1) != 0) {
+        pkg_manifest_free(&m);
+        return 1;
+    }
     kv("result", "removed");
     kv("name", "%s", m.name);
     kv("version", "%s", m.version);
@@ -1473,6 +1942,20 @@ static int cmd_remove(const struct args *a)
     if (gone) pkg_out(", %lu already gone", (unsigned long)gone);
     pkg_out("\n");
     }
+    /* Say what this leaves behind; removing it is a separate, explicit act. */
+    if (load_all(a->root, &in) == 0) {
+        which = malloc((in.n ? in.n : 1) * sizeof *which);
+        n = which ? find_orphans(&in, a->root, which) : 0;
+        for (i = 0; i < n; i++) {
+            if (machine)
+                kv("orphan", "%s %s", in.m[which[i]].name, in.m[which[i]].version);
+            else
+                pkg_out("  %s %s is no longer needed by anything; REMOVE ORPHANS takes it out\n",
+                        in.m[which[i]].name, in.m[which[i]].version);
+        }
+        free(which);
+        installed_free(&in);
+    }
     pkg_manifest_free(&m);
     return 0;
 }
@@ -1481,7 +1964,7 @@ static int usage(void)
 {
     pkg_err("usage:\n"
         "  pkg KEYGEN   FILE <keyfile>\n"
-        "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k]\n"
+        "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]\n"
         "  pkg PUBLISH  <drawer> CHANNEL <dir> [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a] [KIND k]\n"
         "  pkg SIGN     <file> KEY <keyfile> OUT <sigfile>\n"
         "  pkg INSTALL  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ACCEPTKEY <hex>]\n"
@@ -1490,6 +1973,8 @@ static int usage(void)
         "  pkg LIST     ROOT <dir>\n"
         "  pkg VERIFY   <name> ROOT <dir>\n"
         "  pkg REMOVE   <name> ROOT <dir>\n"
+        "  pkg REMOVE   ORPHANS ROOT <dir>\n"
+        "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
         "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
         "SIGN defaults to $PKG_SIGNKEY. Any verb takes MACHINE, or PKG_OUTPUT=machine:\n"
         "key: value lines, and the exit code names the class of a refusal.\n");
@@ -1511,7 +1996,8 @@ static int run_verb(int argc, char **argv)
         { "ROLLBACK", "rollback", cmd_rollback },
         { "LIST",     "list",     cmd_list },
         { "VERIFY",   "verify",   cmd_verify },
-        { "REMOVE",   "remove",   cmd_remove }
+        { "REMOVE",   "remove",   cmd_remove },
+        { "IMAGE",    "image",    cmd_image }
     };
     struct args a;
     size_t i;

@@ -112,12 +112,54 @@ static void versions(void)
     ok(pkg_check_name("hello-world_2.0") == NULL, "hello-world_2.0 accepted");
 }
 
+static void depends(void)
+{
+    struct pkg_manifest m, back;
+    char *out; size_t len; char err[200], n[65], v[64];
+    const char *head = "Format: pkg-manifest 1\nName: app\nVersion: 1\nArchitecture: generic\nKind: image\n";
+    char text[600];
+
+    printf("depends\n");
+    pkg_manifest_init(&m);
+    pkg_manifest_set(&m.name, "app");
+    pkg_manifest_set(&m.version, "1");
+    pkg_manifest_set(&m.architecture, "generic");
+    pkg_manifest_set(&m.kind, "image");
+    pkg_manifest_add_dep(&m, "zlib", NULL);
+    pkg_manifest_add_dep(&m, "hello-lib", "1.2");
+    pkg_manifest_sort(&m);
+    ok(pkg_manifest_emit(&m, &out, &len) == 0, "emit with Depends");
+    ok(strstr(out, "Kind: image\nDepends: hello-lib >= 1.2\nDepends: zlib\n") != NULL,
+       "Depends emitted sorted, after Kind, with and without a version");
+    ok(pkg_manifest_parse(out, len, &back, err, sizeof err) == 0 && back.ndeps == 2
+       && strcmp(back.deps[0].name, "hello-lib") == 0 && strcmp(back.deps[0].min, "1.2") == 0
+       && back.deps[1].min == NULL, "and parsed back to the same two");
+    pkg_manifest_free(&back);
+    free(out);
+    pkg_manifest_free(&m);
+
+    snprintf(text, sizeof text, "%sDepends: zlib\nDepends: hello-lib\n", head);
+    ok(!parses(text, err, sizeof err), "unsorted Depends refused");
+    snprintf(text, sizeof text, "%sDepends: zlib\nDepends: zlib >= 2\n", head);
+    ok(!parses(text, err, sizeof err), "a package named twice refused");
+    snprintf(text, sizeof text, "%sDepends: app\n", head);
+    ok(!parses(text, err, sizeof err) && strstr(err, "itself"), "a package depending on itself refused");
+    snprintf(text, sizeof text, "%sDepends: zlib > 2\n", head);
+    ok(!parses(text, err, sizeof err), "an operator other than >= refused");
+    snprintf(text, sizeof text, "%sDepends: Zlib\n", head);
+    ok(!parses(text, err, sizeof err), "an invalid package name refused");
+    ok(pkg_parse_dep("zlib >= 1.2.3", n, sizeof n, v, sizeof v) == NULL
+       && strcmp(n, "zlib") == 0 && strcmp(v, "1.2.3") == 0, "pkg_parse_dep splits name and version");
+    ok(pkg_parse_dep("zlib >= x", n, sizeof n, v, sizeof v) != NULL, "a bad minimum version refused");
+}
+
 int main(void)
 {
     round_trip();
     unsafe_paths_are_refused();
     strict_parsing();
     versions();
+    depends();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
