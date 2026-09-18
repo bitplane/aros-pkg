@@ -128,6 +128,9 @@ struct pkg_options {
                                that make this package, comma-separated; all when NULL.
                                The manifest then names the archive (Source) and the
                                channel keeps it as archives/<name> */
+    const char *build;      /* publish: the build the files come from, such as a nightly's
+                               date; the version becomes <version or $VER or 0>+<build>, and
+                               a build whose files equal the last version's is not published */
     int downgrade;          /* upgrade: moving to an older version was asked for */
     int orphans;            /* remove: remove what nothing needs, instead of target */
     int dryrun;             /* every check, no write; results read would-... */

@@ -140,13 +140,20 @@ python3 -c "
 import sys
 elf = bytearray(64); elf[0:4] = b'\x7fELF'; elf[4] = 2; elf[5] = 1; elf[18] = 183
 open(sys.argv[1], 'wb').write(bytes(elf) + b'\0\$VER: Tool 1.0 (1.1.2026)\0')
-open(sys.argv[2], 'wb').write(b'\x00\x00\x03\xf3' + b'\0' * 28)
-" "$T/elf/C/Tool" "$T/mix/C/Old"
+# a minimal 68k program: HUNK_HEADER, one hunk, HUNK_CODE with rts, HUNK_END
+hunk = bytes.fromhex('000003f3 00000000 00000001 00000000 00000000 00000001 000003e9 00000001 4e754e71 000003f2'.replace(' ', ''))
+open(sys.argv[2], 'wb').write(hunk)
+# hunk-format data with no code, as deficons.prefs is: bound to no CPU
+open(sys.argv[3], 'wb').write(bytes.fromhex('000003f3 00000000 00000001 00000000 00000000 00000001 000003ea 00000001 70726f6a 000003f2'.replace(' ', '')))
+" "$T/elf/C/Tool" "$T/mix/C/Old" "$T/hunkdata"
 cp "$T/elf/C/Tool" "$T/mix/C/Tool"
 $PKG MANIFEST "$T/elf" > "$T/elf.m" 2>&1
 has "$T/elf.m" '^Architecture: aarch64$';            ok $? "an aarch64 ELF executable makes the package aarch64"
 $PKG MANIFEST "$T/mix" NAME tool > "$T/mix.m" 2>&1
 [ $? -eq 20 ] && has "$T/mix.m" 'C/Old (m68k)';       ok $? "aarch64 and 68k hunk executables in one drawer: refused with 20, both named"
+mkdir -p "$T/hd/C" "$T/hd/Prefs"; cp "$T/elf/C/Tool" "$T/hd/C/Tool"; cp "$T/hunkdata" "$T/hd/Prefs/deficons.prefs"
+$PKG MANIFEST "$T/hd" > "$T/hd.m" 2>&1
+[ $? -eq 0 ] && has "$T/hd.m" '^Architecture: aarch64$'; ok $? "a hunk file of data only, like deficons.prefs, is bound to no CPU"
 $PKG MANIFEST "$T/elf" ARCH m68k > "$T/elf.m2" 2>&1
 [ $? -eq 20 ] && has "$T/elf.m2" 'built for aarch64'; ok $? "ARCH contradicting the executables is refused"
 $PKG MANIFEST "$D" > "$T/gen.m" 2>&1
@@ -675,6 +682,26 @@ printf 'tampered' > "$FA/src/Top/Extras/App/ReadMe"
 (cd "$FA/src" && COPYFILE_DISABLE=1 tar -cjf "$FA/ch/archives/nightly.tar.bz2" Top)
 $PKG INSTALL app ROOT "$FA/r2" CHANNEL "$FA/ch" MACHINE > "$T/fa4" 2>&1
 [ $? -eq 12 ] && [ ! -e "$FA/r2/Extras/App/ReadMe" ]; ok $? "an archive whose files changed since publishing is refused, nothing placed"
+# Nightly builds: the version is the program's $VER plus the build; a build
+# whose files equal the last version's is not published; publishing reads the
+# archive's index after the first time.
+cp "$FA/nightly.tar.bz2" "$FA/ch/archives/nightly.tar.bz2"
+$PKG PUBLISH "$FA/ch/archives/nightly.tar.bz2!/Top" FILES "Extras/Other" CHANNEL "$FA/ch" NAME other BUILD 20260918 \
+    KIND data MACHINE > "$T/fb1" 2>&1
+has "$T/fb1" '^version: 0+20260918$' && [ -f "$FA/ch/archives/nightly.tar.bz2.pkgidx" ]
+                                                      ok $? "BUILD with no \$VER gives 0+build, and the archive's index is kept beside it"
+$PKG PUBLISH "$FA/ch/archives/nightly.tar.bz2!/Top" FILES "Extras/App,Prefs/Env-Archive/SYS/Packages/App" CHANNEL "$FA/ch" \
+    NAME app BUILD 20260920 MACHINE > "$T/fb2" 2>&1
+[ $? -eq 0 ] && has "$T/fb2" '^result: unchanged$' && has "$T/fb2" '^version: 2.1+20260920$' && has "$T/fb2" '^same-as: app 2.1+20260918$' \
+    && ! grep -q ' 2.1+20260920 ' "$FA/ch/index";       ok $? "a nightly whose files equal the last version's publishes nothing"
+python3 -c "
+import sys
+p=sys.argv[1]; s=open(p).read().split(chr(10)); s[1]=s[1].replace(' ', ' X', 0); open(p,'w').write(chr(10).join(s))
+" "$FA/ch/archives/nightly.tar.bz2.pkgidx"
+touch -t 202001010000 "$FA/ch/archives/nightly.tar.bz2"
+$PKG PUBLISH "$FA/ch/archives/nightly.tar.bz2!/Top" FILES "Extras/Other" CHANNEL "$FA/ch" NAME other2 BUILD 1 KIND data \
+    TRACE "$T/fb3.trace" MACHINE > /dev/null 2>&1
+grep -q 'indexing ' "$T/fb3.trace";                   ok $? "an archive changed since its index was made is indexed again"
 rm "$FA/ch/archives/nightly.tar.bz2"
 $PKG INSTALL app ROOT "$FA/r3" CHANNEL "$FA/ch" MACHINE > "$T/fa5" 2>&1
 [ $? -eq 11 ] && has "$T/fa5" 'which the channel does not have'; ok $? "an archive missing from the channel is said so"

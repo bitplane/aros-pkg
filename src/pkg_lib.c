@@ -620,6 +620,11 @@ struct loaded {
     unsigned long long prot;    /* the AROS protection word it is published with */
     char          *comment;     /* its comment, UTF-8; NULL for none */
     int            host_exec;   /* from an archive's mode: 1, 0; -2 ask the file system */
+    /* From an archive's metadata index, with no data loaded: */
+    int            pre;
+    char           pre_digest[PKG_SHA256_HEXLEN + 1];
+    const char    *pre_arch;    /* NULL: no executable header */
+    char           pre_cookie[140];  /* "name version", or "" */
 };
 
 struct drawer {
@@ -664,6 +669,7 @@ static int load_one(const char *rel, void *ctx)
         d->v = w;
         d->cap = ncap;
     }
+    memset(&d->v[d->n], 0, sizeof d->v[d->n]);     /* every field, the new ones too */
     full = pkg_join(d->root, rel);
     d->v[d->n].rel = full ? pkg_join("", rel) : NULL;
     if (full == NULL || d->v[d->n].rel == NULL
@@ -682,14 +688,15 @@ static int load_one(const char *rel, void *ctx)
 
 /* A drawer that is a part of an archive: "archive!/prefix", optionally only
  * the paths FILES names under it. Paths are relative to the prefix, as they
- * install; owner Execute comes from the archive's own mode bits. */
-struct arch_load {
-    struct drawer *d;
-    const char    *prefix;          /* "" for the whole archive */
-    const char    *files;           /* comma-separated, or NULL */
-    struct loaded *cur;
-    size_t         cap_cur;
-};
+ * install; owner Execute comes from the archive's own mode bits.
+ *
+ * Publishing needs each file's digest, size, mode, CPU and $VER, never its
+ * bytes: the first read of an archive writes them to <archive>.pkgidx, keyed
+ * to the archive's size and time, and every later publish from it reads that
+ * index instead of the archive. Installers never use the index: they read
+ * the archive and check each file against the signed manifest. */
+static const char *file_arch(const unsigned char *p, size_t len);
+static int cookie(const struct loaded *f, char *name, size_t nl, char *ver, size_t vl);
 
 static int files_match(const char *files, const char *rel)
 {
@@ -705,76 +712,182 @@ static int files_match(const char *files, const char *rel)
     return 0;
 }
 
-static int arch_want(const struct pkg_archive_entry *e, void *ctx)
+static const char *arch_intern(const char *a)
 {
-    struct arch_load *al = (struct arch_load *)ctx;
-    struct drawer *d = al->d;
-    size_t pl = strlen(al->prefix);
-    const char *rel = e->path, *c;
-    if (e->is_dir) return 0;
-    if (pl) {
-        if (strncmp(e->path, al->prefix, pl) != 0 || e->path[pl] != '/') return 0;
-        rel = e->path + pl + 1;
-    }
-    if (al->files && !files_match(al->files, rel)) return 0;
-    for (c = rel; c; c = strchr(c, '/') ? strchr(c, '/') + 1 : NULL)
-        if (*c == '.') { leave_out(rel, 0, d); return 0; }   /* hidden, as a drawer's */
-    if (pkg_check_path(rel) != NULL) {
-        snprintf(d->err, sizeof d->err, "\"%s\": %s", rel, pkg_check_path(rel));
-        return -1;
-    }
-    if (d->n == d->cap) {
-        size_t ncap = d->cap ? d->cap * 2u : 32u;
-        struct loaded *w = (struct loaded *)realloc(d->v, ncap * sizeof *w);
-        if (w == NULL) return -1;
-        d->v = w;
-        d->cap = ncap;
-    }
-    al->cur = &d->v[d->n];
-    memset(al->cur, 0, sizeof *al->cur);
-    al->cur->rel = pkg_join("", rel);
-    al->cur->host_exec = (e->mode & 0100) != 0;
-    al->cap_cur = 0;
-    if (al->cur->rel == NULL) return -1;
-    d->n++;
-    return 1;
+    static const char *const known[] = { "i386", "m68k", "ppc", "ppc64", "arm", "x86_64", "aarch64" };
+    size_t i;
+    for (i = 0; i < sizeof known / sizeof known[0]; i++)
+        if (strcmp(a, known[i]) == 0) return known[i];
+    return NULL;
 }
 
-static int arch_data(const struct pkg_archive_entry *e, const unsigned char *buf, size_t len, void *ctx)
+struct idx_build {
+    char          *out;             /* the index text being written */
+    size_t         len, cap;
+    unsigned char *data;
+    size_t         dlen, dcap;
+    int            oom;
+};
+
+static void ib_put(struct idx_build *ib, const char *s)
 {
-    struct arch_load *al = (struct arch_load *)ctx;
-    struct loaded *f = al->cur;
-    (void)e;
-    if (len == 0) {
-        if (f->data == NULL && (f->data = (unsigned char *)malloc(1)) == NULL) return -1;
+    size_t n = strlen(s);
+    if (ib->oom) return;
+    if (ib->len + n + 1 > ib->cap) {
+        size_t nc = ib->cap ? ib->cap * 2 : 65536;
+        char *g;
+        while (nc < ib->len + n + 1) nc *= 2;
+        g = (char *)realloc(ib->out, nc);
+        if (g == NULL) { ib->oom = 1; return; }
+        ib->out = g;
+        ib->cap = nc;
+    }
+    memcpy(ib->out + ib->len, s, n + 1);
+    ib->len += n;
+}
+
+static int ib_want(const struct pkg_archive_entry *e, void *ctx)
+{
+    (void)ctx;
+    return e->is_dir ? 0 : 1;
+}
+
+static int ib_data(const struct pkg_archive_entry *e, const unsigned char *buf, size_t len, void *ctx)
+{
+    struct idx_build *ib = (struct idx_build *)ctx;
+    if (len > 0) {
+        if (ib->dlen + len > ib->dcap) {
+            size_t nc = ib->dcap ? ib->dcap : 65536;
+            unsigned char *g;
+            while (nc < ib->dlen + len) nc *= 2;
+            g = (unsigned char *)realloc(ib->data, nc);
+            if (g == NULL) return -1;
+            ib->data = g;
+            ib->dcap = nc;
+        }
+        memcpy(ib->data + ib->dlen, buf, len);
+        ib->dlen += len;
         return 0;
     }
-    if (f->len + len > al->cap_cur) {
-        size_t nc = al->cap_cur ? al->cap_cur : 4096;
-        unsigned char *g;
-        while (nc < f->len + len) nc *= 2;
-        g = (unsigned char *)realloc(f->data, nc);
-        if (g == NULL) return -1;
-        f->data = g;
-        al->cap_cur = nc;
+    {
+        /* The whole file is here: what publishing needs of it, then its bytes go. */
+        struct loaded f;
+        char hex[PKG_SHA256_HEXLEN + 1], cn[65], cv[64], line[5200];
+        const char *arch;
+        memset(&f, 0, sizeof f);
+        f.data = ib->data;
+        f.len = ib->dlen;
+        pkg_sha256_hex(ib->data ? ib->data : (const unsigned char *)"", ib->dlen, hex);
+        arch = file_arch(ib->data, ib->dlen);
+        if (!cookie(&f, cn, sizeof cn, cv, sizeof cv)) { strcpy(cn, "-"); strcpy(cv, "-"); }
+        snprintf(line, sizeof line, "%s %lu %o %s %s %s %s\n", hex, (unsigned long)ib->dlen,
+                 e->mode, arch ? arch : "-", cn, cv, e->path);
+        ib_put(ib, line);
+        ib->dlen = 0;
     }
-    memcpy(f->data + f->len, buf, len);
-    f->len += len;
-    return 0;
+    return ib->oom ? -1 : 0;
+}
+
+/* The archive's index, built when missing or stale; the caller frees it. */
+static char *archive_index(const char *archive, char *err, size_t errlen)
+{
+    struct pkg_fs_id id;
+    char *ip = NULL, head[128], *text = NULL;
+    unsigned char *buf = NULL;
+    size_t len = 0;
+    struct idx_build ib;
+
+    if (pkg_fs_identity(archive, &id) != 0 || !id.exists) {
+        snprintf(err, errlen, "cannot read %s", archive);
+        return NULL;
+    }
+    /* The version changes whenever what it records is computed differently. */
+    snprintf(head, sizeof head, "pkgidx 2 %llu %lld\n", id.size, id.mtime_s);
+    ip = (char *)malloc(strlen(archive) + 8);
+    if (ip == NULL) { snprintf(err, errlen, "out of memory"); return NULL; }
+    snprintf(ip, strlen(archive) + 8, "%s.pkgidx", archive);
+    if (pkg_fs_read(ip, &buf, &len) == 0 && len > strlen(head)
+        && memcmp(buf, head, strlen(head)) == 0) {
+        text = (char *)realloc(buf, len + 1);
+        if (text != NULL) text[len] = '\0';
+        tr("archive index %s is current", ip);
+        free(ip);
+        return text;
+    }
+    free(buf);
+    tr("indexing %s: every file read once, for its digest, mode, CPU and $VER", archive);
+    memset(&ib, 0, sizeof ib);
+    ib_put(&ib, head);
+    if (pkg_archive_walk(archive, ib_want, ib_data, &ib, err, errlen) != 0 || ib.oom) {
+        if (ib.oom && !err[0]) snprintf(err, errlen, "out of memory");
+        free(ib.out); free(ib.data); free(ip);
+        return NULL;
+    }
+    free(ib.data);
+    if (pkg_fs_write_atomic(ip, ib.out, ib.len) != 0)
+        tr("the archive index could not be kept at %s; it is used for this run only", ip);
+    free(ip);
+    return ib.out;
 }
 
 static int load_archive(struct drawer *d, const char *archive, const char *prefix, const char *files)
 {
-    struct arch_load al;
-    char err[300];
-    memset(&al, 0, sizeof al);
-    al.d = d;
-    al.prefix = prefix;
-    al.files = files;
-    if (pkg_archive_walk(archive, arch_want, arch_data, &al, err, sizeof err) != 0) {
-        if (!d->err[0]) snprintf(d->err, sizeof d->err, "%.200s: %.280s", archive, err[0] ? err : "cannot read it");
+    char err[300], *idx, *line, *next;
+    size_t pl = strlen(prefix);
+    err[0] = '\0';
+    idx = archive_index(archive, err, sizeof err);
+    if (idx == NULL) {
+        snprintf(d->err, sizeof d->err, "%.200s: %.280s", archive, err[0] ? err : "cannot read it");
         return -1;
     }
+    next = strchr(idx, '\n');                      /* past the header */
+    for (line = next ? next + 1 : NULL; line && *line; line = next) {
+        char hex[PKG_SHA256_HEXLEN + 1], arch[16], cn[65], cv[64];
+        unsigned long size;
+        unsigned mode;
+        int off = 0;
+        const char *path, *rel, *c;
+        struct loaded *f;
+        next = strchr(line, '\n');
+        if (next) *next++ = '\0';
+        if (sscanf(line, "%64s %lu %o %15s %64s %63s %n", hex, &size, &mode, arch, cn, cv, &off) != 6
+            || off == 0)
+            continue;
+        path = line + off;
+        rel = path;
+        if (pl) {
+            if (strncmp(path, prefix, pl) != 0 || path[pl] != '/') continue;
+            rel = path + pl + 1;
+        }
+        if (files && !files_match(files, rel)) continue;
+        for (c = rel; c; c = strchr(c, '/') ? strchr(c, '/') + 1 : NULL)
+            if (*c == '.') break;
+        if (c) { leave_out(rel, 0, d); continue; }     /* hidden, as a drawer's */
+        if (pkg_check_path(rel) != NULL) {
+            snprintf(d->err, sizeof d->err, "\"%.200s\": %s", rel, pkg_check_path(rel));
+            free(idx);
+            return -1;
+        }
+        if (d->n == d->cap) {
+            size_t ncap = d->cap ? d->cap * 2u : 32u;
+            struct loaded *w = (struct loaded *)realloc(d->v, ncap * sizeof *w);
+            if (w == NULL) { free(idx); return -1; }
+            d->v = w;
+            d->cap = ncap;
+        }
+        f = &d->v[d->n];
+        memset(f, 0, sizeof *f);
+        f->rel = pkg_join("", rel);
+        if (f->rel == NULL) { free(idx); return -1; }
+        f->len = size;
+        f->host_exec = (mode & 0100) != 0;
+        f->pre = 1;
+        snprintf(f->pre_digest, sizeof f->pre_digest, "%s", hex);
+        f->pre_arch = strcmp(arch, "-") ? arch_intern(arch) : NULL;
+        if (strcmp(cn, "-")) snprintf(f->pre_cookie, sizeof f->pre_cookie, "%s %s", cn, cv);
+        d->n++;
+    }
+    free(idx);
     return 0;
 }
 
@@ -797,6 +910,13 @@ static int cookie(const struct loaded *f, char *name, size_t nl, char *ver, size
 {
     const unsigned char *p = f->data;
     size_t j;
+    if (f->pre) {
+        const char *sp = strchr(f->pre_cookie, ' ');
+        if (sp == NULL) return 0;
+        snprintf(name, nl, "%.*s", (int)(sp - f->pre_cookie), f->pre_cookie);
+        snprintf(ver, vl, "%s", sp + 1);
+        return 1;
+    }
     for (j = 0; j + 6 < f->len; j++) {
         size_t k = j + 6, a = 0, b = 0;
         if (memcmp(p + j, "$VER: ", 6) != 0)
@@ -885,8 +1005,27 @@ static const char *file_arch(const unsigned char *p, size_t len)
         default:  return NULL;
         }
     }
-    if (len >= 4 && pkg_be32_get(p) == 0x000003F3ul)
-        return "m68k";
+    if (len >= 24 && pkg_be32_get(p) == 0x000003F3ul) {
+        /* HUNK_HEADER: resident library names (a zero-terminated list of
+         * counted strings), the table size, first and last hunk, one size
+         * per hunk, then the first hunk's type. A program starts with
+         * HUNK_CODE; a hunk file of data only, such as deficons.prefs, is
+         * not tied to a CPU. */
+        size_t at = 4, n;
+        unsigned long first, last, type;
+        while (at + 4 <= len && (n = pkg_be32_get(p + at)) != 0) {
+            at += 4 + 4 * (size_t)n;
+            if (n > len) return NULL;
+        }
+        if (at + 16 > len) return NULL;
+        first = pkg_be32_get(p + at + 8);
+        last = pkg_be32_get(p + at + 12);
+        if (last < first || last - first > 4096) return NULL;
+        at += 16 + 4 * (size_t)(last - first + 1);
+        if (at + 4 > len) return NULL;
+        type = pkg_be32_get(p + at) & 0x3FFFFFFFul;
+        return type == 0x3E9ul ? "m68k" : NULL;      /* HUNK_CODE */
+    }
     return NULL;
 }
 
@@ -900,7 +1039,7 @@ static int drawer_arch(const struct drawer *d, const char **arch, const char **f
     *arch = NULL;
     seen[0] = '\0';
     for (i = 0; i < d->n; i++) {
-        const char *a = file_arch(d->v[i].data, d->v[i].len);
+        const char *a = d->v[i].pre ? d->v[i].pre_arch : file_arch(d->v[i].data, d->v[i].len);
         if (a == NULL)
             continue;
         if (at + 80 < sl)
@@ -1059,7 +1198,7 @@ static void check_cookie_names(const struct drawer *d)
     for (i = 0; i < d->n; i++) {
         const char *base = strrchr(d->v[i].rel, '/');
         base = base ? base + 1 : d->v[i].rel;
-        if (file_arch(d->v[i].data, d->v[i].len) == NULL     /* scripts name other programs */
+        if ((d->v[i].pre ? d->v[i].pre_arch : file_arch(d->v[i].data, d->v[i].len)) == NULL
             || !cookie(&d->v[i], n, sizeof n, v, sizeof v))
             continue;
         squash(n, sn, sizeof sn);
@@ -1304,6 +1443,10 @@ static int build(const struct pkg_options *a, struct built *out)
         int needed = name == NULL || version == NULL;
         if (!needed && got < 0)
             got = 0;
+        if (got < 0 && a->build != NULL) {
+            got = 0;        /* a nightly component whose cookies name other programs: 0+build */
+            tr("no $VER cookie of %s among %s: its version is 0+%s", name ? name : "it", seen, a->build);
+        }
         if (got < 0 && name != NULL) {
             drawer_free(&d);
             return refuse_c(20, "none of the drawer's $VER cookies is %s: %s. Add VERSION",
@@ -1377,9 +1520,28 @@ static int build(const struct pkg_options *a, struct built *out)
                         "runs as it starts; data, sdk or slave", name ? name : "this package");
     }
     kind = kind_src ? kind_src : "application";
+    if (out->m.source != NULL && strcmp(kind, "image") == 0) {
+        drawer_free(&d);
+        return refuse_c(20, "files taken from an archive install at the paths the archive gives "
+                        "them; an image is made from a drawer. Use another kind, or unpack the "
+                        "drawer and publish it as an image");
+    }
     if (name == NULL) {
         drawer_free(&d);
         return refuse_c(20, "no NAME given and no $VER: cookie found; add NAME <name>");
+    }
+    if (a->build != NULL) {
+        /* A nightly: the component's own version, and the build it came from. */
+        static char with_build[160];
+        size_t k;
+        for (k = 0; a->build[k] && ((a->build[k] >= '0' && a->build[k] <= '9') || a->build[k] == '.'); k++) ;
+        if (a->build[0] == '\0' || a->build[k] != '\0') {
+            drawer_free(&d);
+            return refuse_c(20, "BUILD must be dotted numbers, such as the date of the nightly: 20260918");
+        }
+        snprintf(with_build, sizeof with_build, "%.*s+%s", version ? (int)strcspn(version, "+") : 1,
+                 version ? version : "0", a->build);
+        version = with_build;
     }
     if (version == NULL) {
         drawer_free(&d);
@@ -1443,9 +1605,10 @@ static int build(const struct pkg_options *a, struct built *out)
     if (w == NULL) { drawer_free(&d); return refuse("out of memory"); }
     for (i = 0; i < d.n; i++) {
         char hex[PKG_SHA256_HEXLEN + 1];
-        pkg_sha256_hex(d.v[i].data, d.v[i].len, hex);
+        if (d.v[i].pre) snprintf(hex, sizeof hex, "%s", d.v[i].pre_digest);
+        else pkg_sha256_hex(d.v[i].data, d.v[i].len, hex);
         if (pkg_manifest_add_file(&out->m, d.v[i].rel, hex, (unsigned long long)d.v[i].len) != 0
-            || pkg_writer_add(w, d.v[i].rel, d.v[i].data, d.v[i].len) != PKG_OK) {
+            || (!d.v[i].pre && pkg_writer_add(w, d.v[i].rel, d.v[i].data, d.v[i].len) != PKG_OK)) {
             pkg_writer_free(w); drawer_free(&d);
             return refuse("out of memory");
         }
@@ -3375,7 +3538,7 @@ out:
 
 /* A new version against the highest one published: the files that changed,
  * and the slips that show there (the old build again, a $VER not raised). */
-static void compare_last(const struct pkg_manifest *em, const struct built *b)
+static long compare_last(const struct pkg_manifest *em, const struct built *b)
 {
     const struct pkg_file *nv = b->m.ncontent ? b->m.content : b->m.files;
     const struct pkg_file *ov = em->ncontent ? em->content : em->files;
@@ -3385,7 +3548,7 @@ static void compare_last(const struct pkg_manifest *em, const struct built *b)
     int comparable = (b->m.ncontent > 0) == (em->ncontent > 0);
 
     if (pkg_version_cmp(b->m.version, em->version) == 0)
-        return;
+        return -1;
     if (b->cookie_ver[0] && pkg_version_cmp(b->cookie_ver, em->version) == 0)
         warn("the $VER cookie in %s says %s, the version already published: this is the %s build "
              "again, changed or not, or a new build whose $VER was not raised. Ask which before "
@@ -3394,7 +3557,7 @@ static void compare_last(const struct pkg_manifest *em, const struct built *b)
         if (dryrun)
             hint("%s %s was published before its image listed its files; nothing to compare "
                  "file by file", em->name, em->version);
-        return;
+        return -1;
     }
     if (dryrun)
         kv("compared-with", "%s %s", em->name, em->version);
@@ -3405,7 +3568,8 @@ static void compare_last(const struct pkg_manifest *em, const struct built *b)
         if (j == on) {
             changed++;
             if (dryrun) kv("added", "%s %llu", nv[i].path, nv[i].size);
-        } else if (strcmp(nv[i].digest, ov[j].digest) != 0) {
+        } else if (strcmp(nv[i].digest, ov[j].digest) != 0 || nv[i].prot != ov[j].prot
+                   || strcmp(nv[i].comment ? nv[i].comment : "", ov[j].comment ? ov[j].comment : "") != 0) {
             changed++;
             if (dryrun) kv("changed", "%s %llu %llu", nv[i].path, ov[j].size, nv[i].size);
         } else if (dryrun) {
@@ -3421,9 +3585,10 @@ static void compare_last(const struct pkg_manifest *em, const struct built *b)
             if (dryrun) kv("gone", "%s", ov[j].path);
         }
     }
-    if (changed == 0)
+    if (changed == 0 && b->m.source == NULL)
         warn("every file is identical to %s %s's: nothing changed but the version number",
              em->name, em->version);
+    return (long)changed;
 }
 
 static int cmd_publish(const struct pkg_options *a)
@@ -3435,6 +3600,7 @@ static int cmd_publish(const struct pkg_options *a)
     char *po = NULL, *mo = NULL, *so = NULL, s12[13];
     char mdigest[PKG_SHA256_HEXLEN + 1];
     int rc = 1, new_channel, keyless = 0;
+    char same_as[160] = "";
 
     if (a->channel == NULL)
         return refuse_c(20, "name the channel with CHANNEL <dir>");
@@ -3574,7 +3740,11 @@ static int cmd_publish(const struct pkg_options *a)
                         memset(&k, 0, sizeof k);
                         return 1;
                     }
-                    compare_last(&em, &b);
+                    if (compare_last(&em, &b) == 0 && a->build != NULL
+                        && strcmp(em.kind, b.m.kind) == 0 && strcmp(em.architecture, b.m.architecture) == 0) {
+                        /* A new build of the same files is no new version. */
+                        snprintf(same_as, sizeof same_as, "%s %s", em.name, em.version);
+                    }
                     if (strcmp(em.kind, b.m.kind) != 0)
                         warn("%s %s was published as kind %s, and this version is kind %s",
                              em.name, em.version, em.kind, b.m.kind);
@@ -3594,6 +3764,17 @@ static int cmd_publish(const struct pkg_options *a)
             }
             free(mp);
         }
+    }
+    if (same_as[0]) {
+        kv("result", "unchanged");
+        kv("name", "%s", b.m.name);
+        kv("version", "%s", b.m.version);
+        kv("same-as", "%s", same_as);
+        if (!machine)
+            say("%s %s: every file is that of %s, so no new version is published\n", b.m.name,
+                b.m.version, same_as);
+        rc = 0;
+        goto out;
     }
     if (dryrun) {
         size_t d;
