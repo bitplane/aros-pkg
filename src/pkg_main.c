@@ -490,34 +490,65 @@ static void drawer_free(struct drawer *d)
     free(d->left_out);
 }
 
-/* Find "$VER: name version" in the files, first file in path order wins. */
-static int find_ver(const struct drawer *d, char *name, size_t nl,
-                    char *ver, size_t vl, const char **from)
+/* The first "$VER: name version" cookie of one file, lower-cased. */
+static int cookie(const struct loaded *f, char *name, size_t nl, char *ver, size_t vl)
 {
-    size_t i, j;
-    for (i = 0; i < d->n; i++) {
-        const unsigned char *p = d->v[i].data;
-        size_t len = d->v[i].len;
-        for (j = 0; j + 6 < len; j++) {
-            size_t k = j + 6, a = 0, b = 0;
-            if (memcmp(p + j, "$VER: ", 6) != 0)
-                continue;
-            while (k < len && p[k] > ' ' && p[k] < 0x7F && a + 1 < nl)
-                name[a++] = (char)tolower(p[k++]);
-            name[a] = '\0';
-            while (k < len && p[k] == ' ') k++;
-            while (k < len && ((p[k] >= '0' && p[k] <= '9') || p[k] == '.') && b + 1 < vl)
-                ver[b++] = (char)p[k++];
-            while (b > 0 && ver[b - 1] == '.') b--;
-            ver[b] = '\0';
-            if (a > 0 && b > 0 && pkg_check_name(name) == NULL
-                && pkg_check_version(ver) == NULL) {
-                *from = d->v[i].rel;
-                return 1;
-            }
-        }
+    const unsigned char *p = f->data;
+    size_t j;
+    for (j = 0; j + 6 < f->len; j++) {
+        size_t k = j + 6, a = 0, b = 0;
+        if (memcmp(p + j, "$VER: ", 6) != 0)
+            continue;
+        while (k < f->len && p[k] > ' ' && p[k] < 0x7F && a + 1 < nl)
+            name[a++] = (char)tolower(p[k++]);
+        name[a] = '\0';
+        while (k < f->len && p[k] == ' ') k++;
+        while (k < f->len && ((p[k] >= '0' && p[k] <= '9') || p[k] == '.') && b + 1 < vl)
+            ver[b++] = (char)p[k++];
+        while (b > 0 && ver[b - 1] == '.') b--;
+        ver[b] = '\0';
+        if (a > 0 && b > 0 && pkg_check_name(name) == NULL && pkg_check_version(ver) == NULL)
+            return 1;
     }
     return 0;
+}
+
+/* Name and version from the drawer's $VER cookies. With `want` (NAME given),
+ * the cookie of that name gives the version. Without it, the cookies must all
+ * agree: two programs in one drawer, each with its own cookie, would otherwise
+ * make the package whichever sorts first, silently. 1 found, 0 none, -1 the
+ * cookies disagree, listed in `seen`. */
+static int find_ver(const struct drawer *d, const char *want, char *name, size_t nl,
+                    char *ver, size_t vl, const char **from, char *seen, size_t sl)
+{
+    size_t i, at = 0;
+    int found = 0, clash = 0;
+    char n[65], v[64];
+
+    seen[0] = '\0';
+    for (i = 0; i < d->n; i++) {
+        if (!cookie(&d->v[i], n, sizeof n, v, sizeof v))
+            continue;
+        if (at + 100 < sl)
+            at += (size_t)snprintf(seen + at, sl - at, "%s%s (%s %s)", at ? ", " : "",
+                                   d->v[i].rel, n, v);
+        if (want != NULL) {
+            if (!found && strcmp(n, want) == 0) {
+                snprintf(name, nl, "%s", n);
+                snprintf(ver, vl, "%s", v);
+                *from = d->v[i].rel;
+                found = 1;
+            }
+        } else if (!found) {
+            snprintf(name, nl, "%s", n);
+            snprintf(ver, vl, "%s", v);
+            *from = d->v[i].rel;
+            found = 1;
+        } else if (strcmp(n, name) != 0 || pkg_version_cmp(v, ver) != 0) {
+            clash = 1;
+        }
+    }
+    return clash ? -1 : found;
 }
 
 /* DEPENDS "a >= 1.0, b": each item a name, alone or with ">=" and the lowest
@@ -651,11 +682,20 @@ static int build(const struct args *a, struct built *out)
 
     name = a->name;
     version = a->version;
-    if ((name == NULL || version == NULL)
-        && find_ver(&d, vname, sizeof vname, vver, sizeof vver, &from)) {
-        if (name == NULL) name = vname;
-        if (version == NULL) version = vver;
-        snprintf(out->ver_from, sizeof out->ver_from, "%s", from);
+    if (name == NULL || version == NULL) {
+        char seen[600];
+        int got = find_ver(&d, name, vname, sizeof vname, vver, sizeof vver, &from,
+                           seen, sizeof seen);
+        if (got < 0) {
+            drawer_free(&d);
+            return refuse_c(20, "the $VER cookies in the drawer name different programs or "
+                            "versions: %s. Say which this package is with NAME and VERSION", seen);
+        }
+        if (got > 0) {
+            if (name == NULL) name = vname;
+            if (version == NULL) version = vver;
+            snprintf(out->ver_from, sizeof out->ver_from, "%s", from);
+        }
     }
     arch = a->arch ? a->arch : "generic";
     kind = a->kind ? a->kind : "application";
@@ -1991,12 +2031,15 @@ static int cmd_remove(const struct args *a)
     return 0;
 }
 
+static void (*usage_to)(const char *fmt, ...) = pkg_err;
+
 static int usage(void)
 {
-    pkg_err("usage:\n"
+    usage_to("usage:\n"
         "  pkg KEYGEN   FILE <keyfile>\n"
         "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]\n"
         "  pkg PUBLISH  <drawer> CHANNEL <dir> [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a] [KIND k]\n"
+        "               [DEPENDS \"a >= 1, b\"]\n"
         "  pkg SIGN     <file> KEY <keyfile> OUT <sigfile>\n"
         "  pkg INSTALL  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ACCEPTKEY <hex>]\n"
         "  pkg UPGRADE  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [DOWNGRADE] [ACCEPTKEY <hex>]\n"
@@ -2007,6 +2050,7 @@ static int usage(void)
         "  pkg REMOVE   ORPHANS ROOT <dir>\n"
         "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
         "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
+        "  pkg HELP\n"
         "SIGN defaults to $PKG_SIGNKEY. Any verb takes MACHINE, or PKG_OUTPUT=machine:\n"
         "key: value lines, and the exit code names the class of a refusal.\n");
     return PKGRC_USAGE;
@@ -2046,6 +2090,14 @@ static int run_verb(int argc, char **argv)
         else usage();
         machine = saved_machine;
         return PKGRC_USAGE;
+    }
+    if (ieq(argv[1], "HELP")) {
+        /* Asked for: to stdout, and a success. */
+        usage_to = pkg_out;
+        usage();
+        usage_to = pkg_err;
+        machine = saved_machine;
+        return PKGRC_OK;
     }
     for (i = 0; i < sizeof verbs / sizeof verbs[0]; i++) {
         if (ieq(argv[1], verbs[i].verb)) {

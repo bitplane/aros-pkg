@@ -117,6 +117,21 @@ has "$T/rm" 'kept     Libs/data.txt';                 ok $? "the edited file is 
 [ ! -e "$R/.pkg/db/hello" ];                          ok $? "database entry gone"
 rm -f "$R/Libs/data.txt"; rmdir "$R/Libs" 2>/dev/null
 
+echo "cookies"
+
+mkdir -p "$T/two/C"
+printf 'x\000$VER: Guru 2.0 (31.5.2011)\000' > "$T/two/C/Guru"
+printf 'y\000$VER: Function 2.0 (31.5.2011)\000' > "$T/two/C/Function"
+$PKG MANIFEST "$T/two" > "$T/two.m" 2>&1
+[ $? -eq 20 ] && has "$T/two.m" 'C/Function (function 2.0), C/Guru (guru 2.0)'
+                                                      ok $? "two programs' cookies, no NAME: refused with 20, both listed"
+$PKG MANIFEST "$T/two" NAME guru > "$T/two.m2" 2>&1
+has "$T/two.m2" '^Name: guru$' && has "$T/two.m2" '^Version: 2.0$'
+                                                      ok $? "NAME alone takes the version from that program's cookie"
+$PKG HELP > "$T/help" 2>"$T/help.e"
+[ $? -eq 0 ] && has "$T/help" 'DEPENDS' && [ ! -s "$T/help.e" ]
+                                                      ok $? "HELP prints the usage on stdout and succeeds"
+
 echo "refusals"
 
 printf 'different\n' > "$D/Libs/data.txt"

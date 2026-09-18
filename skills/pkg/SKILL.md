@@ -11,6 +11,13 @@ ARexx port; the contract is the same on every host. Most people will never
 type these commands. You will, so follow this file exactly, and hand the
 decisions it marks as the person's back to the person.
 
+## Getting the tool
+
+Pkg is one executable, `pkg` (`Pkg` on AROS). If it is not on `PATH`, build it
+from its repository with `make` (it then is `build/pkg`), or, for AROS,
+`sh tools/build-aros.sh` (`build/aros/Pkg`). `pkg HELP` prints every verb and
+keyword. In this file `pkg` means that executable, wherever it is.
+
 ## Words
 
 - **Drawer**: a directory laid out as it will be installed (`C/Tool`,
@@ -23,6 +30,15 @@ decisions it marks as the person's back to the person.
   Every package is signed; there is no unsigned mode.
 - **Kind**: `application`, `library`, `device`, `class`, `font`, `catalog`,
   `startup`, `data`, `boot`, `slave`, `sdk`, or `image`.
+- **Package name**: lower case, `a-z 0-9 + . _ -`. Names read from a `$VER`
+  cookie are lower-cased (`identify.library` stays `identify.library`,
+  `Guru` becomes `guru`). Other packages refer to it by that exact name, in
+  `DEPENDS`, `INSTALL` and `REMOVE`; `LIST` and the channel's `index` show it.
+
+**Two routes.** A system component (a library, a handler, a class, a font)
+is published with its kind and installed into its fixed place. An
+application is published with `KIND image`, travels as one mountable volume,
+and names the components it needs with `DEPENDS`.
 
 ## Always ask for the machine contract
 
@@ -30,7 +46,23 @@ Add `MACHINE` to every command, or set `PKG_OUTPUT=machine`. Then:
 
 - stdout holds only `key: value` lines, and stderr stays empty;
 - every answer has a `result:` line;
-- the exit code (on AROS, `$RC`) names the class of a refusal.
+- the exit code (on AROS, `$RC`) names the class of a refusal. Read it
+  straight after the command: `$?` after a pipe is the pipe's, not Pkg's.
+
+| Verb | `result:` on success |
+|---|---|
+| KEYGEN | `created` |
+| PUBLISH | `published`, or `unchanged` when that exact version is already there |
+| INSTALL | `installed`, or `kept` (see below) |
+| UPGRADE, ROLLBACK | `upgraded`, `downgraded`, `rolled-back`, or `unchanged` |
+| VERIFY | `intact`; a damaged install is `damaged` with exit 12 |
+| LIST | `listed`, then `package:` lines and `count:` |
+| REMOVE | `removed`, with `orphan:` lines for what it leaves unneeded |
+| REMOVE ORPHANS | `removed`, with a `package:` line per package and `count:` |
+| IMAGE | `created` |
+
+The `result:` line is not always first: `dependency:` or `package:` lines
+may come before it. Look for it by its key.
 
 | Code | Class | What it means | What you do |
 |---|---|---|---|
@@ -63,11 +95,21 @@ step.
 4. **A published version never changes.** To ship a fix, publish a new
    version. Code 15 on `PUBLISH` means that version already exists with
    other bytes.
-5. **`REMOVE ORPHANS` removes packages.** Run `REMOVE` first, show the
-   person the `orphan:` lines it prints, and take them out only when asked.
+5. **`REMOVE ORPHANS` removes packages.** It is right when the person asked
+   to clean up what is left behind; otherwise show them the `orphan:` lines
+   `REMOVE` printed and ask.
 6. **Keys stay private.** Never print, copy or commit a key file. The public
    half is the `public:` line from `KEYGEN`, and only that is shared.
-7. **Check the output, not only the code.** On AROS, a command that cannot
+7. **Never touch `.pkg/` in a root by hand**, not even to "clean up": it is
+   the database. After everything is removed it still holds the keys pinned
+   for each package, on purpose, so that a later reinstall is held to the
+   same publisher.
+8. **Publishing is permanent.** A channel has no unpublish. Before
+   publishing, run the same command with `MANIFEST` instead of `PUBLISH`
+   (it prints the manifest and writes nothing) and check `Name:`,
+   `Version:`, `Kind:` and `Depends:`. When unsure, publish to a scratch
+   channel first.
+9. **Check the output, not only the code.** On AROS, a command that cannot
    even load leaves `$RC` unchanged, so a script can read 0 after a failure.
    A Pkg step has succeeded when its output has the `result:` you expect.
 
@@ -76,9 +118,12 @@ step.
 Once per publisher:
 
 ```sh
-pkg KEYGEN FILE ~/.pkg-dev.key MACHINE        # result: created, public: <hex>
-export PKG_SIGNKEY=~/.pkg-dev.key
+pkg KEYGEN FILE <keyfile> MACHINE        # result: created, public: <hex>
+export PKG_SIGNKEY=<keyfile>
 ```
+
+Put the key where the person keeps secrets (`~/.pkg-dev.key` is a common
+choice); KEYGEN never overwrites an existing key (exit 15).
 
 A system component (a library, a handler, a class): lay out the drawer as it
 installs, then
@@ -87,8 +132,11 @@ installs, then
 pkg PUBLISH <drawer> CHANNEL <channel> NAME foo VERSION 1.2 KIND library MACHINE
 ```
 
-`NAME` and `VERSION` may be left out when a file in the drawer carries a
-`$VER: name version` cookie; `version-from:` says which file was used. Host
+`NAME` and `VERSION` may be left out when the drawer's `$VER: name version`
+cookies agree; `version-from:` says which file was used. When they name
+different programs (a tool and its helper), Pkg refuses with 20 and lists
+them: pass `NAME`, and `VERSION` follows from that program's cookie. For an
+application image, pass `NAME` and `VERSION` always. Host
 metadata is never packaged: names starting with `.` (`.DS_Store`, `.git`,
 `.backdrop`), `Icon\r`, `Thumbs.db`, `desktop.ini`. Each is named in a
 `left-out:` line. Amiga icons, `Name.info`, are kept.
@@ -97,11 +145,15 @@ An application: publish it as an image, naming the system components it
 needs.
 
 ```sh
-pkg PUBLISH <drawer> CHANNEL <channel> KIND image DEPENDS "foo >= 1.2, bar" MACHINE
+pkg MANIFEST <drawer> NAME guru VERSION 2.0 KIND image DEPENDS "identify.library >= 37.1"
+pkg PUBLISH  <drawer> CHANNEL <channel> NAME guru VERSION 2.0 KIND image \
+             DEPENDS "identify.library >= 37.1" MACHINE
 ```
 
-The package holds one file, `<name>.hdf`, a read-only FFS volume made from
-the drawer. `pkg IMAGE <drawer> OUT <file> NAME <volume>` makes the same file
+The package holds one file, `<name>.hdf`, a read-only FFS volume whose top
+level is the drawer: lay it out as the program expects to find itself when
+mounted, commands in `C/` or at the top, its own helpers, icons and
+documents beside them. Only what other programs share goes into `DEPENDS`. `pkg IMAGE <drawer> OUT <file> NAME <volume>` makes the same file
 without a channel.
 
 ## Installing and changing
