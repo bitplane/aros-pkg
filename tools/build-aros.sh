@@ -44,10 +44,10 @@ COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
     -I include \
     "$developer/lib/startup.o" \
     src/pkg_main.c src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c \
-    src/pkg_ed25519.c src/pkg_manifest.c src/pkg_fs_posix.c src/pkg_out.c \
+    src/pkg_ed25519.c src/pkg_manifest.c src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c \
     -o "$out/Pkg" \
     -Wl,--allow-multiple-definition -Wl,--start-group \
-    -lpthread -lposixc -lstdc -lstdcio -ldos -lexec -laros \
+    -lrexxsyslib -lpthread -lposixc -lstdc -lstdcio -ldos -lexec -laros \
     -lautoinit -llibinit -lutility -lamiga -larossupport \
     -Wl,--end-group -lclang_rt.builtins-aarch64
 chmod 755 "$out/Pkg"

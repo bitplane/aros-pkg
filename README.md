@@ -14,7 +14,7 @@ directory of signed index snapshots and content-addressed objects.
 
 ## State
 
-Goal and milestones: [GOAL.md](GOAL.md). **M1, M2 and M3 are done**: the loop on macOS, trust and versions, and the client on hosted AROS installing the real AFS+ handler.
+Goal and milestones: [GOAL.md](GOAL.md). **The goal is met**: all four milestones, and the whole sequence passes as one run, `tests/goal.sh`, 25 checks.
 
 | Piece | State |
 |---|---|
@@ -28,7 +28,7 @@ Goal and milestones: [GOAL.md](GOAL.md). **M1, M2 and M3 are done**: the loop on
 | `KEYGEN`, `SIGN`, signed `PUBLISH`, key pinned per package in the root | Built, end-to-end test |
 | `UPGRADE`, `ROLLBACK`, `DOWNGRADE`, `EXACT` and `COMPATIBLE` selection | Built, end-to-end test |
 | AROS client | Built with `tools/build-aros.sh`; `make check-aros` and `tests/aros-handler.sh` on hosted AROS |
-| ARexx port | M4 |
+| ARexx port `PKG` | Built: `Pkg PORT` on AROS, every verb, RESULT on success, RC 10 and `LASTERROR` on refusal |
 
 ## On hosted AROS
 
@@ -71,6 +71,52 @@ Four things the hosted runs established, none of them guessed beforehand:
   an on-disk format has to declare whether its state survives a downgrade, and
   ROLLBACK has to honour that declaration. Not built yet; recorded as the next
   piece of the version model.
+
+## The goal sequence
+
+`tests/goal.sh` runs the goal as one sequence that passes or fails:
+
+1. On macOS, the AFS+ handler at interface revisions 14 and 15 is published into
+   a directory channel, signed with a development key. An attacker publishes a
+   16 into the same channel with another key, and a copy of the channel has one
+   payload byte flipped.
+2. On hosted AROS, one boot: `Pkg` bootstraps from a plain archive with no
+   package manager present, installs itself as a signed package, and serves
+   the `PKG` ARexx port from that managed copy.
+3. One ARexx script, `tests/goal.rexx`, drives install 14, verify, upgrade 15,
+   verify, rollback 14 through the port, checking RC and the database at every
+   step, and exits 10 at the first disagreement.
+4. Inside that script the tampered payload and the substituted key are refused
+   with RC 10, each for its own reason, read back with `LASTERROR`.
+
+Afterwards AROS mounts the volume with the handler Pkg left in place and it
+reports revision 14. A second boot runs the same script with one expectation
+sabotaged, and must see it stop at that line with an error reaching AmigaDOS:
+a sequence that cannot fail proves nothing.
+
+What it took, beyond the tool:
+
+- **An ARexx interpreter.** Hosted AROS ships `rexxsyslib.library` and no
+  interpreter. `tools/build-aros-regina.sh` cross-builds Regina's static `rexx`
+  from the AROS contrib sources, read-only. Regina resolves `ADDRESS <name>` to a
+  public port and sends it `RXCOMM` messages, so no RexxMast is needed.
+- **A Regina fix.** For an ARexx port Regina set RC to the command's RESULT
+  string instead of the host's numeric `rm_Result1`, so every successful
+  command read as a failure. `tools/aros/regina-arexx-rc.patch` gives RC the
+  number and RESULT the string, as ARexx specifies; it is applied to a copy at
+  build time and kept as a file to offer upstream.
+- **A different bootstrap.** AROS's own `C:Unpack` reads the `.pkg` container
+  this tool adopted and was the first choice. On hosted aarch64 AROS it does not
+  load: the shell answers "file is not executable" for the shipped binary and
+  for one rebuilt from its sources with `tools/build-aros-unpack.sh`. The
+  bootstrap uses the `minigzip` AROS ships instead: `Pkg` is one file, so that
+  file compressed is its plain archive. The `Unpack` defect is AROS's, recorded
+  here and reported.
+
+```sh
+sh tools/build-aros.sh && sh tools/build-aros-regina.sh
+PKG_HANDLER_V14=<dir> PKG_HANDLER_V15=<dir> sh tests/goal.sh
+```
 
 ## Use, on macOS
 

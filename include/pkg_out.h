@@ -19,4 +19,11 @@ void pkg_err(const char *fmt, ...);
 void pkg_verr(const char *fmt, va_list ap);
 void pkg_outraw(const char *buf, size_t len);
 
+/* Capture, for the ARexx port: between begin and end, results and refusals are
+ * kept in memory instead of written, so a command's output can become RESULT
+ * and its refusal the text LASTERROR returns. end hands both buffers to the
+ * caller, who frees them; either may be NULL when nothing was written. */
+void pkg_capture_begin(void);
+void pkg_capture_end(char **out, size_t *out_len, char **err, size_t *err_len);
+
 #endif

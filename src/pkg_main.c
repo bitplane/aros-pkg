@@ -33,6 +33,7 @@
 #include "pkg_fs.h"
 #include "pkg_manifest.h"
 #include "pkg_out.h"
+#include "pkg_port.h"
 #include "pkg_sha256.h"
 
 #include <ctype.h>
@@ -1301,11 +1302,15 @@ static int usage(void)
         "  pkg LIST     ROOT <dir>\n"
         "  pkg VERIFY   <name> ROOT <dir>\n"
         "  pkg REMOVE   <name> ROOT <dir>\n"
+        "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
         "SIGN defaults to $PKG_SIGNKEY.\n");
     return PKG_EXIT_USAGE;
 }
 
-int main(int argc, char **argv)
+/* One entry for every caller: the command line below, and the ARexx port,
+ * which runs each command it receives through here. 0 success, 1 refused,
+ * 2 usage. */
+static int run_verb(int argc, char **argv)
 {
     static const struct { const char *verb; const char *name; int (*fn)(const struct args *); } verbs[] = {
         { "KEYGEN",   "keygen",   cmd_keygen },
@@ -1321,16 +1326,40 @@ int main(int argc, char **argv)
     };
     struct args a;
     size_t i;
+    const char *saved = verb_name;
+    int rc = 2;
 
-    if (argc < 2)
-        return usage();
+    if (argc < 2) {
+        usage();
+        return 2;
+    }
     for (i = 0; i < sizeof verbs / sizeof verbs[0]; i++) {
         if (ieq(argv[1], verbs[i].verb)) {
             verb_name = verbs[i].name;
             if (parse_args(argc, argv, &a) != 0)
-                return PKG_EXIT_USAGE;
-            return verbs[i].fn(&a) == 0 ? 0 : PKG_EXIT_REFUSED;
+                rc = 2;
+            else
+                rc = verbs[i].fn(&a) == 0 ? 0 : 1;
+            verb_name = saved;
+            return rc;
         }
     }
-    return usage();
+    usage();
+    return 2;
+}
+
+int main(int argc, char **argv)
+{
+    int rc;
+
+    /* PORT is not a verb the port itself may run, so it is handled here. */
+    if (argc >= 2 && ieq(argv[1], "PORT")) {
+        verb_name = "port";
+        if (argc > 3)
+            return usage();
+        rc = pkg_port_serve(argc == 3 ? argv[2] : "PKG", run_verb);
+        return rc == 0 ? 0 : PKG_EXIT_REFUSED;
+    }
+    rc = run_verb(argc, argv);
+    return rc == 0 ? 0 : rc == 1 ? PKG_EXIT_REFUSED : PKG_EXIT_USAGE;
 }

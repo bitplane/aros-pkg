@@ -3,7 +3,7 @@
 
 # Goal: Pkg delivers the platform to itself, and an agent watches
 
-Set 2026-09-18. One sequence that passes or fails as a whole:
+Set 2026-09-18. **Met 2026-09-18**: `tests/goal.sh`, 25 checks, 0 failures, including a sabotaged control run that must fail and does. One sequence that passes or fails as a whole:
 
 1. **On macOS**, the AFS+ handler is cross-built at two versions, and
    `Pkg Publish` puts both into a channel that is a directory, signed with a
@@ -35,7 +35,7 @@ follows.
 | **M1 ✓** | **macOS loop.** Done 2026-09-18. Manifest, publish into a directory channel, install into a root, list, verify, remove, with every payload digest-checked | `make check` passes, including an end-to-end run on macOS with its negative controls |
 | **M2 ✓** | **Trust and versions.** Done 2026-09-18. Ed25519 signatures, publisher key pinned on first use, `Upgrade` and `Rollback`, `EXACT` and `COMPATIBLE` selection | A tampered payload and a substituted key are refused on macOS |
 | **M3 ✓** | **The AROS client.** Done 2026-09-18. `Pkg` built for aarch64-aros, bootstrapped on hosted AROS, installs the AFS+ handler with replacement at restart and fallback | Steps 1 and 2 of the goal pass on hosted AROS |
-| M4 | **The agent.** The `PKG` ARexx port, and one script that drives steps 1 to 4 | The whole goal sequence passes |
+| **M4 ✓** | **The agent.** Done 2026-09-18. The `PKG` ARexx port, and one script that drives steps 1 to 4 | The whole goal sequence passes |
 
 Gates touched: `[PKG1]`, `[PKG6]`, `[PKG10]`, `[PKG11]`, `[PKG17]`, `[PKG18]`,
 `[PKG19]`, `[PKG21]`, `[PKG22]`, `[PKG23]`, and the first component of
