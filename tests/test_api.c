@@ -43,6 +43,14 @@ static void txt(void *user, int is_error, const char *text)
     ((struct seen *)user)->texts++;
 }
 
+static int traced;
+static void trc(void *user, const char *line)
+{
+    (void)user;
+    if (strstr(line, "install: picked tool 1.0") != NULL)
+        traced = 1;
+}
+
 static const char *field(const struct seen *s, const char *key)
 {
     int i;
@@ -69,7 +77,7 @@ int main(void)
     char dirbuf[400], *dir = dirbuf, p[512], key[512], drawer[512], channel[512], root[512];
     const char *tmp = getenv("TMPDIR");
     struct seen s;
-    struct pkg_sink sink = { rec, txt, &s, 1 };
+    struct pkg_sink sink = { rec, txt, &s, 1, NULL };
     struct pkg_options o;
     struct stat st;
     int rc;
@@ -138,6 +146,14 @@ int main(void)
     rc = pkg_usage_error(&sink, "install", "a front end found no package name");
     ok(rc == PKG_RC_USAGE && is(&s, "class", "usage") && is(&s, "next", "fix-command"),
        "a front end's own usage error has the same shape");
+
+    memset(&s, 0, sizeof s);
+    memset(&o, 0, sizeof o);
+    sink.trace = trc;
+    o.target = "tool"; o.root = root; o.channel = channel; o.dryrun = 1;
+    rc = pkg_install(&sink, &o);
+    sink.trace = NULL;
+    ok(rc == 0 && traced, "the trace callback hears the operation's choices");
 
     printf("text\n");
     sink.structured = 0;

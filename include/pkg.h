@@ -26,7 +26,15 @@
  *                    `is_error` set for refusals and warnings.
  *
  * Nothing is written to stdout or stderr, and no environment variable is
- * read: PKG_SIGNKEY and PKG_OUTPUT belong to the command line.
+ * read: PKG_SIGNKEY, PKG_OUTPUT and PKG_TRACE belong to the command line.
+ *
+ * `trace`, when set, receives the operation's own account of itself, one
+ * line per step, whatever the form: every file read, written, renamed or
+ * removed, every check with what was expected and what was found, every
+ * choice with its reason (the version picked, what satisfied a dependency,
+ * which files were left out, where the architecture came from), and each
+ * refusal as it happens. It is for finding out why an operation did what it
+ * did; nothing in it is part of the contract, and its wording may change.
  *
  * A decision that belongs to a person is never taken here. A refusal whose
  * `next` is ask-person (a new signing key, a downgrade, a file the person
@@ -63,6 +71,7 @@ struct pkg_sink {
     void (*text)(void *user, int is_error, const char *text);
     void *user;
     int   structured;
+    void (*trace)(void *user, const char *line);   /* optional */
 };
 
 /* Every option any operation takes; each operation reads the ones it needs

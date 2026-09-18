@@ -445,6 +445,18 @@ $PKG REMOVE hello ROOT "$A" DRYRUN MACHINE > "$T/dr" 2>&1
 [ $? -eq 0 ] && has "$T/dr" '^result: would-remove$' && [ -f "$A/C/Hello" ] && [ -f "$A/.pkg/db/hello" ]
                                                       ok $? "REMOVE DRYRUN says would-remove and removes nothing"
 
+echo "trace"
+TR="$T/troot"
+$PKG INSTALL hello VERSION 1.2 ROOT "$TR" CHANNEL "$CH" MACHINE TRACE "$T/trace.log" > "$T/tro" 2>"$T/tre"
+[ $? -eq 0 ] && ! LC_ALL=C grep -a -v -E '^[a-z][a-z-]*: ' "$T/tro" > /dev/null && [ ! -s "$T/tre" ]
+                                                      ok $? "TRACE leaves stdout the pure MACHINE contract, and stderr empty"
+has "$T/trace.log" 'picked hello 1.2: the version asked for' && has "$T/trace.log" 'signature verifies, signer' \
+    && has "$T/trace.log" "move .* -> $TR/C/Hello"; ok $? "the trace tells the choice, the checks and each file moved"
+PKG_TRACE="$T/env.log" $PKG INSTALL hello VERSION 1.2 ROOT "$T/xr2" CHANNEL "$T/chx" > /dev/null 2>&1
+has "$T/env.log" 'refused, integrity (12), next stop';  ok $? "PKG_TRACE works too, and a refusal is traced with its class"
+$PKG LIST ROOT "$TR" TRACE > "$T/tru" 2>&1
+[ $? -eq 20 ];                                        ok $? "TRACE without a file is a usage error"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]

@@ -120,6 +120,21 @@ static void emit(int is_error, const char *fmt, va_list ap)
     free(big);
 }
 
+/* The operation's account of itself, for the sink's trace, if it has one. */
+static void tr(const char *fmt, ...)
+{
+    char line[1400];
+    int n;
+    va_list ap;
+    if (sink == NULL || sink->trace == NULL)
+        return;
+    n = snprintf(line, sizeof line, "%s: ", verb_name);
+    va_start(ap, fmt);
+    vsnprintf(line + n, sizeof line - (size_t)n, fmt, ap);
+    va_end(ap);
+    sink->trace(sink->user, line);
+}
+
 /* Text for a person: the answer, or a refusal or warning. */
 static void say(const char *fmt, ...)
 {
@@ -233,6 +248,7 @@ static int refuse_c(int cls, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
+    tr("refused, %s (%d), next %s: %s", class_name(cls), cls, next, buf);
     if (quiet) {
         snprintf(quiet_reason, sizeof quiet_reason, "%s", buf);
         return 1;
@@ -314,6 +330,60 @@ static int fromhex(unsigned char *b, size_t n, const char *hex)
     }
     return 0;
 }
+
+/* ---- the filesystem, traced ------------------------------------------ *
+ *
+ * Every file operation goes through these, so the trace shows each one. */
+
+static int t_read(const char *path, unsigned char **buf, size_t *len)
+{
+    int rc = pkg_fs_read(path, buf, len);
+    if (rc == 0) tr("read %s, %lu bytes", path, (unsigned long)*len);
+    else tr("read %s: absent or unreadable", path);
+    return rc;
+}
+
+static int t_write(const char *path, const void *buf, size_t len)
+{
+    int rc = pkg_fs_write_atomic(path, buf, len);
+    tr("write %s, %lu bytes%s", path, (unsigned long)len, rc == 0 ? "" : ": FAILED");
+    return rc;
+}
+
+static int t_write_private(const char *path, const void *buf, size_t len)
+{
+    int rc = pkg_fs_write_private(path, buf, len);
+    tr("write %s, %lu bytes, owner only%s", path, (unsigned long)len, rc == 0 ? "" : ": FAILED");
+    return rc;
+}
+
+static int t_rename(const char *from, const char *to)
+{
+    int rc = pkg_fs_rename(from, to);
+    tr("move %s -> %s%s", from, to, rc == 0 ? "" : ": FAILED");
+    return rc;
+}
+
+static int t_unlink(const char *path)
+{
+    int rc = pkg_fs_unlink(path);
+    tr("delete %s%s", path, rc == 0 ? "" : ": FAILED");
+    return rc;
+}
+
+static int t_rmtree(const char *path)
+{
+    int rc = pkg_fs_rmtree(path);
+    tr("clear %s%s", path, rc == 0 ? "" : ": FAILED");
+    return rc;
+}
+
+#define pkg_fs_read          t_read
+#define pkg_fs_write_atomic  t_write
+#define pkg_fs_write_private t_write_private
+#define pkg_fs_rename        t_rename
+#define pkg_fs_unlink        t_unlink
+#define pkg_fs_rmtree        t_rmtree
 
 /* ---- keys ------------------------------------------------------------- */
 
@@ -766,6 +836,13 @@ static int build(const struct pkg_options *a, struct built *out)
         return refuse_c(20, "\"%s\" holds no files", a->target);
     }
     qsort(d.v, d.n, sizeof d.v[0], by_rel);
+    {
+        size_t t;
+        tr("drawer %s: %lu files, %lu left out", a->target, (unsigned long)d.n,
+           (unsigned long)d.nleft);
+        for (t = 0; t < d.nleft; t++)
+            tr("left out %s, host metadata", d.left_out[t]);
+    }
     out->left_out = d.left_out;          /* reported by PUBLISH, freed with out */
     out->nleft = d.nleft;
     d.left_out = NULL;
@@ -809,6 +886,8 @@ static int build(const struct pkg_options *a, struct built *out)
             return 1;
         }
         arch = a->arch ? a->arch : got > 0 ? found_arch : "generic";
+        tr("architecture %s: %s", arch, a->arch ? "given with ARCH"
+           : got > 0 ? afrom : "no executable header found");
         if (a->arch == NULL && got > 0)
             snprintf(out->arch_from, sizeof out->arch_from, "%s", afrom);
     }
@@ -977,6 +1056,11 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
             p = &ix->e[i];
         }
     }
+    if (p != NULL)
+        tr("picked %s %s: %s", p->name, p->version, version ? "the version asked for"
+           : "the highest the channel offers");
+    else
+        tr("the channel offers no %s%s%s", name, version ? " " : "", version ? version : "");
     return p;
 }
 
@@ -1068,9 +1152,11 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
                "Nothing was installed", what, e->digest, hex);
         goto out;
     }
+    tr("%s: manifest %s matches the index", what, e->digest);
     /* 2. Signed. */
     if (check_sig(so, f->mtext, f->mlen, f->signer, what) != 0)
         goto out;
+    tr("%s: signature verifies, signer %s", what, f->signer);
     /* 3. And saying what the index says it is. */
     if (pkg_manifest_parse((const char *)f->mtext, f->mlen, &f->m, err, sizeof err) != 0) {
         refuse_c(12, "the manifest of %s is refused: %s", what, err);
@@ -1094,6 +1180,7 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
                "Nothing was installed", what, f->m.payload, hex);
         goto out;
     }
+    tr("%s: payload %s matches the signed manifest", what, hex);
     rc = 0;
 out:
     free(po); free(mo); free(so);
@@ -1146,6 +1233,7 @@ static int check_pin(const char *root, const char *name, const char *signer,
         return refuse("out of memory");
     if (pkg_fs_read(p, &buf, &len) != 0) {
         free(p);
+        tr("no key pinned yet for %s in %s: %s will be pinned", name, root, signer);
         return 0;                     /* first use: pinned after a successful apply */
     }
     free(p);
@@ -1153,9 +1241,12 @@ static int check_pin(const char *root, const char *name, const char *signer,
     memcpy(pinned, buf, 64);
     pinned[64] = '\0';
     free(buf);
-    if (strcmp(pinned, signer) == 0)
+    if (strcmp(pinned, signer) == 0) {
+        tr("signer of %s is the key pinned in %s", name, root);
         return 0;
+    }
     if (acceptkey != NULL && strcmp(acceptkey, signer) == 0) {
+        tr("signer of %s differs from the pinned key; accepted because acceptkey names it", name);
         kv("key-changed", "%s %s", pinned, signer);
         if (!machine)
         say("  key for %s changed by explicit ACCEPTKEY\n    was %s\n    now %s\n",
@@ -1305,6 +1396,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         }
     }
 
+    tr("%s %s: every file checked against the container, nothing in the way", m->name, m->version);
     if (dryrun) {
         /* Every check above has passed; say what would move, move nothing. */
         *placed = (unsigned long)m->nfiles;
@@ -1526,9 +1618,13 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
             return refuse_c(16, "the dependencies form a cycle: %s; nothing was changed", path);
         }
     }
+    if (from != NULL)
+        tr("%s needs %s%s%s", from, name, min ? " >= " : "", min ? min : "");
     if (from != NULL) {
         if (load_installed(p->root, name, &cur, 1) == 0) {
             int low = min != NULL && pkg_version_cmp(cur.version, min) < 0;
+            if (!low)
+                tr("%s is satisfied by the installed %s %s", name, name, cur.version);
             if (low)
                 refuse_c(16, "%s needs %s >= %s, and %s has %s %s; nothing was changed. "
                          "Upgrading %s would change it for everything that uses it",
@@ -1538,6 +1634,7 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
         }
         for (i = 0; i < p->n; i++)
             if (strcmp(p->f[i].m.name, name) == 0) {
+                tr("%s is already part of this plan, at %s", name, p->f[i].m.version);
                 if (min != NULL && pkg_version_cmp(p->f[i].m.version, min) < 0)
                     return refuse_c(16, "%s needs %s >= %s, and this install brings %s %s; "
                                     "nothing was changed", from, name, min, name, p->f[i].m.version);

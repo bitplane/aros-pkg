@@ -75,6 +75,24 @@ Four things the hosted runs established, none of them guessed beforehand:
   ROLLBACK has to honour that declaration. Not built yet; recorded as the next
   piece of the version model.
 
+## As a library
+
+`include/pkg.h` is the interface; `src/pkg_lib.c` holds every operation;
+`src/pkg_main.c`, the `pkg` command, only turns words into `pkg_options` and
+prints what comes back. A graphical front end, an installer or an agent's tool
+adapter links the library (`make build/libpkg.a`) and calls `pkg_install`,
+`pkg_show` and the rest with a sink: structured, it receives the same fields
+the command line prints with `MACHINE`; otherwise sentences for a person; and,
+if it asks, a trace of every step. The library writes nothing to stdout and
+reads no environment. `tests/test_api.c` drives it as a front end would.
+
+## Diagnosing
+
+`TRACE <file>` on any command, or `PKG_TRACE=<file>` (`-` for stderr), writes
+the operation's own account: every file read, written, moved or deleted,
+every check with what was expected and found, every choice with its reason,
+and each refusal as it happens. It never mixes into stdout.
+
 ## For agents
 
 `skills/pkg/SKILL.md` is written for the agent that drives Pkg for a person:

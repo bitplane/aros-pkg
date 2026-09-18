@@ -30,6 +30,19 @@ When both are merged: drop `tools/aros/regina-arexx-rc.patch` and the copy
 step in `tools/build-aros-regina.sh`, decode a dead-end alert in
 `tests/goal2.sh` again, and remove the two worktrees.
 
+## Native AROS runs
+
+- **pc-x86_64 in QEMU**, started 2026-09-18 and paused to put the library
+  in place first. Downloaded to `~/aros-native`: the nightly boot ISO and the
+  linux-x86_64 system as SDK (MD5 checked). The native ISO carries its FFS
+  handler, `SER:`, `DEBUG:`, and identify.library with Guru: the test removes
+  identify.library from a remastered ISO (xorriso installed) so the
+  dependency can only come from Pkg. Pkg for x86_64 AROS still needs a
+  compiler: the AROS crosstools clang targets aarch64 only; Homebrew's LLVM
+  has x86, and `collect-aros` links with `ld.lld` and LLVM tools, which do.
+- **m68k**, later, at the owner's request: an Amiga emulator (UAE) with the
+  AROS m68k build in `~/aros-m68k-build`; QEMU does not emulate an Amiga.
+
 ## Pkg, not built yet
 
 - **Runs on Windows and Linux.** `build/pkg-test-kit.zip` is ready; only macOS

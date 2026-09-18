@@ -40,7 +40,28 @@ static void print_text(void *user, int is_error, const char *text)
     if (is_error) pkg_err("%s", text); else pkg_out("%s", text);
 }
 
-static struct pkg_sink out_sink = { print_record, print_text, NULL, 0 };
+/* TRACE <file>, or PKG_TRACE=<file>: the library's account of each step,
+ * appended to that file; "-" sends it to stderr. Never mixed into stdout,
+ * so the MACHINE contract stays clean. */
+static const char *trace_path;
+static FILE *trace_file;
+
+static void print_trace(void *user, const char *line)
+{
+    (void)user;
+    if (strcmp(trace_path, "-") == 0) {
+        pkg_err("trace %s\n", line);
+        return;
+    }
+    if (trace_file == NULL)
+        trace_file = fopen(trace_path, "a");
+    if (trace_file != NULL) {
+        fprintf(trace_file, "%s\n", line);
+        fflush(trace_file);
+    }
+}
+
+static struct pkg_sink out_sink = { print_record, print_text, NULL, 0, NULL };
 
 /* A usage error found while reading the words, answered like any refusal. */
 static int usage_errorf(const char *fmt, ...)
@@ -85,6 +106,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
 static int takes_value(const char *w)
 {
     size_t k;
+    if (ieq(w, "TRACE"))
+        return 1;
     for (k = 0; k < sizeof kws / sizeof kws[0]; k++)
         if (ieq(w, kws[k].kw))
             return 1;
@@ -124,6 +147,13 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
         }
         if (ieq(argv[i], "DRYRUN")) {
             a->dryrun = 1;
+            continue;
+        }
+        if (ieq(argv[i], "TRACE")) {
+            if (i + 1 >= argc)
+                return usage_errorf("TRACE needs a file, or - for stderr");
+            trace_path = argv[++i];
+            out_sink.trace = print_trace;
             continue;
         }
         if (ieq(argv[i], "MACHINE")) {
@@ -183,7 +213,9 @@ static int usage(void)
         "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
         "  pkg HELP\n"
         "SIGN defaults to $PKG_SIGNKEY. Any verb takes MACHINE, or PKG_OUTPUT=machine:\n"
-        "key: value lines, and the exit code names the class of a refusal.\n");
+        "key: value lines, and the exit code names the class of a refusal.\n"
+        "Any verb takes TRACE <file>, or PKG_TRACE=<file> (- for stderr): every step it takes,\n"
+        "each file it touches and each check and choice, for finding out why.\n");
     return PKG_RC_USAGE;
 }
 
@@ -220,6 +252,8 @@ static int run_verb(int argc, char **argv)
     if (wants_machine(argc, argv))
         machine = 1;
     out_sink.structured = machine;
+    trace_path = getenv("PKG_TRACE");
+    out_sink.trace = trace_path != NULL && *trace_path ? print_trace : NULL;
     if (argc < 2) {
         if (machine) pkg_usage_error(&out_sink, "pkg", "no verb given");
         else usage();
