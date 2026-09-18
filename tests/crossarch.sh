@@ -97,5 +97,21 @@ has "$T/w1" '^version: 1.0$';                         ok $? "x86_64 roots no lon
 $PKG INSTALL tool ROOT "$T/h2" CHANNEL "$CH" ARCH aarch64 MACHINE > "$T/w2" 2>&1
 has "$T/w2" '^version: 1.1$';                         ok $? "aarch64 roots still do"
 
+echo "one_cpu_ahead"
+# 1.1 is withdrawn for x86_64 and published for aarch64; publish 1.2 for
+# x86_64 only, as a fix that is not ready for the other CPU.
+mkdir -p "$T/tool3/C"; elf "$T/tool3/C/Tool" 62 "tool 1.2 x86_64"
+$PKG PUBLISH "$T/tool3" CHANNEL "$CH" NAME tool VERSION 1.2 KIND application DEPENDS helper > /dev/null
+$PKG INSTALL tool VERSION 1.2 ROOT "$T/arm3" CHANNEL "$CH" ARCH aarch64 MACHINE > "$T/o1" 2>&1
+[ $? -eq 11 ] && has "$T/o1" 'published for x86_64 only, not for aarch64 machines'
+                                                      ok $? "asking an aarch64 root for the x86_64-only 1.2 says so"
+$PKG UPGRADE tool ROOT "$H" CHANNEL "$CH" > /dev/null 2>&1        # 1.0 -> 1.1 on aarch64
+$PKG UPGRADE tool ROOT "$H" CHANNEL "$CH" MACHINE > "$T/o2" 2>&1
+has "$T/o2" '^note: tool 1.2 is published for x86_64, not for this root'
+                                                      ok $? "UPGRADE on the aarch64 root notes that 1.2 exists for another CPU"
+$PKG SHOW tool CHANNEL "$CH" ROOT "$H" MACHINE > "$T/o3" 2>&1
+grep -q '^entry: tool 1.1 application aarch64 ok .* installed$' "$T/o3" && ! grep -q '^entry: tool 1.1 application x86_64 .* installed$' "$T/o3"
+                                                      ok $? "SHOW against the aarch64 root marks only the aarch64 entry installed"
+
 echo "crossarch: $checks checks, $fails failures"
 [ "$fails" -eq 0 ]

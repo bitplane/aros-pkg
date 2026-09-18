@@ -944,7 +944,8 @@ static int build(const struct pkg_options *a, struct built *out)
         }
         if (got > 0) {
             if (version != NULL && pkg_version_cmp(version, vver) != 0)
-                warn("VERSION %s, but the $VER cookie in %s says %s", version, from, vver);
+                warn("VERSION %s, but the $VER cookie in %s says %s: is this the build "
+                     "you meant to ship?", version, from, vver);
             if (needed)
                 snprintf(out->ver_from, sizeof out->ver_from, "%s", from);
             if (name == NULL) name = vname;
@@ -1307,12 +1308,27 @@ static void say_not_found(const struct index *ix, const char *name, const char *
                           const char *channel)
 {
     size_t i, j, at = 0;
-    char offered[512];
-    offered[0] = '\0';
-    for (i = 0; i < ix->n && at + 72 < sizeof offered; i++)
-        if (strcmp(ix->e[i].name, name) == 0)
-            at += (size_t)snprintf(offered + at, sizeof offered - at, "%s%s",
-                                   at ? ", " : "; versions offered: ", ix->e[i].version);
+    char offered[512], other[200];
+    size_t ot = 0;
+    offered[0] = other[0] = '\0';
+    for (i = 0; i < ix->n; i++) {
+        if (strcmp(ix->e[i].name, name) != 0)
+            continue;
+        if (arch_matches(&ix->e[i])) {
+            if (at + 72 < sizeof offered)
+                at += (size_t)snprintf(offered + at, sizeof offered - at, "%s%s",
+                                       at ? ", " : "; versions offered: ", ix->e[i].version);
+        } else if (version != NULL && pkg_version_cmp(ix->e[i].version, version) == 0
+                   && ot + 40 < sizeof other) {
+            ot += (size_t)snprintf(other + ot, sizeof other - ot, "%s%s", ot ? ", " : "",
+                                   ix->e[i].arch);
+        }
+    }
+    if (ot > 0) {
+        refuse_n(PKGRC_NOTFOUND, "report", "%s %s is published for %s only, not for %s machines%s",
+                 name, version, other, target_arch, offered);
+        return;
+    }
     if (at == 0) {
         for (i = 0; i < ix->n && at + 72 < sizeof offered; i++) {
             int seen = 0;
@@ -2400,7 +2416,9 @@ static int cmd_show(const struct pkg_options *a)
             int q = quiet;
             quiet = 1;
             if (load_installed(a->root, ix.e[i].name, &cur, 1) == 0) {
-                here = pkg_version_cmp(cur.version, ix.e[i].version) == 0 ? "installed"
+                here = pkg_version_cmp(cur.version, ix.e[i].version) == 0
+                       && (strcmp(cur.architecture, ix.e[i].arch) == 0
+                           || strcmp(ix.e[i].arch, "generic") == 0) ? "installed"
                        : "other-version";
                 pkg_manifest_free(&cur);
             } else {
@@ -2497,7 +2515,18 @@ static int cmd_image(const struct pkg_options *a)
         return 1;
     }
     qsort(d.v, d.n, sizeof d.v[0], by_rel);
-    vol = a->name ? a->name : "image";
+    {
+        char vn[65], vv[64], seen[400];
+        const char *vf;
+        vol = a->name;
+        if (vol == NULL && find_ver(&d, NULL, vn, sizeof vn, vv, sizeof vv, &vf, seen, sizeof seen) > 0) {
+            static char named[65];
+            snprintf(named, sizeof named, "%s", vn);
+            vol = named;
+        }
+        if (vol == NULL)
+            vol = "image";
+    }
     if (d.n == 0) {
         drawer_free(&d);
         return refuse_c(20, "\"%s\" holds no files", a->target);
@@ -2696,6 +2725,43 @@ static int cmd_publish(const struct pkg_options *a)
             built_free(&b);
             memset(&k, 0, sizeof k);
             return 1;
+        }
+    }
+    {
+        /* Compared with the highest version already published: a kind that
+         * changes (files installed loose, then an image) or a dependency that
+         * disappears is usually a slip, and it is said before it ships. */
+        size_t o, d2, d3;
+        const struct entry *last = NULL;
+        for (o = 0; o < ix.n; o++)
+            if (strcmp(ix.e[o].name, b.m.name) == 0
+                && (last == NULL || pkg_version_cmp(ix.e[o].version, last->version) > 0))
+                last = &ix.e[o];
+        if (last != NULL) {
+            char *mp = object_path(a->channel, last->digest, "manifest"), err[200];
+            unsigned char *mbuf;
+            size_t mlen;
+            struct pkg_manifest em;
+            if (mp != NULL && pkg_fs_read(mp, &mbuf, &mlen) == 0) {
+                if (pkg_manifest_parse((const char *)mbuf, mlen, &em, err, sizeof err) == 0) {
+                    if (strcmp(em.kind, b.m.kind) != 0)
+                        warn("%s %s was published as kind %s, and this version is kind %s",
+                             em.name, em.version, em.kind, b.m.kind);
+                    for (d2 = 0; d2 < em.ndeps; d2++) {
+                        int kept_dep = 0;
+                        for (d3 = 0; d3 < b.m.ndeps; d3++)
+                            if (strcmp(em.deps[d2].name, b.m.deps[d3].name) == 0)
+                                kept_dep = 1;
+                        if (!kept_dep)
+                            warn("%s %s depends on %s, and this version does not: DEPENDS is "
+                                 "not carried from one version to the next", em.name,
+                                 em.version, em.deps[d2].name);
+                    }
+                    pkg_manifest_free(&em);
+                }
+                free(mbuf);
+            }
+            free(mp);
         }
     }
     if (dryrun) {
@@ -2950,11 +3016,22 @@ static int cmd_upgrade(const struct pkg_options *a)
     }
     c = pkg_version_cmp(e->version, cur.version);
     if (c == 0) {
+        size_t o;
         kv("result", "unchanged");
         kv("name", "%s", cur.name);
         kv("version", "%s", cur.version);
         if (!machine)
             say("%s is already at %s\n", cur.name, cur.version);
+        for (o = 0; o < ix.n; o++)
+            if (strcmp(ix.e[o].name, cur.name) == 0 && !arch_matches(&ix.e[o])
+                && pkg_version_cmp(ix.e[o].version, cur.version) > 0 && !ix.e[o].withdrawn) {
+                if (machine)
+                    kv("note", "%s %s is published for %s, not for this root's CPU", ix.e[o].name,
+                       ix.e[o].version, ix.e[o].arch);
+                else
+                    say("  %s %s is published for %s, not yet for this root's CPU\n",
+                        ix.e[o].name, ix.e[o].version, ix.e[o].arch);
+            }
         rc = 0;
         goto out;
     }

@@ -258,8 +258,13 @@ pub fix 1.0 library - > /dev/null
 
 mkdir -p "$T/vw/C"; printf 'b\000$VER: vw 1.1 (1.1.2026)\000' > "$T/vw/C/vw"
 $PKG MANIFEST "$T/vw" VERSION 1.3 MACHINE > "$T/vwm" 2>&1
-has "$T/vwm" '^warning: VERSION 1.3, but the \$VER cookie in C/vw says 1.1$' && ! has "$T/vwm" 'version-from'
+has "$T/vwm" '^warning: VERSION 1.3, but the \$VER cookie in C/vw says 1.1' && ! has "$T/vwm" 'version-from'
                                                         ok $? "VERSION contradicting the cookie is warned about, and not reported as from the cookie"
+
+pub dl 1.0 application "base" > /dev/null
+pub dl 1.1 application - DRYRUN MACHINE > "$T/dlw" 2>&1
+has "$T/dlw" '^warning: dl 1.0 depends on base, and this version does not'
+                                                        ok $? "a dependency dropped between versions is warned about before publishing"
 
 echo "dry_runs"
 DR="$T/dryroot"
