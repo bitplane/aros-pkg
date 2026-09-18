@@ -103,6 +103,8 @@ test:
 	@PKG=./build/pkg sh tests/crossarch.sh
 	@echo "== status"
 	@PKG=./build/pkg sh tests/status.sh
+	@echo "== hostile"
+	@PKG=./build/pkg sh tests/hostile.sh
 	@echo "== archive"
 	@rm -f build/test_archive
 	@$(MAKE) --no-print-directory build/test_archive

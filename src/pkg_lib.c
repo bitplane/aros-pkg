@@ -741,13 +741,42 @@ static const char *arch_intern(const char *a)
     return NULL;
 }
 
+#define IDX_HEAD 65536u      /* enough of a file's start to read its CPU */
+#define IDX_WIN  8192u       /* the window $VER cookies are looked for in */
+#define IDX_KEEP 256u        /* what a cookie may need after "$VER: " */
+
+/* Each file is read once, in pieces, and never held whole: a digest built
+ * as it goes, its first bytes for the CPU, and a sliding window for its
+ * $VER. An archive claiming a file of any size costs the same memory. */
 struct idx_build {
-    char          *out;             /* the index text being written */
-    size_t         len, cap;
-    unsigned char *data;
-    size_t         dlen, dcap;
-    int            oom;
+    char              *out;         /* the index text being written */
+    size_t             len, cap;
+    struct pkg_sha256  sha;
+    unsigned char      head[IDX_HEAD];
+    size_t             hlen;
+    unsigned long long total;
+    unsigned char      win[IDX_WIN];
+    size_t             wlen;
+    int                found, started;
+    char               cn[65], cv[64];
+    int                oom;
 };
+
+/* Look for a cookie starting in win[0 .. limit). */
+static void ib_scan(struct idx_build *ib, size_t limit)
+{
+    size_t j;
+    for (j = 0; !ib->found && j < limit && j + 6 <= ib->wlen; j++) {
+        struct loaded f;
+        if (ib->win[j] != '$' || memcmp(ib->win + j, "$VER: ", 6) != 0)
+            continue;
+        memset(&f, 0, sizeof f);
+        f.data = ib->win + j;
+        f.len = ib->wlen - j;
+        if (cookie(&f, ib->cn, sizeof ib->cn, ib->cv, sizeof ib->cv))
+            ib->found = 1;
+    }
+}
 
 static void ib_put(struct idx_build *ib, const char *s)
 {
@@ -775,35 +804,52 @@ static int ib_want(const struct pkg_archive_entry *e, void *ctx)
 static int ib_data(const struct pkg_archive_entry *e, const unsigned char *buf, size_t len, void *ctx)
 {
     struct idx_build *ib = (struct idx_build *)ctx;
+    if (!ib->started) {
+        pkg_sha256_init(&ib->sha);
+        ib->hlen = ib->wlen = 0;
+        ib->total = 0;
+        ib->found = 0;
+        ib->started = 1;
+    }
     if (len > 0) {
-        if (ib->dlen + len > ib->dcap) {
-            size_t nc = ib->dcap ? ib->dcap : 65536;
-            unsigned char *g;
-            while (nc < ib->dlen + len) nc *= 2;
-            g = (unsigned char *)realloc(ib->data, nc);
-            if (g == NULL) return -1;
-            ib->data = g;
-            ib->dcap = nc;
+        size_t at = 0;
+        pkg_sha256_update(&ib->sha, buf, len);
+        ib->total += len;
+        if (ib->hlen < IDX_HEAD) {
+            size_t k = IDX_HEAD - ib->hlen < len ? IDX_HEAD - ib->hlen : len;
+            memcpy(ib->head + ib->hlen, buf, k);
+            ib->hlen += k;
         }
-        memcpy(ib->data + ib->dlen, buf, len);
-        ib->dlen += len;
+        while (!ib->found && at < len) {
+            size_t k = IDX_WIN - ib->wlen < len - at ? IDX_WIN - ib->wlen : len - at;
+            memcpy(ib->win + ib->wlen, buf + at, k);
+            ib->wlen += k;
+            at += k;
+            if (ib->wlen == IDX_WIN) {
+                /* every start with IDX_KEEP bytes after it, then slide */
+                ib_scan(ib, IDX_WIN - IDX_KEEP);
+                memmove(ib->win, ib->win + IDX_WIN - IDX_KEEP, IDX_KEEP);
+                ib->wlen = IDX_KEEP;
+            }
+        }
         return 0;
     }
     {
-        /* The whole file is here: what publishing needs of it, then its bytes go. */
-        struct loaded f;
-        char hex[PKG_SHA256_HEXLEN + 1], cn[65], cv[64], line[5200];
+        /* The end of the file: what publishing needs of it, nothing of its bytes. */
+        unsigned char dg[PKG_SHA256_LEN];
+        char hex[PKG_SHA256_HEXLEN + 1], line[5200];
         const char *arch;
-        memset(&f, 0, sizeof f);
-        f.data = ib->data;
-        f.len = ib->dlen;
-        pkg_sha256_hex(ib->data ? ib->data : (const unsigned char *)"", ib->dlen, hex);
-        arch = file_arch(ib->data, ib->dlen);
-        if (!cookie(&f, cn, sizeof cn, cv, sizeof cv)) { strcpy(cn, "-"); strcpy(cv, "-"); }
-        snprintf(line, sizeof line, "%s %lu %o %s %s %s %s\n", hex, (unsigned long)ib->dlen,
-                 e->mode, arch ? arch : "-", cn, cv, e->path);
+        size_t k;
+        if (!ib->found)
+            ib_scan(ib, ib->wlen);
+        pkg_sha256_final(&ib->sha, dg);
+        for (k = 0; k < PKG_SHA256_LEN; k++)
+            snprintf(hex + 2 * k, 3, "%02x", dg[k]);
+        arch = file_arch(ib->head, ib->hlen);
+        snprintf(line, sizeof line, "%s %llu %o %s %s %s %s\n", hex, ib->total,
+                 e->mode, arch ? arch : "-", ib->found ? ib->cn : "-", ib->found ? ib->cv : "-", e->path);
         ib_put(ib, line);
-        ib->dlen = 0;
+        ib->started = 0;
     }
     return ib->oom ? -1 : 0;
 }
@@ -815,14 +861,15 @@ static char *archive_index(const char *archive, char *err, size_t errlen)
     char *ip = NULL, head[128], *text = NULL;
     unsigned char *buf = NULL;
     size_t len = 0;
-    struct idx_build ib;
+    struct idx_build *ib;
+    char *text_out;
 
     if (pkg_fs_identity(archive, &id) != 0 || !id.exists) {
         snprintf(err, errlen, "cannot read %s", archive);
         return NULL;
     }
     /* The version changes whenever what it records is computed differently. */
-    snprintf(head, sizeof head, "pkgidx 2 %llu %lld\n", id.size, id.mtime_s);
+    snprintf(head, sizeof head, "pkgidx 3 %llu %lld\n", id.size, id.mtime_s);
     ip = (char *)malloc(strlen(archive) + 8);
     if (ip == NULL) { snprintf(err, errlen, "out of memory"); return NULL; }
     snprintf(ip, strlen(archive) + 8, "%s.pkgidx", archive);
@@ -836,18 +883,20 @@ static char *archive_index(const char *archive, char *err, size_t errlen)
     }
     free(buf);
     tr("indexing %s: every file read once, for its digest, mode, CPU and $VER", archive);
-    memset(&ib, 0, sizeof ib);
-    ib_put(&ib, head);
-    if (pkg_archive_walk(archive, ib_want, ib_data, &ib, err, errlen) != 0 || ib.oom) {
-        if (ib.oom && !err[0]) snprintf(err, errlen, "out of memory");
-        free(ib.out); free(ib.data); free(ip);
+    ib = (struct idx_build *)calloc(1, sizeof *ib);
+    if (ib == NULL) { snprintf(err, errlen, "out of memory"); free(ip); return NULL; }
+    ib_put(ib, head);
+    if (pkg_archive_walk(archive, ib_want, ib_data, ib, err, errlen) != 0 || ib->oom) {
+        if (ib->oom && !err[0]) snprintf(err, errlen, "out of memory");
+        free(ib->out); free(ib); free(ip);
         return NULL;
     }
-    free(ib.data);
-    if (pkg_fs_write_atomic(ip, ib.out, ib.len) != 0)
+    if (pkg_fs_write_atomic(ip, ib->out, ib->len) != 0)
         tr("the archive index could not be kept at %s; it is used for this run only", ip);
     free(ip);
-    return ib.out;
+    text_out = ib->out;
+    free(ib);
+    return text_out;
 }
 
 static int load_archive(struct drawer *d, const char *archive, const char *prefix, const char *files)
@@ -2059,6 +2108,7 @@ struct arch_fetch {
     unsigned char **data;           /* per manifest file */
     size_t        *len, *cap;
     long           cur;
+    long           oversize;        /* a file longer than its manifest says, or -1 */
 };
 
 static int af_want(const struct pkg_archive_entry *e, void *ctx)
@@ -2084,6 +2134,12 @@ static int af_data(const struct pkg_archive_entry *e, const unsigned char *buf, 
     struct arch_fetch *af = (struct arch_fetch *)ctx;
     size_t i = (size_t)af->cur;
     (void)e;
+    /* Never hold more than the signed manifest says the file is: an archive
+     * claiming more is refused as soon as it passes that size. */
+    if (af->len[i] + len > af->m->files[i].size) {
+        af->oversize = (long)i;
+        return -1;
+    }
     if (af->len[i] + len + 1 > af->cap[i]) {
         size_t nc = af->cap[i] ? af->cap[i] : 4096;
         unsigned char *g;
@@ -2121,13 +2177,19 @@ static int fetch_from_archive(const char *channel, struct fetched *f, const char
     memset(&af, 0, sizeof af);
     af.m = &f->m;
     af.prefix = prefix;
+    af.oversize = -1;
     af.data = (unsigned char **)calloc(n, sizeof *af.data);
     af.len = (size_t *)calloc(n, sizeof *af.len);
     af.cap = (size_t *)calloc(n, sizeof *af.cap);
     if (af.data == NULL || af.len == NULL || af.cap == NULL) { refuse("out of memory"); goto done; }
     tr("%s: reading its files out of %s", what, ap);
     if (pkg_archive_walk(ap, af_want, af_data, &af, err, sizeof err) != 0) {
-        refuse_c(12, "the archive %s is refused: %s. Nothing was installed", ap, err[0] ? err : "unreadable");
+        if (af.oversize >= 0)
+            refuse_c(12, "the archive %s holds a %s longer than the %llu bytes %s's signed manifest "
+                     "gives it; it was not read further. Nothing was installed", ap,
+                     f->m.files[af.oversize].path, f->m.files[af.oversize].size, what);
+        else
+            refuse_c(12, "the archive %s is refused: %s. Nothing was installed", ap, err[0] ? err : "unreadable");
         goto done;
     }
     w = pkg_writer_new();
