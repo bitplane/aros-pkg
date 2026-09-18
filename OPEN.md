@@ -32,14 +32,11 @@ step in `tools/build-aros-regina.sh`, decode a dead-end alert in
 
 ## Native AROS runs
 
-- **pc-x86_64 in QEMU**, started 2026-09-18 and paused to put the library
-  in place first. Downloaded to `~/aros-native`: the nightly boot ISO and the
-  linux-x86_64 system as SDK (MD5 checked). The native ISO carries its FFS
-  handler, `SER:`, `DEBUG:`, and identify.library with Guru: the test removes
-  identify.library from a remastered ISO (xorriso installed) so the
-  dependency can only come from Pkg. Pkg for x86_64 AROS still needs a
-  compiler: the AROS crosstools clang targets aarch64 only; Homebrew's LLVM
-  has x86, and `collect-aros` links with `ld.lld` and LLVM tools, which do.
+- **pc-x86_64 in QEMU**: done 2026-09-18, `tests/native-x86_64.sh`, 27
+  checks. Two AROS defects found on the way, in the README table: `Lock()`
+  misses later directories of a multi-directory assign, and on the CD-booted
+  native system a RAM: directory added to `LIBS:` is not searched by the
+  library loader. Worth a look in dos.library before an upstream report.
 - **m68k**, later, at the owner's request: an Amiga emulator (UAE) with the
   AROS m68k build in `~/aros-m68k-build`; QEMU does not emulate an Amiga.
 

@@ -271,6 +271,26 @@ with its path. A package installed as a dependency is marked in `.pkg/auto`;
 it leaves orphaned, and `REMOVE ORPHANS` takes those out, repeating until none
 is left. `tests/deps.sh`, 44 checks.
 
+## Native AROS in QEMU
+
+`sh tools/build-aros-x86_64.sh` builds Pkg for native AROS on x86_64 with the
+Homebrew LLVM (which knows the `x86_64-unknown-aros` triple but predefines none
+of the AROS macros, so the script does) against the SDK of a nightly
+linux-x86_64 system, linking with a `collect-aros` it builds for x86_64 from the
+AROS sources.
+
+`tests/native-x86_64.sh` runs goal 2 on an unmodified nightly pc-x86_64 AROS in
+QEMU, nothing hosted and no host share: Guru, Function and identify.library are
+taken out of the ISO itself, published on the host (the architecture read from
+their ELF headers: x86_64), and the ISO is rebuilt without them, with the
+channel, Pkg and the sequence in `S:User-Startup`. From its own startup AROS
+installs Guru with its dependency, runs Guru from the image mounted through Pkg
+MOUNTLIST with the system's own FFS (no handler component: the native system
+has one), upgrades, rolls back, verifies, refuses to remove identify while Guru
+needs it, and removes Guru and the orphan. Results leave through the second
+serial port. 27 checks; a control shows Guru cannot open identify.library
+before the root's libraries are reachable.
+
 ## Windows, macOS and Linux
 
 `make build/pkg.exe` cross-builds Pkg for x86_64 Windows with mingw-w64;
@@ -311,6 +331,8 @@ request (2026-09-18); the others are not reported.
 | Regina, aros-contrib | For an ARexx port, RC is set to the RESULT string instead of the numeric `rm_Result1` | goal 1 | `tools/aros/regina-arexx-rc.patch`; proposed as aros-development-team/contrib#64 |
 | The darwin hosted build | Ships no FFS handler at all, so no FFS volume can mount | goal 2 | `tools/build-aros-extras.sh` builds `rom/filesys/afs` |
 | The shell, `$RC` | A command that cannot be loaded (file not found, volume not mounted) leaves `$RC` at its previous value, 0 or 10 alike, so a script reads success after it; not yet compared with AmigaOS | goal 2, then a four-case check | Scripts check each step's output, not only `$RC` |
+| dos.library, `Lock()` on a multi-directory assign | A name found only in a later directory of the assign is not found by `Lock()` (`List`), while `Open()` (`Type`) finds it. Hosted: `Assign X: SYS:Libs`, `Assign X: RAM:L2 ADD`, `Echo x >RAM:L2/f`; `List X:f` fails, `Type X:f` works | a probe while testing native AROS | Nothing in Pkg depends on it |
+| Library search, native pc-x86_64 booted from CD | A library in a RAM: directory added to `LIBS:` (`Assign LIBS: RAM:sys/Libs ADD`) is not found by OpenLibrary, nor by `Version identify.library`; the same assign works on hosted AROS | `tests/native-x86_64.sh` | The run changes to the root first: the loader also searches `libs/` under the current directory |
 
 ## Use, on macOS
 
