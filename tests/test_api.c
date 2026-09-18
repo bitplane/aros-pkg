@@ -148,6 +148,13 @@ int main(void)
     ok(rc == 0 && is(&s, "result", "published") && is(&s, "name", "tool"), "publish");
 
     memset(&s, 0, sizeof s);
+    o.name = "to\nol";
+    rc = pkg_publish(&sink, &o);
+    ok(rc == 20 && is(&s, "result", "refused") && strstr(field(&s, "reason"), "line break") != NULL,
+       "a value holding a line break is refused through the library too");
+    o.name = "tool";
+
+    memset(&s, 0, sizeof s);
     memset(&o, 0, sizeof o);
     o.target = "tool"; o.root = root; o.channel = channel;
     rc = pkg_install(&sink, &o);

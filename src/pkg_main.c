@@ -135,6 +135,23 @@ static int wants_machine(int argc, char **argv)
     return 0;
 }
 
+/* A value typed by a person, or pasted: surrounding spaces go, and a line
+ * break, tab or other control character inside is refused, naming where, so
+ * nothing invisible reaches a name, a path or a record. */
+static int clean_value(const char *what, char *v)
+{
+    size_t n = strlen(v), i, lead = strspn(v, " ");
+    while (n > lead && (v[n - 1] == ' ' || v[n - 1] == '\r' || v[n - 1] == '\n'))
+        v[--n] = '\0';
+    if (lead) memmove(v, v + lead, n - lead + 1);
+    for (i = 0; v[i]; i++)
+        if ((unsigned char)v[i] < 0x20 || (unsigned char)v[i] == 0x7F)
+            return usage_errorf("%s holds a %s at character %lu; type it again without it",
+                                what, v[i] == '\n' || v[i] == '\r' ? "line break" :
+                                v[i] == '\t' ? "tab" : "control character", (unsigned long)i + 1);
+    return 0;
+}
+
 static int parse_args(int argc, char **argv, struct pkg_options *a)
 {
     int i;
@@ -177,6 +194,8 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
         if (slot != NULL) {
             if (i + 1 >= argc)
                 return usage_errorf("%s needs a value", argv[i]);
+            if (clean_value(argv[i], argv[i + 1]) != 0)
+                return PKG_RC_USAGE;
             *slot = argv[++i];
         } else if (argv[i][0] == '-') {
             /* The habit of other tools. Say the Pkg spelling, never guess. */
@@ -190,6 +209,8 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
                                 "as the next word, as in ROOT <dir>%s%s", argv[i],
                                 up[0] ? "; here perhaps " : "", up);
         } else if (a->target == NULL) {
+            if (clean_value("the name", argv[i]) != 0)
+                return PKG_RC_USAGE;
             a->target = argv[i];
         } else {
             return usage_errorf("unexpected argument \"%s\"", argv[i]);

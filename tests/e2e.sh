@@ -706,6 +706,32 @@ rm "$FA/ch/archives/nightly.tar.bz2"
 $PKG INSTALL app ROOT "$FA/r3" CHANNEL "$FA/ch" MACHINE > "$T/fa5" 2>&1
 [ $? -eq 11 ] && has "$T/fa5" 'which the channel does not have'; ok $? "an archive missing from the channel is said so"
 
+echo "clean_input"
+# What a person types or edits by hand: spaces around a value go, a line
+# break or tab inside is refused naming where, a hand-edited index with CRLF
+# and no final newline is read, and every record stays one line.
+CI="$T/ci"; mkdir -p "$CI/d/C"
+printf 'x\000$VER: tidy 1.0 (1.1.2026)\000' > "$CI/d/C/Tidy"
+$PKG PUBLISH "$CI/d" CHANNEL "$CI/ch" KIND "application " MACHINE > "$T/ci1" 2>&1
+[ $? -eq 0 ] && has "$T/ci1" '^result: published$';  ok $? "a value with a trailing space is taken without it"
+$PKG PUBLISH "$CI/d" CHANNEL "$CI/ch" KIND application NAME "$(printf 'ti\ndy')" MACHINE > "$T/ci2" 2>&1
+[ $? -eq 20 ] && has "$T/ci2" 'NAME holds a line break at character 3';  ok $? "a line break inside a value is refused, naming the keyword and where"
+$PKG PUBLISH "$CI/d" CHANNEL "$CI/ch" KIND application DEPENDS "$(printf 'a,\tb')" MACHINE > "$T/ci3" 2>&1
+[ $? -eq 20 ] && has "$T/ci3" 'DEPENDS holds a tab';  ok $? "and so is a tab"
+python3 -c "
+import sys
+p=sys.argv[1]; b=open(p,'rb').read().replace(b'\n', b'\r\n').rstrip(b'\r\n'); open(p,'wb').write(b)
+" "$CI/ch/index"
+$PKG SHOW CHANNEL "$CI/ch" MACHINE > "$T/ci4" 2>&1
+[ $? -eq 0 ] && has "$T/ci4" '^entry: tidy 1.0 ';   ok $? "a hand-edited index with CRLF and no last newline is read"
+$PKG INSTALL tidy ROOT "$CI/r" CHANNEL "$CI/ch" > /dev/null 2>&1
+$PKG KEYGEN FILE "$CI/k2" > /dev/null
+mkdir -p "$CI/d2/C"; printf 'x\000$VER: tidy 2.0 (1.1.2026)\000' > "$CI/d2/C/Tidy"
+PKG_SIGNKEY="$CI/k2" $PKG PUBLISH "$CI/d2" CHANNEL "$CI/ch" ACCEPTKEY "$(awk '/^Public:/{print $2}' "$CI/k2")" > /dev/null 2>&1
+$PKG UPGRADE tidy ROOT "$CI/r" CHANNEL "$CI/ch" MACHINE > "$T/ci5" 2>&1
+[ $? -eq 14 ] && ! grep -v -E '^[a-z][a-z-]*: ' "$T/ci5" | grep -q .
+                                                      ok $? "a refusal whose reason spans lines is still one record per line"
+
 echo
 echo "$checks checks, $fails failures"
 [ "$fails" -eq 0 ]

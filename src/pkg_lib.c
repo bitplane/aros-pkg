@@ -177,15 +177,27 @@ static const char *res(const char *done, const char *would)
 
 /* A result field, in the structured form only: "key: value", the
  * manifest's syntax. */
+/* A record is one line whatever went into it: a reason with line breaks, a
+ * name or comment a person typed with a tab or a stray control character.
+ * Every value leaves through here or rec_item, so none can break the
+ * key: value form a reader relies on. */
+static void one_line(char *s)
+{
+    for (; *s; s++)
+        if ((unsigned char)*s < 0x20 || (unsigned char)*s == 0x7F)
+            *s = ' ';
+}
+
 static void kv(const char *key, const char *fmt, ...)
 {
-    char buf[1024];
+    char buf[4096];
     va_list ap;
     if (!machine || sink == NULL || sink->record == NULL)
         return;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
+    one_line(buf);
     sink->record(sink->user, key, buf);
 }
 
@@ -195,25 +207,33 @@ static void kv(const char *key, const char *fmt, ...)
 static void rec_item(const char *kind, const char *joined, ...)
 {
     const char *keys[12], *vals[12];
-    int n = 0;
+    char *clean[12], line[4096];
+    int n = 0, i;
     va_list ap;
     if (!machine || sink == NULL)
         return;
+    snprintf(line, sizeof line, "%s", joined);
+    one_line(line);
     if (sink->record != NULL)
-        sink->record(sink->user, kind, joined);
+        sink->record(sink->user, kind, line);
     if (sink->item == NULL)
         return;
     va_start(ap, joined);
     while (n < 12) {
         const char *k = va_arg(ap, const char *);
+        const char *v;
         if (k == NULL)
             break;
+        v = va_arg(ap, const char *);
         keys[n] = k;
-        vals[n] = va_arg(ap, const char *);
+        clean[n] = (char *)malloc(strlen(v ? v : "") + 1);
+        if (clean[n] != NULL) { strcpy(clean[n], v ? v : ""); one_line(clean[n]); }
+        vals[n] = clean[n] ? clean[n] : "";
         n++;
     }
     va_end(ap);
     sink->item(sink->user, kind, n, keys, vals);
+    for (i = 0; i < n; i++) free(clean[i]);
 }
 
 /* The caller's cancel callback, asked between steps. */
@@ -312,8 +332,8 @@ static int refuse_c(int cls, const char *fmt, ...)
     }
     if (machine) {
         char code[8];
-        for (q = buf; *q; q++)
-            if (*q == '\n') *q = ' ';
+        one_line(buf);
+        (void)q;
         snprintf(code, sizeof code, "%d", refused_class);
         if (sink && sink->record) {
             sink->record(sink->user, "result", "refused");
@@ -1679,7 +1699,9 @@ static int read_index(const char *channel, struct index *ix)
         line++;
         if (ll == 0u)
             continue;
-        if (ll >= sizeof tmp || nl == NULL) {
+        /* A hand-edited index may lack its last newline, or end its lines
+         * with CR: both are read; what is written back is always clean. */
+        if (ll >= sizeof tmp) {
             free(buf); free(ix->e);
             return refuse_c(12, "the channel index is malformed at line %u", line);
         }
@@ -4970,6 +4992,28 @@ static int cancelled(const char *when)
 typedef int (*op_fn)(const struct pkg_options *);
 
 /* Every operation starts from the same clean state and ends with its code. */
+/* What a program passes, like what a person types, holds no line break or
+ * control character: each would end up in a path, a name or a record. */
+static int options_clean(const struct pkg_options *o)
+{
+    const struct { const char *what, *v; } f[] = {
+        { "the name", o->target }, { "ROOT", o->root }, { "CHANNEL", o->channel },
+        { "NAME", o->name }, { "VERSION", o->version }, { "ARCH", o->arch }, { "KIND", o->kind },
+        { "DEPENDS", o->depends }, { "SIGN", o->sign }, { "FILE", o->file }, { "KEY", o->key },
+        { "OUT", o->out }, { "ACCEPTKEY", o->acceptkey }, { "UNIT", o->unit },
+        { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build }
+    };
+    size_t i, j;
+    for (i = 0; i < sizeof f / sizeof f[0]; i++)
+        for (j = 0; f[i].v && f[i].v[j]; j++)
+            if ((unsigned char)f[i].v[j] < 0x20 || (unsigned char)f[i].v[j] == 0x7F)
+                return refuse_c(20, "%s holds a %s at character %lu; give it without",
+                                f[i].what, f[i].v[j] == '\n' || f[i].v[j] == '\r' ? "line break"
+                                : f[i].v[j] == '\t' ? "tab" : "control character",
+                                (unsigned long)j + 1);
+    return 0;
+}
+
 static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const struct pkg_options *o)
 {
     static const struct pkg_options none;
@@ -4984,7 +5028,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     quiet = 0;
     target_arch = NULL;
     root_arch[0] = '\0';
-    rc = fn(o != NULL ? o : &none);
+    rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
     sink = NULL;
     return rc;

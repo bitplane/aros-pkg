@@ -22,7 +22,8 @@ log=$(mktemp "${TMPDIR:-/tmp}/publish-nightly.XXXXXX")
 trap 'rm -f "$log"' EXIT
 start=$(date +%s)
 published=0 unchanged=0 refused=0 files=0 bytes=0
-grep -v '^#' "$table" | grep . | while read -r pname kind paths; do
+# a table edited by hand: CRLF, trailing spaces and blank lines are fine
+tr -d '\r' < "$table" | sed 's/[[:space:]]*$//' | grep -v '^#' | grep . | while read -r pname kind paths; do
     out=$("$pkg" PUBLISH "$ch/archives/$name!/$top" FILES "$paths" CHANNEL "$ch" NAME "$pname" \
           KIND "$kind" BUILD "$build" MACHINE 2>&1)
     rc=$?
