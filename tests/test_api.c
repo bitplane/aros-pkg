@@ -55,6 +55,18 @@ static void itm(void *user, const char *kind, int n, const char *const *k, const
         items_ok = 1;
 }
 
+/* STATUS: the package's fields apart, by name. */
+static int status_ok;
+static void itm_status(void *user, const char *kind, int n, const char *const *k, const char *const *v)
+{
+    const char *name = pkg_field(n, k, v, "name"), *inst = pkg_field(n, k, v, "installed");
+    const char *avail = pkg_field(n, k, v, "available"), *state = pkg_field(n, k, v, "state");
+    (void)user;
+    if (strcmp(kind, "package") == 0 && name && inst && avail && state && strcmp(name, "tool") == 0
+        && strcmp(inst, "1.0") == 0 && strcmp(avail, "1.1") == 0 && strcmp(state, "upgradable") == 0)
+        status_ok = 1;
+}
+
 static int stop_now(void *user)
 {
     (void)user;
@@ -234,6 +246,36 @@ int main(void)
             ok(rc == PKG_RC_REFUSED && stat(p, &st) != 0 && stat(pin, &st) != 0
                && field(&s, "dependency") == NULL && strstr(field(&s, "reason"), "taken back out") != NULL,
                "cancel after a dependency: file and pinned key taken back out, no dependency item sent");
+        }
+    }
+    {
+        /* A newer tool in the channel: STATUS says so and changes nothing;
+         * UPGRADE with all set, as a dry run, would take it. */
+        snprintf(p, sizeof p, "%s/C/Tool", drawer);
+        put(p, "tool, better\n");
+        memset(&o, 0, sizeof o);
+        o.target = drawer; o.channel = channel; o.sign = key; o.name = "tool"; o.version = "1.1";
+        o.kind = "application";
+        ok(pkg_publish(&sink, &o) == 0, "publish tool 1.1");
+        memset(&s, 0, sizeof s);
+        memset(&o, 0, sizeof o);
+        o.root = root; o.channel = channel;
+        sink.item = itm_status;
+        rc = pkg_status(&sink, &o);
+        sink.item = NULL;
+        ok(rc == 0 && is(&s, "result", "shown") && status_ok && is(&s, "count", "1")
+           && is(&s, "upgradable", "1"), "pkg_status: tool 1.0, 1.1 available, upgradable, fields apart");
+        memset(&s, 0, sizeof s);
+        o.all = 1; o.dryrun = 1;
+        rc = pkg_upgrade(&sink, &o);
+        ok(rc == 0 && is(&s, "result", "would-upgrade") && is(&s, "package", "tool 1.0 1.1")
+           && is(&s, "count", "1"), "pkg_upgrade with all, dry run: would-upgrade tool");
+        snprintf(p, sizeof p, "%s/C/Tool", root);
+        {
+            FILE *f = fopen(p, "rb");
+            char b[32] = "";
+            if (f) { if (fgets(b, sizeof b, f) == NULL) b[0] = '\0'; fclose(f); }
+            ok(strcmp(b, "tool\n") == 0, "and the dry run left tool 1.0 in place");
         }
     }
     ok(strstr(pkg_next_words("check-name"), "pkg ") == NULL

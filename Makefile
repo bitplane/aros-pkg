@@ -101,6 +101,8 @@ test:
 	@PKG=./build/pkg sh tests/deps.sh
 	@echo "== crossarch"
 	@PKG=./build/pkg sh tests/crossarch.sh
+	@echo "== status"
+	@PKG=./build/pkg sh tests/status.sh
 	@echo "== archive"
 	@rm -f build/test_archive
 	@$(MAKE) --no-print-directory build/test_archive
@@ -151,9 +153,11 @@ test-ubsan:
 		|| { tail -20 build/san/e2e.log; echo "test-ubsan: e2e FAILED"; exit 1; }
 	@PKG=./build/san/pkg sh tests/deps.sh > build/san/deps.log 2>&1 \
 		|| { tail -20 build/san/deps.log; echo "test-ubsan: deps FAILED"; exit 1; }
+	@PKG=./build/san/pkg sh tests/status.sh > build/san/status.log 2>&1 \
+		|| { tail -20 build/san/status.log; echo "test-ubsan: status FAILED"; exit 1; }
 	@PKG=./build/san/pkg sh tests/image.sh > build/san/image.log 2>&1 \
 		|| { tail -20 build/san/image.log; echo "test-ubsan: image FAILED"; exit 1; }
-	@echo "test-ubsan: PASS, units, e2e, deps and image under -fsanitize=undefined,address"
+	@echo "test-ubsan: PASS, units, e2e, deps, status and image under -fsanitize=undefined,address"
 
 # A big-endian COMPILE of the portable core. Running on a big-endian target is
 # separate work and is not claimed here.
