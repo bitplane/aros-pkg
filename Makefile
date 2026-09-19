@@ -10,7 +10,7 @@ LIB  = src/pkg_lib.c
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
        src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c
 # The host layer. POSIX covers macOS and Linux; AROS gets its own.
-HOST = src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c
+HOST = src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c src/pkg_style.c
 HDR  = $(wildcard include/*.h)
 
 UNITS = test_container test_sha256 test_manifest test_ed25519 test_image test_ameta

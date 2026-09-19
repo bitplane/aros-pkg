@@ -17,6 +17,7 @@
 #include "pkg_fs.h"
 #include "pkg_out.h"
 #include "pkg_port.h"
+#include "pkg_style.h"
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -29,8 +30,14 @@
  * with Pkg takes its name and version from it. */
 const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (18.9.2026)";
 
+#ifdef __AROS__
+static const int on_aros = 1;
+#else
+static const int on_aros = 0;
+#endif
 static const char *verb_name = "pkg";
 static int machine;
+static int serving_port;   /* PORT: output is captured, never a terminal */
 
 /* LOG <file>: everything printed is also appended to that file (AROS has
  * no tee), less the progress counter, which only a watching person needs. */
@@ -63,6 +70,19 @@ static void print_text(void *user, int is_error, const char *text)
     to_log(text);
 }
 
+/* The styled line to the screen, the plain one to the log. */
+static void write_styled(int is_error, const char *styled, const char *plain)
+{
+    if (is_error) pkg_err("%s", styled); else pkg_out("%s", styled);
+    to_log(plain);
+}
+
+static void print_line(void *user, int kind, int is_error, const char *text)
+{
+    (void)user;
+    pkg_style_line(write_styled, kind, is_error, text);
+}
+
 /* TRACE <file>, or PKG_TRACE=<file>: the library's account of each step,
  * appended to that file; "-" sends it to stderr. Never mixed into stdout,
  * so the MACHINE contract stays clean. */
@@ -84,7 +104,7 @@ static void print_trace(void *user, const char *line)
     }
 }
 
-static struct pkg_sink out_sink = { print_record, print_text, NULL, 0, NULL, NULL, NULL, 0, NULL };
+static struct pkg_sink out_sink = { print_record, print_text, NULL, 0, NULL, NULL, NULL, 0, print_line };
 
 /* A usage error found while reading the words, answered like any refusal. */
 static int usage_errorf(const char *fmt, ...)
@@ -257,51 +277,83 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
     return 0;
 }
 
-static void (*usage_to)(const char *fmt, ...) = pkg_err;
+static int usage_is_error = 1;
+
+/* The usage text, drawn from a table so a terminal gets the verbs in bold
+ * and the descriptions dimmed, and a pipe gets plain text. */
+static const struct { const char *group, *verb, *args, *what; } usage_lines[] = {
+    { "Installing and keeping software", NULL, NULL, NULL },
+    { NULL, "INSTALL",   "<name> ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>]",
+                         "install a package and what it depends on" },
+    { NULL, "STATUS",    "[<name>] ROOT <dir> CHANNEL <dir|url>",
+                         "what is installed and what has a newer version; exit 0 either way" },
+    { NULL, "UPGRADE",   "<name>|ALL ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [DOWNGRADE]",
+                         "ALL takes every newer version, dependencies first, and goes as far as it can" },
+    { NULL, "ROLLBACK",  "<name> ROOT <dir> CHANNEL <dir|url>",
+                         "back to the version installed before" },
+    { NULL, "LIST",      "ROOT <dir>", "what a root holds" },
+    { NULL, "VERIFY",    "<name>|ALL ROOT <dir>", "every installed file against its signed manifest" },
+    { NULL, "REPAIR",    "<name>|ALL ROOT <dir> CHANNEL <dir|url>", "put damaged files back" },
+    { NULL, "REMOVE",    "<name>|ORPHANS ROOT <dir>",
+                         "take a package out; ORPHANS: what nothing needs any more" },
+    { NULL, "SHOW",      "[<name>] CHANNEL <dir|url> [ROOT <dir>] [METADATA] [ARCHIVE <name>]",
+                         "what a channel offers, each entry checked" },
+    { NULL, "MOUNTLIST", "<image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]",
+                         "the Mount entry for an installed image" },
+    { "Publishing", NULL, NULL, NULL },
+    { NULL, "KEYGEN",    "FILE <keyfile>", "a signing key, readable by you alone" },
+    { NULL, "KEYINFO",   "FILE <keyfile>", "the public key a key file holds" },
+    { NULL, "MANIFEST",  "<drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]",
+                         "the manifest PUBLISH would sign, to read before publishing" },
+    { NULL, "PUBLISH",   "<drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a]",
+                         NULL },
+    { NULL, "",          "[DEPENDS \"a >= 1, b\"] [CONFIG \"S/Startup-Sequence\"] [FILES \"C,Libs\"] [BUILD <date>]",
+                         "publish a drawer as a version; the channel is created when missing" },
+    { NULL, "WITHDRAW",  "<name> VERSION v CHANNEL <dir> [SIGN <keyfile>]",
+                         "a version nothing installs any more" },
+    { NULL, "SIGN",      "<file> KEY <keyfile> OUT <sigfile>", "a detached signature" },
+    { NULL, "IMAGE",     "<drawer> OUT <file> [NAME <volume>]", "an FFS volume image of a drawer" },
+    { NULL, "PUSH",      "CHANNEL <dir> TO <https url>", "a channel to the portal; the key in PKG_PUSHKEY" },
+    { "On any verb", NULL, NULL, NULL },
+    { NULL, "DRYRUN",    "", "every check, no write" },
+    { NULL, "MACHINE",   "", "key: value lines for a program; the exit code names the class of a refusal" },
+    { NULL, "TRACE",     "<file>", "every step, file, check and choice, for finding out why; - for stderr" },
+    { NULL, "LOG",       "<file>", "a copy of the output" },
+    { NULL, NULL, NULL, NULL }
+};
+
+static void usage_line(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    if (usage_is_error) pkg_verr(fmt, ap);
+    else { char buf[2048]; vsnprintf(buf, sizeof buf, fmt, ap); pkg_out("%s", buf); }
+    va_end(ap);
+}
 
 static int usage(void)
 {
-    usage_to("%s\n", pkg_version_cookie + 6);
-    usage_to("usage:\n"
-        "  pkg KEYGEN   FILE <keyfile>\n"
-        "  pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]\n"
-        "  pkg PUBLISH  <drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a]\n"
-        "               [DEPENDS \"a >= 1, b\"] [CONFIG \"S/Startup-Sequence,Prefs/Env-Archive\"]\n"
-        "               [FILES \"C,Libs\"] [BUILD <date>] [ACCEPTKEY <hex>]\n"
-        "               KIND: image (a program people run, one volume to mount), application\n"
-        "               (a program as loose files), library, device (handlers too), class, font,\n"
-        "               catalog, startup, boot, data, sdk, slave. PUBLISH creates the channel.\n"
-        "  pkg KEYINFO  FILE <keyfile>    (the public key it holds)\n"
-        "  pkg WITHDRAW <name> VERSION v CHANNEL <dir> [SIGN <keyfile>]\n"
-        "  pkg SIGN     <file> KEY <keyfile> OUT <sigfile>\n"
-        "  pkg INSTALL  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>]\n"
-        "  pkg UPGRADE  <name> ROOT <dir> CHANNEL <dir> [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <hex>]\n"
-        "  pkg UPGRADE  ALL ROOT <dir> CHANNEL <dir> [ARCH cpu]\n"
-        "               every package the channel has a newer version of, a package before what\n"
-        "               depends on it; never a downgrade or a new key; goes as far as it can, and\n"
-        "               names each package not upgraded, why, and what waits for it\n"
-        "  pkg ROLLBACK <name> ROOT <dir> CHANNEL <dir>\n"
-        "  pkg LIST     ROOT <dir>\n"
-        "  pkg VERIFY   <name>|ALL ROOT <dir>\n"
-        "  pkg REPAIR   <name>|ALL ROOT <dir> CHANNEL <dir>   (puts damaged files back)\n"
-        "  pkg REMOVE   <name> ROOT <dir>\n"
-        "  pkg REMOVE   ORPHANS ROOT <dir>\n"
-        "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
-        "  pkg MOUNTLIST <image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]\n"
-        "  pkg SHOW     [<name>] CHANNEL <dir> [ROOT <dir>] [METADATA] [ARCHIVE <name>]\n"
-        "  pkg PUSH     CHANNEL <dir> TO <https url>     (the key in PKG_PUSHKEY)\n"
-        "  pkg STATUS   [<name>] ROOT <dir> CHANNEL <dir>\n"
-        "               each installed package: current, upgradable, withdrawn, not-offered or\n"
-        "               edited; exit 0 whether or not updates exist. Nothing ever prompts:\n"
-        "               STATUS and UPGRADE ALL run unattended, from a script or any scheduler\n"
-        "Every verb that changes something takes DRYRUN: all checks, no write.\n"
-        "Exit code: 0 done, 10 to 18 refused (the number is the class), 20 a wrong command.\n"
-        "  pkg PORT     [<portname>]      (AROS: serve these verbs on an ARexx port, PKG by default)\n"
-        "  pkg HELP\n"
-        "SIGN defaults to $PKG_SIGNKEY. Any verb takes MACHINE, or PKG_OUTPUT=machine:\n"
-        "key: value lines, and the exit code names the class of a refusal.\n"
-        "Any verb takes TRACE <file>, or PKG_TRACE=<file> (- for stderr): every step it takes,\n"
-        "each file it touches and each check and choice, for finding out why.\n");
+    int e = usage_is_error;
+    const char *b = pkg_style_sgr(e, "1"), *d = pkg_style_sgr(e, "2"), *r = pkg_style_sgr(e, "");
+    size_t i;
+    usage_line("%s%s%s  the AROS package tool\n", b, pkg_version_cookie + 6, r);
+    usage_line("%susage:%s pkg VERB [<name>] KEYWORD <value> ...   keywords in any order, any case\n",
+               d, r);
+    for (i = 0; usage_lines[i].group || usage_lines[i].verb; i++) {
+        if (usage_lines[i].group) {
+            usage_line("\n%s%s%s\n", b, usage_lines[i].group, r);
+        } else {
+            usage_line("  %s%-9s%s %s\n", b, usage_lines[i].verb, r, usage_lines[i].args);
+            if (usage_lines[i].what)
+                usage_line("            %s%s%s\n", d, usage_lines[i].what, r);
+        }
+    }
+    usage_line("\n%sKinds%s     image (a program on one volume to mount), application (loose files), library,\n"
+               "          device, class, font, catalog, startup, boot, data, sdk, slave\n", b, r);
+    usage_line("%sSettings%s  PKG_SIGNKEY the key SIGN defaults to; PKG_PUSHKEY; PKG_OUTPUT=machine;\n"
+               "          PKG_TRACE=<file>; PKG_COLOR=always|never; PKG_PROGRESS=1\n", b, r);
+    usage_line("%sExit code%s 0 done; 10 to 18 refused, the number is the class; 20 a wrong command\n", b, r);
+    usage_line("%sAROS%s      pkg PORT [<portname>] serves every verb on an ARexx port, PKG by default\n", b, r);
     return PKG_RC_USAGE;
 }
 
@@ -343,6 +395,9 @@ static int run_verb(int argc, char **argv)
     if (wants_machine(argc, argv))
         machine = 1;
     out_sink.structured = machine;
+    out_sink.line = machine ? NULL : print_line;
+    pkg_style_init(!serving_port && pkg_out_interactive(0),
+                   !serving_port && pkg_out_interactive(1), on_aros);
     trace_path = getenv("PKG_TRACE");
     out_sink.trace = trace_path != NULL && *trace_path ? print_trace : NULL;
     /* a person at a terminal sees long steps count; PKG_PROGRESS=1 asks for it anywhere */
@@ -356,16 +411,18 @@ static int run_verb(int argc, char **argv)
     }
     if (ieq(argv[1], "HELP") || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
         /* Asked for: to stdout, and a success. */
-        usage_to = pkg_out;
+        usage_is_error = 0;
         usage();
-        usage_to = pkg_err;
+        usage_is_error = 1;
         machine = saved_machine;
         return PKG_RC_OK;
     }
     for (i = 0; i < sizeof verbs / sizeof verbs[0]; i++) {
         if (ieq(argv[1], verbs[i].verb)) {
             verb_name = verbs[i].name;
+            pkg_style_verb(verb_name);
             rc = parse_args(argc, argv, &a) != 0 ? PKG_RC_USAGE : verbs[i].fn(&out_sink, &a);
+            pkg_style_flush(write_styled);
             machine = saved_machine;
             return rc;
         }
@@ -393,6 +450,7 @@ int main(int argc, char **argv)
     /* PORT is not a verb the port itself may run, so it is handled here. */
     if (argc >= 2 && ieq(argv[1], "PORT")) {
         verb_name = "port";
+        serving_port = 1;
         if (argc > 3) {
             usage();
             return PKG_RC_USAGE;

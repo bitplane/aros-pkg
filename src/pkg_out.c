@@ -76,6 +76,13 @@ static void emit(const char *buf, size_t len)
         Write(out, (APTR)buf, (LONG)len);
 }
 
+int pkg_out_interactive(int is_error)
+{
+    BPTR out = Output();
+    (void)is_error;                  /* both streams are Output() here */
+    return out != BNULL && IsInteractive(out);
+}
+
 static void vemit(const char *fmt, va_list ap)
 {
     char small[1024];
@@ -129,6 +136,17 @@ void pkg_outraw(const char *buf, size_t len)
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+#define isatty _isatty
+#else
+#include <unistd.h>
+#endif
+
+int pkg_out_interactive(int is_error)
+{
+    return isatty(is_error ? 2 : 1);
+}
+
+#ifdef _WIN32
 /* Binary mode, so "\n" stays one byte: the machine contract is the same
  * bytes on every host, and text mode would turn each newline into CR LF. */
 static void binary_once(void)

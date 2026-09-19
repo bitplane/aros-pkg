@@ -19,6 +19,10 @@ void pkg_err(const char *fmt, ...);
 void pkg_verr(const char *fmt, va_list ap);
 void pkg_outraw(const char *buf, size_t len);
 
+/* Non-zero when the stream (0 results, 1 refusals) is a terminal a person
+ * watches: isatty under POSIX, IsInteractive(Output()) under AmigaDOS. */
+int pkg_out_interactive(int is_error);
+
 /* Capture, for the ARexx port: between begin and end, results and refusals are
  * kept in memory instead of written, so a command's output can become RESULT
  * and its refusal the text LASTERROR returns. end hands both buffers to the
