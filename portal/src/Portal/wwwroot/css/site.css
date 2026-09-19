@@ -138,6 +138,16 @@ details.files[open] summary h2::before { content: "▾ "; }
 .filters select { font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
 
 .getpkg { border: 1px solid var(--brand); border-radius: var(--radius); padding: 4px 20px 16px; margin: 16px 0 8px; }
+.getpkg > summary { list-style: none; cursor: pointer; padding: 16px 0 4px; }
+.getpkg > summary::-webkit-details-marker { display: none; }
+.getpkg .when-open { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.getpkg-title { font-size: 1.15rem; font-weight: 700; }
+.getpkg .fold, .getpkg .when-folded { color: var(--accent); font-size: 0.9rem; }
+.getpkg .when-folded { display: none; }
+.getpkg:not([open]) { border-color: var(--line); padding-bottom: 4px; }
+.getpkg:not([open]) > summary { padding: 8px 0 6px; }
+.getpkg:not([open]) .when-open { display: none; }
+.getpkg:not([open]) .when-folded { display: inline; }
 .getpkg h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 a.button { display: inline-block; padding: 8px 14px; border-radius: var(--radius); background: var(--brand); color: #fff; font-weight: 600; }

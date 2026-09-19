@@ -8,8 +8,11 @@
     var host = (Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Context.Request.Scheme}://{Context.Request.Host}");
     var hosts = ChannelPaths.HostBootstraps.Where(h => System.IO.File.Exists(System.IO.Path.Combine(dir, h.Value))).ToList();
 }
-<section class="getpkg">
-    <h2>Get Pkg</h2>
+<details class="getpkg" open data-remember="getpkg-folded">
+    <summary>
+        <span class="when-open"><span class="getpkg-title">Get Pkg</span><span class="fold">I have it already, hide this</span></span>
+        <span class="when-folded">Need Pkg? Show how to get it</span>
+    </summary>
     <p>Pick the machine you are on.</p>
     <div class="grid">
         <div>
@@ -82,4 +85,4 @@
             }
         </div>
     </div>
-</section>
+</details>
