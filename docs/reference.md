@@ -221,6 +221,7 @@ Every answer has a `result:` line: `installed`, `upgraded`, `downgraded`,
 | `winner:`, `satisfies:`, `loaded:` | `RESOLVE`: the copy taken (`memory` for a loaded one), whether it meets `VERSION`, a copy in memory on AROS |
 | `program:`, `library:` | `RESOLVE <program>`: the program, then each library it names, where it is taken from and the verdict |
 | `kind-from:`, `depends-from:`, `config-from:`, `about-from:` | `PUBLISH`: the fields taken from the version published before |
+| `ignored:` | `SHOW`: a manifest key Pkg does not know, kept in the signed text and never acted on; a misspelt known key shows up here |
 
 ## The ARexx port
 

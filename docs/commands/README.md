@@ -18,20 +18,20 @@ in the [reference](../reference.md#verbs); `pkg HELP` prints it.
 - [`REPAIR`](repair.md): put missing and changed files back from the channel
 - [`REMOVE`](remove.md): take a package out, or the packages nothing needs any more
 - [`SHOW`](show.md): what a channel offers, each entry checked
-- [`MOUNTLIST`](mountlist.md): The Mount entry for an installed image
+- [`MOUNTLIST`](mountlist.md): the Mount entry for an installed image
 - [`RESOLVE`](resolve.md): which library a program would get from here, and why
 
 ## Publishing
 
-- [`KEYGEN`](keygen.md): A signing key, readable by you alone
-- [`KEYINFO`](keyinfo.md): The public key a key file holds
-- [`MANIFEST`](manifest.md): The manifest PUBLISH would sign, to read before publishing
+- [`KEYGEN`](keygen.md): a signing key, readable by you alone
+- [`KEYINFO`](keyinfo.md): the public key a key file holds
+- [`MANIFEST`](manifest.md): the manifest PUBLISH would sign, to read before publishing
 - [`PUBLISH`](publish.md): publish a drawer as a version of a package
-- [`WITHDRAW`](withdraw.md): A version nothing installs any more
-- [`SIGN`](sign.md): A detached signature for any file
-- [`IMAGE`](image.md): An FFS volume image of a drawer
+- [`WITHDRAW`](withdraw.md): a version nothing installs any more
+- [`SIGN`](sign.md): a detached signature for any file
+- [`IMAGE`](image.md): an FFS volume image of a drawer
 - [`PUSH`](push.md): send a channel to the portal
 
 ## On AROS
 
-- [`PORT`](port.md): serve every verb on an arexx port (aros)
+- [`PORT`](port.md): serve every verb on an ARexx port (AROS)

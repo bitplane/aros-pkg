@@ -38,6 +38,12 @@ sdl2 2.30 aarch64 07a2f17b1001fdf631e75e8b562f3a621da1f678cb8f6c3737f5cd383a0c92
 
 - `index`: one line per published version and CPU: name, version, CPU, and
   the SHA-256 of that version's description, its *manifest*.
+- A manifest is `key: value` lines, `Format: pkg-manifest 1` first. Keys
+  Pkg knows are read strictly; a key it does not know is kept in the signed
+  text, never acted on, and reported by `SHOW` as `ignored`, so a package
+  can carry lines for other distribution systems, and a misspelt key
+  (`Categroy:`) is seen rather than silently lost. A `Format` Pkg does not
+  know is refused: a change Pkg must understand gets a new format number.
 - `objects/<digest>.manifest`: the manifest, named by its own SHA-256, and
   `<digest>.sig`, its signature. The manifest lists every file of the
   package with its size and SHA-256.

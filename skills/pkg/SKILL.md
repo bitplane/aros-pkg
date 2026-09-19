@@ -122,6 +122,10 @@ to run, and names the components it needs with `DEPENDS`.
 
 ## Rules
 
+0. **An `ignored:` record is not an error.** A manifest may carry keys for
+   other distribution systems; Pkg keeps them and reports them. If an
+   ignored key looks like a known one misspelt (`Categroy`), tell the
+   requester; do not fix the manifest yourself.
 1. **Publishing is permanent.** A channel has no unpublish. Run the command
    with `DRYRUN` first and read `name:`, `version:`, `kind:`,
    `architecture:`, `depends:`, `file:` and `signer:`; compare them with the
