@@ -310,6 +310,8 @@ int pkg_fs_random_typed(void *buf, size_t len)
 }
 #endif
 
+void (*pkg_fs_on_transfer)(long long done, long long total);
+
 int pkg_fs_random(void *buf, size_t len)
 {
     FILE *f = fopen("/dev/urandom", "rb");
@@ -904,7 +906,16 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
         snprintf(err, errlen, "https needs curl, which is not on this machine's PATH");
         return -1;
     }
-    if (waitpid(pid, &st, 0) < 0 || !WIFEXITED(st)) {
+    /* curl says nothing (-s): the growing file is what a watching person is shown */
+    for (;;) {
+        pid_t w = waitpid(pid, &st, pkg_fs_on_transfer ? WNOHANG : 0);
+        struct stat sb;
+        if (w == pid) break;
+        if (w < 0) { snprintf(err, errlen, "curl did not finish"); return -1; }
+        if (stat(tmp, &sb) == 0 && sb.st_size > 0) pkg_fs_on_transfer((long long)sb.st_size, -1);
+        usleep(250000);
+    }
+    if (!WIFEXITED(st)) {
         snprintf(err, errlen, "curl did not finish");
         return -1;
     }
@@ -1012,6 +1023,7 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
                 if (n <= 0) break;
                 if (write(fd, buf, (size_t)n) != n) goto werr;
                 got += n;
+                if (pkg_fs_on_transfer && got / 262144 != (got - n) / 262144) pkg_fs_on_transfer(got, clen);
             }
             net_close(s);
             if (clen >= 0 && got != clen) { snprintf(err, errlen, "%s sent %lld of %lld bytes", host, got, clen); return -1; }
@@ -1032,6 +1044,7 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
                 }
                 memcpy(all + len, buf, (size_t)n);
                 len += (size_t)n;
+                if (pkg_fs_on_transfer && len / 262144 != (len - (size_t)n) / 262144) pkg_fs_on_transfer((long long)len, -1);
             }
             net_close(s);
             all[len] = '\0';

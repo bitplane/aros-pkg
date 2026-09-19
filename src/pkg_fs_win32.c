@@ -530,6 +530,8 @@ int pkg_fs_list(const char *dir, char ***names, size_t *count)
     return 0;
 }
 
+void (*pkg_fs_on_transfer)(long long done, long long total);
+
 int pkg_fs_random_typed(void *buf, size_t len)
 {
     (void)buf; (void)len;

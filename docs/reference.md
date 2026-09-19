@@ -130,7 +130,7 @@ progress counter; AROS has no `tee`.
 | `PKG_PUSHKEY` | the portal key `PUSH` sends; never put it on the command line |
 | `PKG_OUTPUT` | `machine`: the same as `MACHINE` on every command |
 | `PKG_TRACE` | the same as `TRACE <file>` on every command |
-| `PKG_PROGRESS` | `1`: show the progress counter even when the output is not a terminal |
+| `PKG_PROGRESS` | `1`: show progress even when the output is not a terminal. At a terminal or an AROS Shell window it shows by itself: files checked and written for a large package, and megabytes for a download (`downloading 12.4 of 640.0 MB`) |
 | `PKG_COLOR` | `always` or `never`: colour and marks whatever the output is. Without it, a terminal gets them and a pipe, a file or the ARexx port gets plain text. `NO_COLOR` and `TERM=dumb` turn them off too |
 | `COLUMNS` | the width long lines are wrapped at on a terminal, 80 when unset |
 | `PKG_LIBS_PATH` | `RESOLVE` on a host: the directories of `LIBS:`, separated by `:`; else `ROOT/Libs` and `ROOT/Classes` |

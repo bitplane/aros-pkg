@@ -63,6 +63,11 @@ char *pkg_join(const char *a, const char *b);
 int pkg_host_args(int *argc, char ***argv);
 
 /* Fill buf from the system's cryptographic random source. 0 or -1. */
+/* Called while pkg_net_get downloads, so that a person sees a large file
+ * arrive: bytes so far, and the total, -1 when the server did not say. NULL,
+ * the default, asks for nothing. */
+extern void (*pkg_fs_on_transfer)(long long done, long long total);
+
 int pkg_fs_random(void *buf, size_t len);
 /* Where the system has no random source (AROS): bytes made from the moments a
  * person presses keys, asked for at the console. 0 done; -1 given up or

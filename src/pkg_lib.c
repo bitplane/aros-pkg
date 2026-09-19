@@ -312,6 +312,38 @@ static void say(const char *fmt, ...)
     va_end(ap);
 }
 
+/* A download a person is watching: "downloading 12.4 of 640.0 MB", rewritten
+ * in place like the counter below, and cleared when the file is there. */
+static int transfer_shown;
+static void transfer_progress(long long done, long long total)
+{
+    char text[80];
+    if (total > 0)
+        snprintf(text, sizeof text, "downloading %.1f of %.1f MB", done / 1048576.0, total / 1048576.0);
+    else
+        snprintf(text, sizeof text, "downloading %.1f MB", done / 1048576.0);
+    transfer_shown = 1;
+    if (sink->line != NULL)
+        sink->line(sink->user, PKG_LINE_PROGRESS, 0, text);
+    else
+        say("\r  %s", text);
+}
+static int net_get_watched(const char *url, const char *dest, char *err, size_t errlen)
+{
+    int rc;
+    pkg_fs_on_transfer = (!machine && sink != NULL && sink->progress) ? transfer_progress : NULL;
+    transfer_shown = 0;
+    rc = pkg_net_get(url, dest, err, errlen);
+    pkg_fs_on_transfer = NULL;
+    if (transfer_shown) {
+        if (sink->line != NULL)
+            sink->line(sink->user, PKG_LINE_PROGRESS, 0, "");
+        else
+            say("\r%*s\r", 40, "");
+    }
+    return rc;
+}
+
 /* A counter for a person watching a long step: "checking 800/1500",
  * rewritten in place, cleared when the step ends. */
 static void progress(const char *what, size_t i, size_t n)
@@ -2673,7 +2705,7 @@ static char *chan_file(const char *channel, const char *rel)
         char *slash = strrchr(local, '/');
         if (slash) { *slash = '\0'; pkg_fs_mkdirs(local); *slash = '/'; }
     }
-    rc = pkg_net_get(url, local, net_err, sizeof net_err);
+    rc = net_get_watched(url, local, net_err, sizeof net_err);
     tr("fetched %s: %s", url, rc == 0 ? "ok" : rc == 1 ? "not there" : net_err);
     if (rc == 1)
         pkg_fs_unlink(local);       /* not published there: no stale copy either */
@@ -3193,7 +3225,7 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
     if (!machine)
         say_kind(PKG_LINE_NOTE, "%s\n", "downloading %s (%llu MB) from %s, once for every package it holds", an,
             (m->archive_size + 524288ull) / 1048576ull, m->archive_url);
-    rc = pkg_net_get(m->archive_url, dest, net_err, sizeof net_err);
+    rc = net_get_watched(m->archive_url, dest, net_err, sizeof net_err);
     if (rc == 0 && file_digest(dest, hex, &size) == 0
         && size == m->archive_size && strcmp(hex, m->archive_sha) == 0) {
         tr("%s: downloaded %s, %llu bytes, SHA-256 as signed", what, m->archive_url, size);
