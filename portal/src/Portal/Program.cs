@@ -358,13 +358,15 @@ app.MapGet("/get/{channel}/{platform}", (string channel, string platform, Portal
 
 // ---- the channel itself, byte for byte as a directory channel --------------
 
-app.MapMethods("/{channel}", ["GET", "HEAD"], (string channel) =>
-    ChannelPaths.IsChannelName(channel) ? Results.Redirect($"/channels/{channel}") : Results.NotFound());
+// A channel's address in a browser shows its page; a word that is no channel is simply not found.
+app.MapMethods("/{channel}", ["GET", "HEAD"], (string channel, Catalogue c) =>
+    ChannelPaths.IsChannelName(channel) && c.Get(channel) is not null ? Results.Redirect($"/channels/{channel}") : Results.NotFound());
 
 app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], async (HttpContext http, string channel, string? path) =>
 {
     if (!ChannelPaths.IsChannelName(channel)) return Results.NotFound();
-    if (string.IsNullOrEmpty(path)) return Results.Redirect($"/channels/{channel}");
+    if (string.IsNullOrEmpty(path))
+        return http.RequestServices.GetRequiredService<Catalogue>().Get(channel) is not null ? Results.Redirect($"/channels/{channel}") : Results.NotFound();
     var kind = ChannelPaths.Classify(path);
     var full = Path.Combine(opts.ChannelsDir, channel, path);
     if (kind == ChannelPaths.Kind.None) return Results.NotFound();

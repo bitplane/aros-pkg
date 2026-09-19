@@ -176,7 +176,8 @@ public class PolicyTests
         var session = await c.PostAsync("/any/_push/session", new StringContent("key: " + new string('a', 64)));
         Assert.Equal(HttpStatusCode.Unauthorized, session.StatusCode);
         Assert.Contains("https://portal.test/publishers", await session.Content.ReadAsStringAsync());
-        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/publish")).StatusCode);   // one page, one address
+        var bare = s.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
+        Assert.Equal(HttpStatusCode.NotFound, (await bare.GetAsync("/publish")).StatusCode);   // no such address, and no redirect
         var page = await c.GetStringAsync("/publishers");
         Assert.Contains("ask the portal's maintainer to register you", page);
         Assert.Contains("pkg KEYINFO FILE my.key", page);
