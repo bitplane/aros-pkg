@@ -21,6 +21,9 @@ public sealed class PortalOptions
     /// and a local instance. Never over the network.
     public bool AllowLoopbackHttpPush { get; set; }
 
+    /// Names for signing keys, "hex=Name;hex2=Name2"; they win over names learnt at push time.
+    public string SignerNames { get; set; } = "";
+
     /// Packages shown first, as "channel/name" separated by commas, e.g.
     /// "pkg/pkg,contrib-nightly/regina". Pkg itself belongs here: people
     /// need it before anything else.

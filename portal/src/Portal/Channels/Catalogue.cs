@@ -24,6 +24,7 @@ public sealed record IndexLine(string Name, string Version, string Arch, string 
 public sealed class VersionEntry
 {
     public required IndexLine Line { get; init; }
+    public required string Channel { get; init; }
     public required Manifest Manifest { get; init; }
     public string? Signer { get; init; }
     public bool Withdrawn { get; init; }
@@ -154,7 +155,7 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
                 ? new FileInfo(Path.Combine(dir, "objects", p + ".pkg")).Length : 0;
             entries.Add(new VersionEntry
             {
-                Line = l, Manifest = m, Signer = signer,
+                Line = l, Channel = channel, Manifest = m, Signer = signer,
                 // Shown as withdrawn; Pkg checked the withdrawal's signature
                 // when the push that brought it was committed.
                 Withdrawn = File.Exists(Path.Combine(dir, "objects", l.Digest + ".withdrawn")),

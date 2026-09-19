@@ -32,6 +32,7 @@ builder.Services.AddSingleton<PkgRunner>();
 builder.Services.AddSingleton<PushService>();
 builder.Services.AddSingleton<ArchiveChecker>();
 builder.Services.AddSingleton<ArchiveStore>();
+builder.Services.AddSingleton<Portal.Channels.Publishers>();
 builder.Services.AddSingleton<Portal.Channels.Downloads>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Downloads>());
 builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));

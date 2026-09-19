@@ -1,0 +1,63 @@
+@page "/publishers/{id?}"
+@using Portal.Channels
+@inject Publishers Publishers
+@{
+    var id = (string?)RouteData.Values["id"];
+    var all = Publishers.All();
+    var one = id is null ? null : Publishers.Find(id);
+    if (id is not null && one is null) { Response.StatusCode = 404; }
+    ViewData["Title"] = one is null ? "Publishers" : one.Name ?? $"Key {one.Short}";
+}
+@if (id is not null && one is null)
+{
+    <h1>No publisher “@id”</h1>
+    <p><a href="/publishers">Every publisher</a></p>
+    return;
+}
+@if (one is null)
+{
+    <h1>Publishers</h1>
+    <p class="lead">A publisher is a signing key: every package here is signed by one, and Pkg holds each package to the key of its first version. <a href="/trust">What that means</a>.</p>
+    <table class="list">
+        <thead><tr><th>Publisher</th><th>Key</th><th class="num">Packages</th><th class="num hide-s">Versions</th><th class="hide-s">Since</th></tr></thead>
+        <tbody>
+        @foreach (var p in all)
+        {
+            <tr>
+                <td><a href="/publishers/@p.Key">@(p.Name ?? "unnamed key")</a></td>
+                <td><code>@p.Short</code></td>
+                <td class="num">@p.ByPackage.Count()</td>
+                <td class="num hide-s">@p.Versions.Count</td>
+                <td class="hide-s">@Site.Date(p.Since)</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    return;
+}
+<p class="crumbs"><a href="/publishers">Publishers</a> /</p>
+<h1>@(one.Name ?? "Unnamed key")</h1>
+<p class="lead">@one.ByPackage.Count() package@(one.ByPackage.Count() == 1 ? "" : "s"), @one.Versions.Count version@(one.Versions.Count == 1 ? "" : "s"), signing since @Site.Date(one.Since).</p>
+<h2>Public key</h2>
+<div class="cmd wrapcode"><code>@one.Key</code><button class="copy" data-copy="@one.Key">Copy</button></div>
+<p class="muted small">Ed25519. This key is the publisher's identity; the name above is a label this site's maintainers attached to it. Compare the key with the one the publisher announces on a page you trust. <a href="/trust">How signatures work here</a>.</p>
+<h2>Signed packages</h2>
+<table class="list">
+    <thead><tr><th>Package</th><th>Versions</th><th class="hide-s">Channel</th></tr></thead>
+    <tbody>
+    @foreach (var g in one.ByPackage)
+    {
+        var first = g.First();
+        <tr>
+            <td><a href="/packages/@first.Channel/@first.Name">@first.Name</a>
+                @if (first.Manifest.Short is { } sh)
+                {
+                    <div class="muted small">@sh</div>
+                }
+            </td>
+            <td>@string.Join(", ", g.Select(v => v.Version).Distinct().OrderByDescending(v => v, PkgVersion.Order))</td>
+            <td class="hide-s">@first.Channel</td>
+        </tr>
+    }
+    </tbody>
+</table>

@@ -17,7 +17,7 @@ namespace Portal.Push;
 /// check accepts. Published files never change and a push never deletes.
 /// </summary>
 public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, Catalogue catalogue,
-                                ArchiveChecker archives, ILogger<PushService> log)
+                                ArchiveChecker archives, Publishers publishers, ILogger<PushService> log)
 {
     readonly PortalOptions o = options.Value;
     static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new();
@@ -333,6 +333,7 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         }
         catalogue.Invalidate(channel);
         foreach (var arc in newArchives.Distinct()) archives.Enqueue(channel, arc);
+        foreach (var signer in accepted.Select(a => a.Signer).Distinct()) publishers.Learn(signer, who.Name);
 
         var stats = ReadStats(staging);
         if (refusedItems.Count == 0 && Directory.Exists(staging)) Directory.Delete(staging, true);
