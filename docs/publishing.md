@@ -259,4 +259,20 @@ pkg PUSH CHANNEL mychannel TO https://aros-pkg.azurewebsites.net/mychannel
 `PUSH` sends only the files the portal does not have yet, large ones in
 parts that resume after a failure, and never an archive published with
 `UPSTREAM`. The portal checks every signature before it publishes anything.
-See [Channels](channels.md) for serving a channel yourself.
+
+**What your key may send.** A portal decides per key whether it takes your
+files. On the AROS portal a key publishes *by link* unless its maintainers
+gave it the *files* right: your push carries the signed manifests and
+signatures, and the files stay where you publish them, an `https` address
+such as a GitHub release. Put the release archive there and publish from
+it, naming the address:
+
+```sh
+pkg PUBLISH "release/mytool-1.1.tar.bz2!/MyTool" CHANNEL mychannel KIND application UPSTREAM https://github.com/you/mytool/releases/download/v1.1/mytool-1.1.tar.bz2
+pkg PUSH CHANNEL mychannel TO https://aros-pkg.azurewebsites.net/mychannel
+```
+
+A push with a payload from a link-only key is refused (20) and the refusal
+names the portal's rule; every portal states its rules at
+`/api/policy` and on its trust page. See [Channels](channels.md) for
+serving a channel yourself.

@@ -117,6 +117,39 @@ with `ACCEPTKEY`. Nothing already installed is affected.
 Back your key up. `KEYGEN` writes one file, readable by you alone; a copy
 in a password manager or on an encrypted disk is enough.
 
+## The installers
+
+`curl ... | sh` and `install.ps1` run before Pkg exists on the machine, so
+they cannot use Pkg to check what they download. They fetch
+`Bootstrap/SHA256SUMS` and `Bootstrap/SHA256SUMS.sig` from the channel and
+verify the signature with OpenSSH, which every macOS, Linux and Windows
+has, against the channel owner's key embedded in the script; then they
+check the binary's SHA-256 against its line. A machine without
+`ssh-keygen -Y` refuses to install, unless `PKG_SKIP_VERIFY=1` says to go
+on with a warning. The same check by hand:
+
+```sh
+B=https://aros-pkg.azurewebsites.net/pkg
+curl -fsSO $B/Bootstrap/SHA256SUMS && curl -fsSO $B/Bootstrap/SHA256SUMS.sig
+printf 'jkn ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEPFUJZ7wY3+x886fNASl9CUUP02Sg402OWK72I87zB3\n' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I jkn -n aros-pkg-bootstrap -s SHA256SUMS.sig < SHA256SUMS
+curl -fsSO $B/Bootstrap/linux-x86_64/pkg && mkdir -p Bootstrap/linux-x86_64 && mv pkg Bootstrap/linux-x86_64/
+grep linux-x86_64 SHA256SUMS | shasum -a 256 -c -
+```
+
+```
+Good "aros-pkg-bootstrap" signature for jkn with ED25519 key SHA256:6iGtIJqhQKmOGWvUH+AN3RaNLBoPloyMk82VCfmz//o
+Bootstrap/linux-x86_64/pkg: OK
+```
+
+The `ssh-ed25519` line is JKN's key as the portal's trust page prints it;
+the same key in Pkg's own hex form is `43c55096...3077` above.
+
+`pkg SIGN <file> KEY <keyfile> OUT <sig> SSH NAMESPACE <ns>` writes such a
+signature and `pkg KEYINFO FILE <keyfile> SSH` prints the key in
+`ssh-ed25519` form, so your own channel's bootstraps can be signed the
+same way ([`SIGN`](commands/sign.md), [`KEYINFO`](commands/keyinfo.md)).
+
 ## Checking a package by hand
 
 Pkg does this at every install, and `SHOW` does it for a whole channel:

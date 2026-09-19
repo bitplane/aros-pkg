@@ -119,6 +119,17 @@ What the portal holds and enforces:
 - Every push is checked by the portal running Pkg itself (`SHOW ... METADATA`)
   before anything is published. What that proves and what it cannot:
   [Signatures and trust](signing.md).
+- Its rules are readable: `https://aros-pkg.azurewebsites.net/api/policy`
+  says whether pushes are open, which keys may upload files (the others
+  publish by link to an `https` archive), which hosts links may point to,
+  whether new channels may be created, and how to reach the maintainers;
+  `/trust` shows the same. A refusal a rule causes carries a `policy:` line
+  naming it. Another portal instance chooses its own rules.
+- What the installers hand out is signed: `Bootstrap/SHA256SUMS` lists the
+  SHA-256 of every host build, the AROS `Pkg` binaries, `Install-Pkg` and
+  `ReadMe`, and `SHA256SUMS.sig` is that list signed by the channel owner's
+  key in OpenSSH's format, so `ssh-keygen -Y verify` checks it before Pkg
+  exists on the machine ([Signatures and trust](signing.md#the-installers)).
 
 Publishers upload with `PUSH`; see
 [Publishing](publishing.md#upload-to-the-portal).
