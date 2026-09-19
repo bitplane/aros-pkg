@@ -59,7 +59,7 @@ build/example-%: examples/%.c build/libpkg.a include/pkg.h
 # Windows, cross-built with mingw-w64. tools/make-windows-kit.sh wraps it in a
 # test kit to run on a Windows machine.
 WINCC ?= x86_64-w64-mingw32-gcc
-WINHOST = src/pkg_fs_win32.c src/pkg_out.c src/pkg_port.c
+WINHOST = src/pkg_fs_win32.c src/pkg_out.c src/pkg_port.c src/pkg_style.c
 
 build/pkg.exe: src/pkg_main.c $(LIB) $(CORE) $(WINHOST) $(HDR)
 	@mkdir -p build
