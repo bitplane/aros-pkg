@@ -38,6 +38,33 @@
 <p class="crumbs"><a href="/publishers">Publishers</a> /</p>
 <h1>@(one.Name ?? "Unnamed key")</h1>
 <p class="lead">@one.ByPackage.Count() package@(one.ByPackage.Count() == 1 ? "" : "s"), @one.Versions.Count version@(one.Versions.Count == 1 ? "" : "s"), signing since @Site.Date(one.Since).</p>
+@if (one.Url is not null || one.Contact is not null)
+{
+    <dl class="facts">
+        @if (Site.SafeUrl(one.Url) is { } web)
+        {
+            <dt>Web</dt><dd><a href="@web" rel="nofollow noopener">@web</a></dd>
+        }
+        @if (one.Contact is { } contact)
+        {
+            <dt>Contact</dt>
+            <dd>
+                @if (contact.Contains('@') && !contact.Contains(' '))
+                {
+                    <a href="mailto:@contact">@contact</a>
+                }
+                else if (Site.SafeUrl(contact) is { } contactUrl)
+                {
+                    <a href="@contactUrl" rel="nofollow noopener">@contactUrl</a>
+                }
+                else
+                {
+                    @contact
+                }
+            </dd>
+        }
+    </dl>
+}
 <h2>Public key</h2>
 <div class="cmd wrapcode"><code>@one.Key</code><button class="copy" data-copy="@one.Key">Copy</button></div>
 <p class="muted small">Ed25519. This key is the publisher's identity; the name above is a label this site's maintainers attached to it. Compare the key with the one the publisher announces on a page you trust. <a href="/trust">How signatures work here</a>.</p>

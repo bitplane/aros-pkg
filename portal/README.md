@@ -66,6 +66,8 @@ Settings (environment variables use `__`, e.g. `Portal__DataDir`):
 | `Portal:PkgPath` | the Pkg that checks pushes; the deployment puts the static Linux build beside the app |
 | `Portal:Keys` | `name:sha256-of-key:channel,channel;…`, one entry per publisher |
 | `Portal:PublicUrl` | the address shown in commands |
+| `Portal:Publishers` | publisher profiles, `key|name|url|contact;…` (url and contact optional); they win over SignerNames |
+| `Portal:Owners` | packages moved to another key by the maintainers, `channel/name=key;…`; from then on a push of that package must be signed by that key |
 | `Portal:SignerNames` | names for signing keys, `hex=Name;…`; keys are otherwise named after the publisher whose push first used them |
 | `Portal:Pinned` | packages shown first, `channel/name` separated by commas; `pkg/pkg` by default |
 | `Portal:AllowLoopbackHttpPush` | pushes over http from 127.0.0.1, for a local instance only |

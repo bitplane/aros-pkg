@@ -263,10 +263,16 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         foreach (var x in ready)
         {
             if (!owners.TryGetValue(x.Line.Name, out var owner)) owners[x.Line.Name] = owner = (x.Signer, x.Line.Version);
-            if (owner.Signer != x.Signer)
+            // A maintainers' transfer (Portal:Owners) names the key from now on.
+            if (publishers.OwnerOf(channel, x.Line.Name, null) is { } moved && !moved.Equals(owner.Signer, StringComparison.OrdinalIgnoreCase))
+                owners[x.Line.Name] = owner = (moved, "the maintainers' transfer");
+            if (!owner.Signer.Equals(x.Signer, StringComparison.OrdinalIgnoreCase))
             {
+                var why = owner.Version == "the maintainers' transfer"
+                    ? "to which the portal's maintainers moved it"
+                    : $"which signed {owner.Version}";
                 refusedItems.Add($"{x.Line.Name} {x.Line.Version} {x.Line.Arch} 14 {x.Line.Name} belongs to key {Short(owner.Signer)}, "
-                    + $"which signed {owner.Version}; this version is signed by {Short(x.Signer)}. A package keeps the key of its first version");
+                    + $"{why}; this version is signed by {Short(x.Signer)}. A package keeps its key unless the maintainers move it");
                 continue;
             }
             owned.Add(x);

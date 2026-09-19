@@ -3,12 +3,18 @@
 @using Portal.Channels
 @inject Catalogue Catalogue
 @inject IOptions<PortalOptions> Options
+@inject Publishers Publishers
 @{
     ViewData["Title"] = "Trust and signatures";
     // The project's key: the one that signed the first published version of Pkg.
     var pkgHome = Catalogue.Pinned().FirstOrDefault(p => p.Name == "pkg")?.Channel ?? "pkg";
     var pkg = Catalogue.Package(pkgHome, "pkg");
-    var projectKey = pkg?.Versions.OrderBy(v => v.Published).FirstOrDefault()?.Signer;
+    // Pkg's key now: the maintainers' transfer if any, else the key of its first version.
+    var firstKey = pkg?.Versions.OrderBy(v => v.Published).FirstOrDefault()?.Signer;
+    var projectKey = Publishers.OwnerOf(pkgHome, "pkg", firstKey);
+    var names = Publishers.Names();
+    var earlier = pkg?.Versions.Select(v => v.Signer).OfType<string>().Distinct()
+        .Where(k => !k.Equals(projectKey, StringComparison.OrdinalIgnoreCase)).ToList() ?? [];
     var url = Site.ChannelUrl(Request, Options.Value, pkgHome);
     var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
     var example = pkg?.Latest;
@@ -19,9 +25,13 @@
 
 @if (projectKey is not null)
 {
-    <h2>The project's key</h2>
-    <p>Pkg itself, and the packages this project publishes, are signed with this Ed25519 key. If it matters to you that what you install comes from this project, compare it with the <em>Signer</em> that Pkg shows:</p>
+    <h2>Pkg's key</h2>
+    <p>Pkg itself is signed with this Ed25519 key@(names.GetValueOrDefault(projectKey) is { } owner ? $", the publisher {owner}" : ""). If it matters to you that the Pkg you install is the real one, compare it with the <em>Signer</em> that Pkg shows:</p>
     <div class="cmd wrapcode"><code>@keyLine</code><button class="copy" data-copy="@keyLine">Copy</button></div>
+    @foreach (var old in earlier)
+    {
+        <p class="note">Earlier versions of Pkg were signed by <a href="/publishers/@old">@(names.GetValueOrDefault(old) ?? Site.Short(old))</a> (<code>@Site.Short(old)</code>). A machine that installed one of them refuses the new key once, as Pkg should: accept it with <code>ACCEPTKEY @keyLine</code> after comparing it with the key above.</p>
+    }
     <p class="muted small">Every key that signs packages here has its page: <a href="/publishers">Publishers</a>.</p>
 }
 
@@ -50,7 +60,7 @@
                "curl -fsSO $B/objects/$d.manifest\n" +
                "curl -fsSO $B/objects/$d.sig\n" +
                $"curl -fsSO {site}/verify-manifest.py\n" +
-               $"python3 verify-manifest.py $d.manifest $d.sig {keyLine}";
+               $"python3 verify-manifest.py $d.manifest $d.sig {example.Signer}";
     <pre><code>@cmds</code></pre>
     <p class="muted small">It says <code>the manifest is what its publisher signed</code>, or <code>do not trust this package</code> when a single byte differs. The manifest's <code>File:</code> lines then give each file's SHA-256 to compare with <code>shasum -a 256</code>.</p>
 }

@@ -24,6 +24,16 @@ public sealed class PortalOptions
     /// Names for signing keys, "hex=Name;hex2=Name2"; they win over names learnt at push time.
     public string SignerNames { get; set; } = "";
 
+    /// Publisher profiles set by the maintainers, "hex|name|url|contact;...";
+    /// url and contact are optional. They win over SignerNames.
+    public string Publishers { get; set; } = "";
+
+    /// Packages moved to another key by the maintainers, "channel/name=hex;...":
+    /// from then on a push of that package must be signed by that key, whatever
+    /// signed its first version. Machines that pinned the old key refuse the new
+    /// one once, and their owners decide with ACCEPTKEY.
+    public string Owners { get; set; } = "";
+
     /// Packages shown first, as "channel/name" separated by commas, e.g.
     /// "pkg/pkg,contrib-nightly/regina". Pkg itself belongs here: people
     /// need it before anything else.
