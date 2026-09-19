@@ -1,0 +1,11 @@
+@page
+@model ErrorModel
+@{
+    ViewData["Title"] = "Something went wrong";
+}
+<h1>Something went wrong</h1>
+<p>The portal could not answer this request. Nothing was changed.</p>
+@if (Model.ShowRequestId)
+{
+    <p class="muted">Request <code>@Model.RequestId</code></p>
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="light dark" />
+    <title>@(ViewData["Title"] is string t ? t + " · " : "")AROS Packages</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="icon" href="~/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="~/favicon.ico" sizes="16x16 32x32 48x48" />
+</head>
+<body>
+<header class="top">
+    <div class="wrap top-row">
+        <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>AROS Packages</a>
+        @{ var here = Context.Request.Path.Value ?? "/"; string On(string p) => (p == "/" ? here == "/" || here.StartsWith("/channels") || here.StartsWith("/packages") || here.StartsWith("/search") : here.StartsWith(p)) ? "on" : ""; }
+        <nav class="nav" aria-label="Main">
+            <a class="@On("/")" href="/">Packages</a>
+            <a class="@On("/downloads")" href="/downloads">Downloads</a>
+            <a class="@On("/statistics")" href="/statistics">Statistics</a>
+            <a class="@On("/docs")" href="/docs">Documentation</a>
+        </nav>
+        <form class="search" action="/search" method="get" role="search">
+            <input type="search" name="q" value="@Context.Request.Query["q"]" placeholder="Search packages" aria-label="Search packages" />
+        </form>
+    </div>
+</header>
+<main class="wrap">
+    @RenderBody()
+</main>
+<footer class="wrap foot">
+    <p>Preview, unlisted. Every package is signed with Ed25519, and Pkg checks each file against its signed manifest before installing it.
+       <a href="/docs">Documentation</a></p>
+</footer>
+<script src="~/js/site.js" asp-append-version="true"></script>
+</body>
+</html>

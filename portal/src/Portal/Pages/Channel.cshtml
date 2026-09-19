@@ -1,0 +1,114 @@
+@page "/channels/{name}"
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@inject Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
+@{
+    var name = (string)RouteData.Values["name"]!;
+    var ch = Catalogue.Get(name);
+    if (ch is null) { Response.StatusCode = 404; ViewData["Title"] = "No such channel"; }
+    else ViewData["Title"] = ch.Name;
+    string kind = Request.Query["kind"].ToString();
+}
+@if (ch is null)
+{
+    <h1>No channel named “@name”</h1>
+    <p><a href="/">See every channel</a>.</p>
+    return;
+}
+@{
+    var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
+    var packages = ch.Packages.Values.Where(p => kind.Length == 0 || p.Kind == kind)
+        .OrderBy(p => Catalogue.IsPinned(p) ? 0 : 1).ToList();
+    var builds = ch.Builds().Take(10).ToList();
+    var bytes = ch.Packages.Values.Sum(p => p.Latest.Manifest.InstalledSize);
+    var archs = ch.Packages.Values.SelectMany(p => p.Archs).Distinct().Order().ToList();
+}
+<p class="crumbs"><a href="/">Channels</a> /</p>
+<h1>@ch.Name</h1>
+<div class="stats">
+    <div><strong>@ch.Packages.Count</strong><span>packages</span></div>
+    <div><strong>@ch.Lines.Count</strong><span>versions published</span></div>
+    <div><strong>@Site.Size(bytes)</strong><span>installed, latest versions</span></div>
+    <div><strong>@string.Join(", ", archs.Select(Site.ArchLabel))</strong><span>CPUs</span></div>
+</div>
+
+<h2>Use this channel</h2>
+<div class="cmd"><code>Pkg STATUS ROOT SYS: CHANNEL @url</code><button class="copy" data-copy="Pkg STATUS ROOT SYS: CHANNEL @url">Copy</button></div>
+<p class="muted small">The same address works over plain http, for machines without TLS: signatures, not the connection, prove what you install.</p>
+
+@if (builds.Count > 0)
+{
+    <h2>Builds</h2>
+    <table class="list">
+        <thead><tr><th>Build</th><th>Published</th><th class="hide-s">New packages</th><th>Unchanged</th><th class="hide-s">Files</th><th class="hide-s">Installed size</th></tr></thead>
+        <tbody>
+        @foreach (var b in builds)
+        {
+            <tr>
+                <td>@Site.BuildLabel(b.Build)</td>
+                <td>@b.Published</td>
+                <td class="hide-s">@b.NewPackages</td>
+                <td>@b.Unchanged <span class="muted small">not republished</span></td>
+                <td class="hide-s">@b.Files</td>
+                <td class="hide-s">@Site.Size(b.InstalledBytes)</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+<h2>Packages</h2>
+<form class="filters" method="get">
+    <label>Kind
+        <select name="kind" data-autosubmit>
+            <option value="">any</option>
+            @foreach (var k in ch.Packages.Values.Select(p => p.Kind).Distinct().Order())
+            {
+                <option value="@k" selected="@(k == kind)">@Site.KindLabel(k)</option>
+            }
+        </select>
+    </label>
+    <noscript><button type="submit">Filter</button></noscript>
+</form>
+<table class="list">
+    <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="num">Size</th></tr></thead>
+    <tbody>
+    @foreach (var p in packages)
+    {
+        <tr class="@(p.Latest.Withdrawn ? "withdrawn" : "")">
+            <td>
+                <a href="/packages/@ch.Name/@p.Name">@p.Name</a>
+                @if (Catalogue.IsPinned(p))
+                {
+                    <span class="pin">pinned</span>
+                }
+                @if (p.Latest.Manifest.Short is { } sh)
+                {
+                    <div class="muted small">@sh</div>
+                }
+            </td>
+            <td><code>@p.Latest.Version</code></td>
+            <td class="hide-s">@Site.KindLabel(p.Kind)</td>
+            <td class="hide-s">@string.Join(", ", p.Archs.Select(Site.ArchLabel))</td>
+            <td class="num">@Site.Size(p.Latest.Manifest.InstalledSize)</td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+@if (ch.Archives.Count > 0 || ch.Upstream.Count > 0)
+{
+    <h2>Source archives</h2>
+    <p class="muted small">Packages whose files stay inside a published archive, such as a nightly contrib build. Pkg takes each package's files out and checks them one by one.</p>
+    <ul class="plain">
+    @foreach (var a in ch.Archives)
+    {
+        <li><a href="/@ch.Name/archives/@a">@a</a> <span class="muted small">· @Site.ArchiveStatus(ch, a)</span></li>
+    }
+    @foreach (var (a, up) in ch.Upstream.Where(u => !ch.Archives.Contains(u.Key)))
+    {
+        <li><a href="@(Site.SafeUrl(up.Url) ?? "#")" rel="nofollow noopener">@a</a> <span class="muted small">· @Site.ArchiveStatus(ch, a)</span></li>
+    }
+    </ul>
+}

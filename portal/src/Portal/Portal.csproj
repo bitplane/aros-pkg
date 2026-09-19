@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.103.3" />
+    <PackageReference Include="Markdig" Version="1.3.2" />
+  </ItemGroup>
+
+  <!-- The user guides of this repository, rendered by /docs: the site's
+       documentation always matches the Pkg built from the same commit. -->
+  <ItemGroup>
+    <Content Include="../../../README.md" Link="userdocs/README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Only what the README's Guides list links is shown; contributors' pages are not bundled at all. -->
+    <Content Include="../../../docs/**/*.md" Exclude="../../../docs/development*.md;../../../docs/container.md;../../../docs/aros-defects.md;../../../docs/history.md" LinkBase="userdocs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

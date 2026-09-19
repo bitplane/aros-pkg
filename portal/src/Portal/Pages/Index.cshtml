@@ -1,0 +1,75 @@
+@page
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@inject Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
+@{
+    var channels = Catalogue.Channels().ToList();
+    var pinned = Catalogue.Pinned();
+    var recent = channels.SelectMany(c => c.Packages.Values).OrderByDescending(p => p.Updated).Take(12).ToList();
+    var total = channels.Sum(c => c.Packages.Count);
+}
+<section class="hero">
+    <h1>Install and update AROS software</h1>
+    <p class="lead">@total package@(total == 1 ? "" : "s") in @channels.Count channel@(channels.Count == 1 ? "" : "s").
+        Pkg checks every file against its signed manifest before it installs it.</p>
+</section>
+
+@if (pinned.Count > 0)
+{
+    <h2>Start here</h2>
+    <div class="cards">
+    @foreach (var p in pinned)
+    {
+        <a class="card pinned" href="/packages/@p.Channel/@p.Name">
+            <span class="card-title">@p.Name <span class="muted">@p.Latest.Version</span></span>
+            @if (p.Latest.Manifest.Short is { } sh)
+            {
+                <span>@sh</span>
+            }
+            <span class="muted small">@Site.KindLabel(p.Kind) · @string.Join(", ", p.Archs.Select(Site.ArchLabel))</span>
+            <span class="cmd-line">@Site.InstallCommand(Site.ChannelUrl(Request, Options.Value, p.Channel), p.Name)</span>
+        </a>
+    }
+    </div>
+}
+
+<h2>Channels</h2>
+@if (channels.Count == 0)
+{
+    <p class="muted">Nothing is published yet.</p>
+}
+<div class="cards">
+@foreach (var c in channels)
+{
+    <a class="card" href="/channels/@c.Name">
+        <span class="card-title">@c.Name</span>
+        <span class="muted">@c.Packages.Count package@(c.Packages.Count == 1 ? "" : "s") · updated @Site.Ago(c.Updated)</span>
+    </a>
+}
+</div>
+
+@if (recent.Count > 0)
+{
+    <h2>Recently updated</h2>
+    <table class="list">
+        <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">Channel</th><th>Updated</th></tr></thead>
+        <tbody>
+        @foreach (var p in recent)
+        {
+            <tr>
+                <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a>
+                @if (p.Latest.Manifest.Short is { } sh)
+                {
+                    <div class="muted small">@sh</div>
+                }
+                </td>
+                <td><code>@p.Latest.Version</code></td>
+                <td class="hide-s">@Site.KindLabel(p.Kind)</td>
+                <td class="hide-s">@p.Channel</td>
+                <td class="muted">@Site.Ago(p.Updated)</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

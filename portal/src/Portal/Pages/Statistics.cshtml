@@ -1,0 +1,149 @@
+@page "/statistics"
+@using Portal.Channels
+@inject Catalogue Catalogue
+@inject Downloads Downloads
+@{
+    ViewData["Title"] = "Statistics";
+    var channels = Catalogue.Channels().ToList();
+    var packages = channels.SelectMany(c => c.Packages.Values).ToList();
+    var latest = packages.Select(p => p.Latest).ToList();
+    var versions = channels.Sum(c => c.Lines.Count);
+    var files = latest.Sum(v => v.Manifest.Files.Count);
+    var bytes = latest.Sum(v => v.Manifest.InstalledSize);
+    var signers = packages.SelectMany(p => p.Versions).Select(v => v.Signer).OfType<string>().Distinct().Count();
+    var upstream = channels.SelectMany(c => c.Upstream.Values).DistinctBy(u => u.Sha256).ToList();
+    var byKind = latest.GroupBy(v => v.Manifest.Kind).OrderByDescending(g => g.Count()).ToList();
+    var byCpu = packages.SelectMany(p => p.Archs).GroupBy(a => a).OrderByDescending(g => g.Count()).ToList();
+    var largest = packages.OrderByDescending(p => p.Latest.Manifest.InstalledSize).Take(10).ToList();
+    var payloadDownloads = Downloads.All.Where(k => k.Key.StartsWith("payload/")).Sum(k => k.Value);
+    var getPkg = Downloads.All.Where(k => k.Key.StartsWith("get/")).OrderByDescending(k => k.Value).ToList();
+    // Payload downloads per package: the payload digest of each of its versions.
+    long Of(PackageInfo p) => p.Versions.Select(v => v.Manifest.Payload).OfType<string>().Distinct()
+        .Sum(d => Downloads.Get($"payload/{p.Channel}/{d}"));
+    var mostDownloaded = packages.Select(p => (P: p, N: Of(p))).Where(x => x.N > 0).OrderByDescending(x => x.N).Take(10).ToList();
+    int maxKind = byKind.Count > 0 ? byKind.Max(g => g.Count()) : 1;
+}
+<h1>Statistics</h1>
+<p class="lead">What the channels hold, from their signed manifests, and what the portal itself has served.</p>
+
+<div class="stats">
+    <div><strong>@packages.Count</strong><span>packages</span></div>
+    <div><strong>@versions</strong><span>versions published</span></div>
+    <div><strong>@channels.Count</strong><span>channels</span></div>
+    <div><strong>@files.ToString("N0")</strong><span>files, latest versions</span></div>
+    <div><strong>@Site.Size(bytes)</strong><span>installed, latest versions</span></div>
+    <div><strong>@signers</strong><span>publisher key@(signers == 1 ? "" : "s")</span></div>
+</div>
+
+<div class="grid">
+<section>
+    <h2>By kind</h2>
+    <table class="list">
+        <tbody>
+        @foreach (var g in byKind)
+        {
+            <tr>
+                <td>@Site.KindLabel(g.Key)</td>
+                <td class="bar-cell"><span class="bar" style="width:@(100 * g.Count() / maxKind)%"></span></td>
+                <td class="num">@g.Count()</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</section>
+<section>
+    <h2>By CPU</h2>
+    <table class="list">
+        <tbody>
+        @foreach (var g in byCpu)
+        {
+            <tr><td>@Site.ArchLabel(g.Key)</td><td class="num">@g.Count()</td></tr>
+        }
+        </tbody>
+    </table>
+</section>
+</div>
+
+<h2>Downloads</h2>
+<p class="muted small">Counted here: signed packages the portal serves, and the ways of getting Pkg. Not counted: archives such as the nightly contrib build, which come straight from their makers' servers, and manifests, which every Pkg reads just to look at a channel.</p>
+<div class="stats">
+    <div><strong>@payloadDownloads.ToString("N0")</strong><span>package downloads</span></div>
+    <div><strong>@getPkg.Sum(k => k.Value).ToString("N0")</strong><span>Pkg downloads</span></div>
+</div>
+@if (getPkg.Count > 0 || mostDownloaded.Count > 0)
+{
+    <div class="grid">
+    <section>
+        @if (mostDownloaded.Count > 0)
+        {
+            <h3>Most downloaded packages</h3>
+            <table class="list">
+                <tbody>
+                @foreach (var (p, n) in mostDownloaded)
+                {
+                    <tr><td><a href="/packages/@p.Channel/@p.Name">@p.Name</a></td><td class="num">@n.ToString("N0")</td></tr>
+                }
+                </tbody>
+            </table>
+        }
+    </section>
+    <section>
+        @if (getPkg.Count > 0)
+        {
+            <h3>Pkg, by download</h3>
+            <table class="list">
+                <tbody>
+                @foreach (var k in getPkg)
+                {
+                    <tr><td><code>@k.Key.Split('/').Last()</code></td><td class="num">@k.Value.ToString("N0")</td></tr>
+                }
+                </tbody>
+            </table>
+        }
+    </section>
+    </div>
+}
+
+<h2>Largest packages</h2>
+<table class="list">
+    <thead><tr><th>Package</th><th class="hide-s">Channel</th><th class="num">Files</th><th class="num">Installed</th></tr></thead>
+    <tbody>
+    @foreach (var p in largest)
+    {
+        <tr>
+            <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a></td>
+            <td class="hide-s">@p.Channel</td>
+            <td class="num">@p.Latest.Manifest.Files.Count.ToString("N0")</td>
+            <td class="num">@Site.Size(p.Latest.Manifest.InstalledSize)</td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+@if (upstream.Count > 0)
+{
+    <h2>Archives kept by their makers</h2>
+    <p class="muted small">Packages whose files stay in an archive published elsewhere. The portal holds none of these bytes; Pkg downloads each archive once and checks it against the signed manifest.</p>
+    <div class="stats">
+        <div><strong>@upstream.Count</strong><span>archive@(upstream.Count == 1 ? "" : "s")</span></div>
+        <div><strong>@Site.Size(upstream.Sum(u => u.Size))</strong><span>not stored on the portal</span></div>
+    </div>
+}
+
+<h2>Channels</h2>
+<table class="list">
+    <thead><tr><th>Channel</th><th class="num">Packages</th><th class="num">Versions</th><th class="hide-s">Latest build</th><th class="hide-s">Updated</th></tr></thead>
+    <tbody>
+    @foreach (var c in channels)
+    {
+        var b = c.Builds().FirstOrDefault();
+        <tr>
+            <td><a href="/channels/@c.Name">@c.Name</a></td>
+            <td class="num">@c.Packages.Count</td>
+            <td class="num">@c.Lines.Count</td>
+            <td class="hide-s">@(b is null ? "–" : $"{Site.BuildLabel(b.Build)}: {b.Published} published, {b.Unchanged} unchanged")</td>
+            <td class="hide-s muted">@Site.Ago(c.Updated)</td>
+        </tr>
+    }
+    </tbody>
+</table>

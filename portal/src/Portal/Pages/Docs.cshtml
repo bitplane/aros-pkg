@@ -1,0 +1,35 @@
+@page "/docs/{**slug}"
+@using Portal.Docs
+@{
+    var slug = (string?)RouteData.Values["slug"] ?? "";
+    var doc = UserDocs.Render(slug);
+    if (doc is null) { Response.StatusCode = 404; ViewData["Title"] = "No such page"; }
+    else ViewData["Title"] = doc.Title;
+}
+@if (doc is null)
+{
+    <h1>No such page</h1>
+    <p><a href="/docs">The documentation starts here.</a></p>
+    return;
+}
+<h1>@doc.Title</h1>
+<div class="docs">
+<nav class="toc" aria-label="Documentation">
+    @foreach (var p in UserDocs.Pages.Where(p => p.InMenu))
+    {
+        // A command's page sits under Commands in the menu.
+        var current = p.Slug == slug || (p.Slug.Length > 0 && slug.StartsWith(p.Slug + "/", StringComparison.Ordinal));
+        <a class="@(current ? "on" : "")" href="/docs@(p.Slug.Length > 0 ? "/" + p.Slug : "")">@p.Title</a>
+        @if (current)
+        {
+            @foreach (var h in doc.Headings.Where(h => h.Level == 2))
+            {
+                <a class="sub" href="#@h.Id">@h.Text</a>
+            }
+        }
+    }
+</nav>
+<article class="prose">
+    @Html.Raw(doc.Html)
+</article>
+</div>
