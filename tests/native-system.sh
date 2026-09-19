@@ -57,7 +57,7 @@ case $sysfs in FFSIntl) fmtflags="FFS INTL" ;; *) fmtflags="" ;; esac
 
 # What InstallAROS copies, less Developer (an option there too).
 pkgs="aros-boot aros-base aros-prefs aros-fonts aros-locale aros-tools aros-demos aros-extras"
-drawers="boot C L Libs Devs S Classes System Rexxc Storage WBStartup Prefs Fonts Locale Tools Utilities Demos Extras"
+drawers="boot efi C L Libs Devs S Classes System Rexxc Storage WBStartup Prefs Fonts Locale Tools Utilities Demos Extras"
 
 echo "native-system 1: the CD"
 T="$work/iso"
@@ -88,7 +88,19 @@ C='CHANNEL CD0:PkgTest/chan'
 # goes on to Wanderer. Each step shows its command and Pkg's own output,
 # which also goes to the second serial port, where this script reads it.
 S="$T/S/pkg-steps"
-step() {  # step <name> <command shown> <command run>
+step() {  # step <name> <command shown> <command run>: Pkg, live, a copy by LOG
+    cat >> "$S" <<EOF
+Echo "*N*E[1m1> $2*E[0m"
+Delete T:o QUIET >NIL:
+$3 LOG T:o
+Echo "==RC \$RC" >T:rc
+Echo "==BEGIN $1==" >SER1:
+Type T:o >SER1:
+Type T:rc >SER1:
+Echo "==END==" >SER1:
+EOF
+}
+cmd() {  # cmd <name> <command shown> <command run>: another program, shown when done
     cat >> "$S" <<EOF
 Echo "*N*E[1m1> $2*E[0m"
 $3 >T:o
@@ -113,6 +125,7 @@ Execute S:pkg-steps
 EOF
 cat > "$S" <<EOF
 FailAt 21
+SetEnv PKG_PROGRESS 1
 If EXISTS SYS:pkgtest-installed
     Skip disk
 EndIf
@@ -148,7 +161,7 @@ say "Pkg takes over the files it finds there, package by package"
 tr=; [ "${PKG_TRACE_AROS:-0}" = 1 ] && tr=" TRACE SER1:"
 for p in $pkgs; do step "adopt-$p" "pkg INSTALL $p ROOT DH0:" "$P INSTALL $p ROOT DH0: $C$tr"; done
 say "The boot loader, as InstallAROS installs it"
-step grub "Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub" 'C:Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub'
+cmd grub "Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub" 'C:Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub'
 cat >> "$S" <<'EOF'
 Copy CD0:PkgTest/C/Pkg DH0:C/Pkg CLONE QUIET
 Echo x >DH0:pkgtest-installed
@@ -177,8 +190,8 @@ EOF
 step verify2 "pkg VERIFY ALL ROOT SYS:" "C:Pkg VERIFY ALL ROOT SYS:"
 step repair "pkg REPAIR ALL ROOT SYS: CHANNEL <the CD>" "C:Pkg REPAIR ALL ROOT SYS: $C"
 step verify3 "pkg VERIFY ALL ROOT SYS:" "C:Pkg VERIFY ALL ROOT SYS:"
-step dir "Dir SYS:Utilities" "SYS:C/Dir SYS:Utilities"
-step shellstartup "Search SYS:S/Shell-Startup my-own-line" "Search SYS:S/Shell-Startup \"my own line\""
+cmd dir "Dir SYS:Utilities" "SYS:C/Dir SYS:Utilities"
+cmd shellstartup "Search SYS:S/Shell-Startup my-own-line" "Search SYS:S/Shell-Startup \"my own line\""
 cat >> "$S" <<'EOF'
 Echo "*N*E[32m; Done*E[0m"
 Echo "==PKGTEST-DONE==" >SER1:

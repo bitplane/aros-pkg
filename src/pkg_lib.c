@@ -147,6 +147,24 @@ static void say(const char *fmt, ...)
     va_end(ap);
 }
 
+/* A counter for a person watching a long step: "checking 800/1500",
+ * rewritten in place, cleared when the step ends. */
+static void progress(const char *what, size_t i, size_t n)
+{
+    static char last[80];
+    if (machine || sink == NULL || !sink->progress || n < 40)
+        return;
+    if (i < n && i % 20 != 0)
+        return;
+    if (i >= n) {
+        if (last[0]) say("\r%*s\r", (int)strlen(last), "");
+        last[0] = '\0';
+        return;
+    }
+    snprintf(last, sizeof last, "  %s %lu/%lu", what, (unsigned long)i, (unsigned long)n);
+    say("\r%s", last);
+}
+
 static void say_err(const char *fmt, ...)
 {
     va_list ap;
@@ -2914,6 +2932,7 @@ static int check_entry(const struct pkg_entry *e, void *ctx)
 }
 
 struct stage_ctx {
+    size_t                     done, todo;  /* files written so far, of how many */
     const char                *staging;
     const struct pkg_manifest *m;
     const unsigned char       *keep;    /* files not to stage: already in place */
@@ -2929,8 +2948,9 @@ static int stage_entry(const struct pkg_entry *e, void *ctx)
         if (pf != NULL && s->keep[pf - s->m->files] >= 2)
             return 0;           /* stays as it is: nothing to write */
     }
+    progress("writing", s->done++, s->todo);
     p = pkg_join(s->staging, e->path);
-    if (p == NULL || pkg_fs_write_atomic(p, e->data, e->data_len) != 0) {
+    if (p == NULL || pkg_fs_write_new(p, e->data, e->data_len) != 0) {
         snprintf(s->err, sizeof s->err, "cannot stage \"%s\": %s", e->path, strerror(errno));
         free(p);
         return 1;
@@ -3144,6 +3164,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     others.n = 0;
     for (i = 0; i < m->nfiles; i++) {
         const struct pkg_file *of = old ? find_file(old, m->files[i].path) : NULL;
+        progress("checking", i, m->nfiles);
         if (m->files[i].config) {
             /* A configuration file: a person's version stays where it is. */
             if (of != NULL && file_state(root, of->path, of->digest, of->size) == 1)
@@ -3242,6 +3263,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         }
 
     installed_free(&others);
+    progress("checking", m->nfiles, m->nfiles);
     tr("%s %s: every file checked against the container, nothing in the way", m->name, m->version);
     if (dryrun) {
         /* Every check above has passed; say what would move, move nothing. */
@@ -3265,18 +3287,25 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         return refuse_c(17, "cannot prepare staging in %s", root);
     }
     sc.staging = staging; sc.m = m; sc.keep = keep; sc.err[0] = '\0';
+    sc.done = 0;
+    for (i = 0, sc.todo = 0; i < m->nfiles; i++)
+        if (keep[i] < 2) sc.todo++;
     if (pkg_read(f->pkg, f->pkg_len, stage_entry, &sc, &stopped) != PKG_OK) {
+        progress("writing", sc.todo, sc.todo);
         refuse_c(PKGRC_IO, "%s; nothing was changed", sc.err);
         pkg_fs_rmtree(staging);
         free(staging);
         free(keep);
         return 1;
     }
+    progress("writing", sc.todo, sc.todo);
 
     for (i = 0; i < m->nfiles; i++) {
-        char *from = pkg_join(staging, m->files[i].path);
-        char *to = pkg_join(root, m->files[i].path);
+        char *from, *to;
         int good;
+        progress("placing", i, m->nfiles);
+        from = pkg_join(staging, m->files[i].path);
+        to = pkg_join(root, m->files[i].path);
         if (keep[i] == 2 || keep[i] == 3) {
             free(from);
             free(to);
@@ -3301,6 +3330,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         }
         if (!keep[i]) (*placed)++;
     }
+    progress("placing", m->nfiles, m->nfiles);
     free(keep);
 
     if (old != NULL) {

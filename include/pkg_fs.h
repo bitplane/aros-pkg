@@ -15,6 +15,11 @@
 /* Return 0, or -1 with errno set. */
 int  pkg_fs_read(const char *path, unsigned char **buf, size_t *len);
 int  pkg_fs_write_atomic(const char *path, const void *buf, size_t len);
+/* Writes a file straight under its name, parents made: for a directory only
+ * Pkg reads (staging), where no temporary name and rename are needed. */
+int  pkg_fs_write_new(const char *path, const void *buf, size_t len);
+/* Non-zero when standard output is a terminal a person watches. */
+int  pkg_fs_interactive(void);
 int  pkg_fs_mkdirs(const char *dir);
 int  pkg_fs_exists(const char *path);          /* 1 if anything is there */
 int  pkg_fs_is_dir(const char *path);

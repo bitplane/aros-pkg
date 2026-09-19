@@ -131,6 +131,31 @@ static int mkparents(const char *path)
 
 static int write_atomic_mode(const char *path, const void *buf, size_t len, int mode);
 
+int pkg_fs_interactive(void)
+{
+    return isatty(1);
+}
+
+int pkg_fs_write_new(const char *path, const void *buf, size_t len)
+{
+    const unsigned char *b = (const unsigned char *)buf;
+    int fd;
+    if (mkparents(path) != 0) return -1;
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return -1;
+    while (len > 0) {
+        ssize_t w = write(fd, b, len);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            close(fd); unlink(path); return -1;
+        }
+        b += w;
+        len -= (size_t)w;
+    }
+    if (close(fd) != 0) { unlink(path); return -1; }
+    return 0;
+}
+
 int pkg_fs_write_atomic(const char *path, const void *buf, size_t len)
 {
     return write_atomic_mode(path, buf, len, 0644);

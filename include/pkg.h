@@ -105,6 +105,10 @@ struct pkg_sink {
      * per entry while SHOW checks a channel, and once per package while
      * STATUS compares; placing one package's files is not interrupted. */
     int  (*cancel)(void *user);
+    /* Non-zero when a person watches: long steps then show a counter, a line
+     * of `text` that starts with '\r' and is rewritten in place. A caller
+     * that keeps the output (a log) leaves such lines out. */
+    int   progress;
 };
 
 /* Every option any operation takes; each operation reads the ones it needs

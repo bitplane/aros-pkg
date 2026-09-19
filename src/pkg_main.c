@@ -32,16 +32,35 @@ const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (18.9.2026)"
 static const char *verb_name = "pkg";
 static int machine;
 
+/* LOG <file>: everything printed is also appended to that file (AROS has
+ * no tee), less the progress counter, which only a watching person needs. */
+static const char *log_path;
+static FILE *log_file;
+
+static void to_log(const char *text)
+{
+    if (log_path == NULL || text[0] == '\r')
+        return;
+    if (log_file == NULL)
+        log_file = fopen(log_path, "a");
+    if (log_file != NULL) {
+        fputs(text, log_file);
+        fflush(log_file);
+    }
+}
+
 static void print_record(void *user, const char *key, const char *value)
 {
     (void)user;
     pkg_out("%s: %s\n", key, value);
+    if (log_path != NULL) { to_log(key); to_log(": "); to_log(value); to_log("\n"); }
 }
 
 static void print_text(void *user, int is_error, const char *text)
 {
     (void)user;
     if (is_error) pkg_err("%s", text); else pkg_out("%s", text);
+    to_log(text);
 }
 
 /* TRACE <file>, or PKG_TRACE=<file>: the library's account of each step,
@@ -65,7 +84,7 @@ static void print_trace(void *user, const char *line)
     }
 }
 
-static struct pkg_sink out_sink = { print_record, print_text, NULL, 0, NULL, NULL, NULL };
+static struct pkg_sink out_sink = { print_record, print_text, NULL, 0, NULL, NULL, NULL, 0 };
 
 /* A usage error found while reading the words, answered like any refusal. */
 static int usage_errorf(const char *fmt, ...)
@@ -116,7 +135,7 @@ static const struct { const char *kw; size_t off; } kws[] = {
 static int takes_value(const char *w)
 {
     size_t k;
-    if (ieq(w, "TRACE"))
+    if (ieq(w, "TRACE") || ieq(w, "LOG"))
         return 1;
     for (k = 0; k < sizeof kws / sizeof kws[0]; k++)
         if (ieq(w, kws[k].kw))
@@ -184,6 +203,12 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
         if ((strcmp(verb_name, "upgrade") == 0 || strcmp(verb_name, "verify") == 0
              || strcmp(verb_name, "repair") == 0) && ieq(argv[i], "ALL")) {
             a->all = 1;
+            continue;
+        }
+        if (ieq(argv[i], "LOG")) {
+            if (i + 1 >= argc)
+                return usage_errorf("LOG needs a file to copy the output into");
+            log_path = argv[++i];
             continue;
         }
         if (ieq(argv[i], "TRACE")) {
@@ -320,6 +345,9 @@ static int run_verb(int argc, char **argv)
     out_sink.structured = machine;
     trace_path = getenv("PKG_TRACE");
     out_sink.trace = trace_path != NULL && *trace_path ? print_trace : NULL;
+    /* a person at a terminal sees long steps count; PKG_PROGRESS=1 asks for it anywhere */
+    out_sink.progress = !machine && ((getenv("PKG_PROGRESS") && *getenv("PKG_PROGRESS") == '1')
+                                     || pkg_fs_interactive());
     if (argc < 2) {
         if (machine) pkg_usage_error(&out_sink, "pkg", "no verb given");
         else usage();

@@ -16,6 +16,7 @@
 #include "pkg_fs.h"
 
 #include <windows.h>
+#include <io.h>
 #include <bcrypt.h>
 #include <sddl.h>
 #include <shellapi.h>
@@ -267,6 +268,24 @@ out:
     free(wp);
     free(tmp);
     return rc;
+}
+
+int pkg_fs_interactive(void)
+{
+    return _isatty(_fileno(stdout));
+}
+
+int pkg_fs_write_new(const char *path, const void *buf, size_t len)
+{
+    FILE *f;
+    if (mkparents(path) != 0) return -1;
+    f = fopen(path, "wb");
+    if (f == NULL) return -1;
+    if ((len > 0 && fwrite(buf, 1, len, f) != len) || fclose(f) != 0) {
+        remove(path);
+        return -1;
+    }
+    return 0;
 }
 
 int pkg_fs_write_atomic(const char *path, const void *buf, size_t len)
