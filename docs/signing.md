@@ -97,30 +97,11 @@ Pkg never accepts a new key by itself, and never prints a command with the
 new key filled in for you to paste; an assistant that drives Pkg is told
 the same ([Pkg with an AI assistant](agents.md)).
 
-This happened once to Pkg itself. Versions 0.3 and 0.4 were signed by the
-aros-development-team key; from 1.1 Pkg is signed by its author's key, JKN,
-and the portal's `pkg` channel holds only those. A machine that installed
-0.4 sees, on its next `UPGRADE pkg`:
-
-```
-pkg upgrade: pkg is signed by a different key from the one pinned in SYS:.
-pkg upgrade:   pinned a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7
-pkg upgrade:   signer 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077
-pkg upgrade: Nothing was changed. Either the publisher changed keys or someone else signed this ...
-```
-
-and, having read this page, accepts it once:
-
-```
-Pkg UPGRADE pkg ROOT SYS: CHANNEL <the channel> ACCEPTKEY 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077
-```
-
-A fresh install from the `pkg` channel needs nothing: the channel's first
-version and its newest carry the same key. That is also why the old
-versions were taken out of it rather than left beside the new: a channel
-whose newest version is signed by another key than its first is what a
-takeover looks like, and Pkg refuses a first install from such a channel
-until the person decides.
+Pre-release builds of Pkg (0.3 to 0.5) were signed by the aros-development-team
+key and are no longer in the `pkg` channel; Pkg 1.1 is its first version. A
+test machine that still has one of those builds sees the refusal above on its
+next `UPGRADE pkg` and accepts the JKN key with `ACCEPTKEY`. A fresh install
+needs nothing: the channel's first version and its newest carry the same key.
 
 ## When a publisher loses a key
 
