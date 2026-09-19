@@ -291,18 +291,18 @@ stick, a share or a disk image, and anyone installs from it with
 checks the signatures on their machine, so the way the drawer travels
 does not matter.
 
-People with a network install straight from a web address, so a channel
-served over plain `http` reaches every AROS machine:
-`Pkg INSTALL greet ROOT SYS: CHANNEL http://example.org/mychannel`
+People with a network install straight from a web address, over `https` or
+plain `http`, whichever you serve:
+`Pkg INSTALL greet ROOT SYS: CHANNEL https://example.org/mychannel`
 ([Channels](channels.md) shows how to serve one).
 
 The portal is where people look first, and `PUSH` sends a channel to it
-from AROS too, over plain `http`, signed with your key instead of a secret
-from the portal. Send the portal's maintainers your public key once
+from AROS too, signed with your key instead of a secret from the portal.
+Send the portal's maintainers your public key once
 (`Pkg KEYINFO FILE Work:keys/my.key`); when they have added it:
 
 ```amigados
-Pkg PUSH CHANNEL Work:mychannel TO http://aros-pkg.azurewebsites.net/mychannel
+Pkg PUSH CHANNEL Work:mychannel TO https://aros-pkg.azurewebsites.net/mychannel
 ```
 
 Whether your push carries the files or only links to them is the portal's

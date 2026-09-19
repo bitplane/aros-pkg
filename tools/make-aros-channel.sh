@@ -35,11 +35,10 @@ ch=${1:?usage: make-aros-channel.sh <channel>}
 mkdir -p "$ch"
 ch=$(CDPATH= cd -- "$ch" && pwd)
 pkg="$repo_root/build/pkg"
-# where people find newer versions: stock AROS has no TLS, so Install-Pkg
-# names the page to fetch them from rather than a channel AROS cannot reach
+# where people find newer versions without a network
 homepage=${PKG_HOMEPAGE:-https://aros-pkg.azurewebsites.net/packages/pkg/pkg}
-# the channel as an AROS machine reaches it: plain http, AROS has no TLS
-channel_url=${PKG_CHANNEL_URL:-http://aros-pkg.azurewebsites.net/pkg}
+# the channel as an AROS machine reaches it: https, like every other system
+channel_url=${PKG_CHANNEL_URL:-https://aros-pkg.azurewebsites.net/pkg}
 # the host builds' drawers under Bootstrap/, as the portal names them: never
 # probed on AROS, where a case-blind disk would take their pkg for Pkg
 host_platforms="macos-arm64 macos-x86_64 linux-x86_64 linux-arm64 windows-x86_64"

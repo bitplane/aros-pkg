@@ -54,7 +54,7 @@ Execute Work:Pkg-x86_64/Install-Pkg Work:Pkg-x86_64
 ```
 
 Either way Pkg is installed as a signed package, so later versions arrive
-with `Pkg UPGRADE pkg ROOT SYS: CHANNEL http://aros-pkg.azurewebsites.net/pkg`.
+with `Pkg UPGRADE pkg ROOT SYS: CHANNEL https://aros-pkg.azurewebsites.net/pkg`.
 
 **On macOS and Linux.** One line downloads the build for your computer,
 checks it runs, puts it where your shell finds it (`/usr/local/bin`, or
@@ -95,9 +95,9 @@ make build/pkg.exe      # Windows, cross-built with mingw-w64
 
 The examples below run on a Mac or a PC, where a *root* is a directory that
 stands for an AROS system, and the channel is read over the network. On
-AROS, use `ROOT SYS:` instead of `ROOT aros` and `http://` instead of
-`https://`, since AROS has no TLS ([Channels](docs/channels.md)); a copy of
-the channel on a volume works too, with no network at all.
+AROS, use `ROOT SYS:` instead of `ROOT aros`; the addresses are the same,
+since AROS reads channels over `https` too ([Channels](docs/channels.md)).
+A copy of the channel on a volume works too, with no network at all.
 
 See what a channel offers. A channel is where packages are published; this
 one holds Pkg itself, built for two CPUs:

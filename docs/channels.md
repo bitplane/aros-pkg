@@ -15,9 +15,10 @@ being trusted: Pkg checks every signature and every file itself.
   a cache (`PKG_CACHE`, else `~/.cache/pkg`, or `%LOCALAPPDATA%\pkg-cache`
   on Windows). On AROS it is the same over `http://`, once the machine's
   network is started (AROSTCP, or a hosted AROS's own sockets); the cache
-  is `SYS:.pkg/cache`. AROS has no TLS, so `https://` is refused there
-  with that reason; nothing is lost, since Pkg checks every signature and
-  every file itself whatever the connection.
+  is `SYS:.pkg/cache`. AROS reads `https://` as well: the AROS builds carry
+  OpenSSL and a bundle of certificate authorities, and check the
+  certificate against the address, with no way to turn that off. A machine
+  behind its own authority names its bundle in `PKG_CAFILE`.
 
 ## What is in one
 
@@ -96,14 +97,15 @@ notes    1.0      image  generic  ok      5ff18d3fe14e383e
 $ kill %1
 ```
 
-Pkg follows redirects and understands chunked replies; for `https`, it uses
-the system's `curl`.
+Pkg follows redirects and understands chunked replies. For `https` it uses
+the system's `curl` on macOS, Linux and Windows, and its own client over
+OpenSSL on AROS.
 
 ## The portal
 
 The package portal at `https://aros-pkg.azurewebsites.net` serves channels
-this way, over `https` and over plain `http` for machines without TLS, and
-shows each package on a web page: its versions, dependencies, files,
+this way, over `https` and over plain `http`, and shows each package on a
+web page: its versions, dependencies, files,
 signer and catalogue. **Downloads** is where a newcomer starts (Pkg for
 every CPU and host), **Statistics** shows what each channel holds, and
 **Documentation** is these guides.

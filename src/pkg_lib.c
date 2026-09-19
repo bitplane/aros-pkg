@@ -7825,11 +7825,12 @@ static void push_drop_upstream(const char *channel, struct push_list *pl)
 }
 
 /* How a push proves who sends it. Over https: the portal's key, a secret, in
- * each request. Over plain http (AROS has no TLS) nothing secret may travel,
- * so each request is signed with the publisher's own key instead: the portal
- * gives a session, and the signature covers the method, the path, the session,
- * a number that only grows and the SHA-256 of the body, so a request cannot be
- * altered, replayed or moved to another address. */
+ * each request. Over plain http nothing secret may travel, so each request is
+ * signed with the publisher's own key instead, which is also how a publisher
+ * with no portal key pushes: the portal gives a session, and the signature
+ * covers the method, the path, the session, a number that only grows and the
+ * SHA-256 of the body, so a request cannot be altered, replayed or moved to
+ * another address. */
 struct push_auth {
     const char *bearer;         /* https: PKG_PUSHKEY */
     struct key  k;              /* http: the signing key */

@@ -22,16 +22,19 @@ The portal knows who pushes in one of two ways:
 - **To an `https://` address, with the portal's key**, which its maintainers
   gave you: it comes from `PKG_PUSHKEY`, never from the command line, and is
   sent only over `https`.
-- **To an `http://` address, or with no portal key, by signing.** Each
+- **With no portal key, or to an `http://` address, by signing.** Each
   request is signed with your own publisher key (`SIGN <keyfile>`, or
   `PKG_SIGNKEY`), and the portal knows you by its public half, which you
   send its maintainers once (`pkg KEYINFO FILE <keyfile>`). Nothing secret
-  travels, so this is how AROS, which has no TLS, pushes. The signature
-  covers the address, the body and a number that only grows, so a request
-  cannot be changed or sent again by someone else. What plain `http` does
-  not give is secrecy (the files are public anyway) or proof that the
-  answer came from the portal: `pkg SHOW CHANNEL <the same address>`
-  afterwards shows what was really published.
+  travels, which is how a publisher who has no portal key pushes, and the
+  only way to push to a plain `http://` address. The signature covers the
+  address, the body and a number that only grows, so a request cannot be
+  changed or sent again by someone else. What plain `http` does not give is
+  secrecy (the files are public anyway) or proof that the answer came from
+  the portal: `pkg SHOW CHANNEL <the same address>` afterwards shows what
+  was really published.
+
+  AROS pushes either way: it speaks `https` like every other system.
 
 ## Examples
 

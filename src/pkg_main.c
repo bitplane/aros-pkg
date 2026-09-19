@@ -28,7 +28,7 @@
 
 /* The AmigaDOS version cookie: `Version C:Pkg` reads it, and publishing Pkg
  * with Pkg takes its name and version from it. */
-const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (19.9.2026)";
+const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (20.9.2026)";
 
 #ifdef __AROS__
 static const int on_aros = 1;

@@ -72,7 +72,8 @@ published file never changes (a push that would replace one is refused).
 
 **On the way:** nothing. A channel may travel over plain `http`, a USB
 stick or a shared drawer; the connection proves nothing and does not have
-to. This is why AROS machines without TLS are as safe as any other.
+to. This is why a channel read from a USB stick is as safe as one read over
+`https`.
 
 ## Key pinning, and what a key change means for you
 
