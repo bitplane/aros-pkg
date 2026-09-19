@@ -21,6 +21,16 @@ if (args is ["key", var publisher, var scope])
     return;
 }
 
+// `Portal adminkey <name>`: a maintainer's key for /_admin, and its config line.
+if (args is ["adminkey", var maintainer])
+{
+    var (key, config) = Portal.Admin.AdminKeys.Create(maintainer);
+    Console.WriteLine($"key:    {key}");
+    Console.WriteLine($"config: {config}");
+    Console.WriteLine("summary: keep the key (PKG_ADMINKEY); add the config line to Portal:AdminKeys (entries separated by ';')");
+    return;
+}
+
 // Records are read by machines: numbers never follow the server's locale.
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
@@ -34,6 +44,8 @@ builder.Services.AddSingleton<ArchiveChecker>();
 builder.Services.AddSingleton<ArchiveStore>();
 builder.Services.AddSingleton<Portal.Channels.Publishers>();
 builder.Services.AddSingleton<Portal.Channels.Search>();
+builder.Services.AddSingleton<Portal.Admin.AdminKeys>();
+builder.Services.AddSingleton<Portal.Admin.AdminService>();
 builder.Services.AddSingleton<Portal.Channels.Downloads>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Downloads>());
 builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));
@@ -75,6 +87,30 @@ app.UseRouting();
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n"));
 app.MapGet("/health", (Catalogue c) => Results.Text($"ok: {c.ChannelNames().Count()} channels\n"));
 app.MapRazorPages();
+
+// ---- the maintainers' API -----------------------------------------------------
+
+var admin = app.MapGroup("/_admin").AddEndpointFilter(async (ctx, next) =>
+{
+    var http = ctx.HttpContext;
+    var loopback = http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
+    if (!http.Request.IsHttps && !(opts.AllowLoopbackHttpPush && loopback))
+        return Results2.Text(Record.Refused(20, "the admin API needs https: its key must never travel in clear", "use the https address"), 403);
+    var who = http.RequestServices.GetRequiredService<Portal.Admin.AdminKeys>().Find(http.Request.Headers.Authorization);
+    if (who is null)
+        return Results2.Text(Record.Refused(14, "no admin key, or one the portal does not know", "set PKG_ADMINKEY to a maintainer's key"), 401);
+    http.Items["admin"] = who;
+    return await next(ctx);
+});
+
+admin.MapPost("/channels/{channel}/remove", async (HttpContext http, string channel, Portal.Admin.AdminService s) =>
+    Results2.Text(await s.Remove((string)http.Items["admin"]!, channel, await ReadBody(http),
+        http.Request.Query["dryrun"] is var d && (d == "1" || d == "true"), http.RequestAborted)));
+
+admin.MapPost("/restore/{stamp}", async (HttpContext http, string stamp, Portal.Admin.AdminService s) =>
+    Results2.Text(await s.Restore((string)http.Items["admin"]!, stamp, http.RequestAborted)));
+
+admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog()));
 
 // ---- the push API, under each channel ---------------------------------------
 

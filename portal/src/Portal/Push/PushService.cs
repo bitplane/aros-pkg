@@ -22,6 +22,9 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
     readonly PortalOptions o = options.Value;
     static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new();
 
+    /// One writer per channel at a time: pushes and admin changes alike.
+    public static SemaphoreSlim LockFor(string channel) => Locks.GetOrAdd(channel, _ => new SemaphoreSlim(1, 1));
+
     sealed record PlanLine(string Path, string Sha, long Size);
 
     string Live(string channel) => Path.Combine(o.ChannelsDir, channel);

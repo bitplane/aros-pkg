@@ -30,6 +30,12 @@ public sealed class Downloads : BackgroundService
 
     public long Get(string key) => counts.GetValueOrDefault(key);
 
+    /// Takes a count away (a removed version); its value, or 0.
+    public long Take(string key) => counts.TryRemove(key, out var n) ? n : 0;
+
+    /// Puts a count back (a restored version).
+    public void Put(string key, long n) { if (n > 0) counts.AddOrUpdate(key, n, (_, m) => m + n); }
+
     public IEnumerable<KeyValuePair<string, long>> All => counts;
 
     protected override async Task ExecuteAsync(CancellationToken stop)

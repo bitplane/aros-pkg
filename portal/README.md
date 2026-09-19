@@ -51,6 +51,20 @@ this protocol. Until it exists, `tools/push.sh` does the same with curl:
 PKG_PUSHKEY=<key> sh portal/tools/push.sh <local channel dir> https://<host>/<channel>
 ```
 
+## The maintainers' API
+
+`/_admin/…`, HTTPS only, with an admin key (never a push key):
+
+- `POST /_admin/channels/<channel>/remove` with lines `<name> *`,
+  `<name> <version>`, `<name> <version> <arch>` or index lines; `?dryrun=1`
+  says what would go. The versions leave the index; their files, first-seen
+  dates and download counts move to `state/removed/<stash>/`, nothing is
+  destroyed, and a file another version still needs stays.
+- `POST /_admin/restore/<stash>` puts a removal back.
+- `GET /_admin/log` lists every admin action.
+
+`tools/admin.sh` calls them from a shell.
+
 ## Running it
 
 ```sh
@@ -70,6 +84,7 @@ Settings (environment variables use `__`, e.g. `Portal__DataDir`):
 | `Portal:Owners` | packages moved to another key by the maintainers, `channel/name=key;…`; from then on a push of that package must be signed by that key |
 | `Portal:SignerNames` | names for signing keys, `hex=Name;…`; keys are otherwise named after the publisher whose push first used them |
 | `Portal:Pinned` | packages shown first, `channel/name` separated by commas; `pkg/pkg` by default |
+| `Portal:AdminKeys` | maintainers' keys for `/_admin`, `name:sha256-of-key;…`; `dotnet Portal.dll adminkey <name>` makes one |
 | `Portal:AllowLoopbackHttpPush` | pushes over http from 127.0.0.1, for a local instance only |
 
 A key: `dotnet Portal.dll key <publisher> <channel,channel|*>` prints the

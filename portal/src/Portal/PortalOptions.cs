@@ -17,6 +17,10 @@ public sealed class PortalOptions
     /// Only the hash is configured; the key itself is given to the publisher once.
     public string Keys { get; set; } = "";
 
+    /// Maintainers' keys for /_admin, "name:sha256-of-key;..."; only the hash is
+    /// deployed. They never push, and push keys never reach /_admin.
+    public string AdminKeys { get; set; } = "";
+
     /// Accept pushes over plain HTTP from the loopback address, for tests
     /// and a local instance. Never over the network.
     public bool AllowLoopbackHttpPush { get; set; }
