@@ -1,0 +1,37 @@
+@page "/downloads"
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@inject Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
+@{
+    ViewData["Title"] = "Downloads";
+    // Pkg comes from the channel that carries it: "pkg" unless pinned elsewhere.
+    var pkgHome = Catalogue.Pinned().FirstOrDefault(p => p.Name == "pkg")?.Channel ?? "pkg";
+    var ch = Catalogue.Get(pkgHome);
+    var pkg = ch?.Packages.GetValueOrDefault("pkg");
+}
+<h1>Downloads</h1>
+@if (ch is null || pkg is null)
+{
+    <p class="muted">Pkg is not published yet.</p>
+    return;
+}
+<p class="lead">Pkg @pkg.Latest.Version installs everything else on this site, so it comes first. After that, <code>Pkg UPGRADE pkg</code> keeps it current.</p>
+<partial name="_GetPkg" model="ch" />
+
+<h2>Channels</h2>
+<p>A channel is an address Pkg reads packages from. Give it to <code>CHANNEL</code>; the same address works over plain http for machines without TLS.</p>
+<table class="list">
+    <thead><tr><th>Channel</th><th>Address</th><th class="num">Packages</th></tr></thead>
+    <tbody>
+    @foreach (var c in Catalogue.Channels())
+    {
+        var url = Site.ChannelUrl(Request, Options.Value, c.Name);
+        <tr>
+            <td><a href="/channels/@c.Name">@c.Name</a></td>
+            <td><code>@url</code> <button class="copy" data-copy="@url">Copy</button></td>
+            <td class="num">@c.Packages.Count</td>
+        </tr>
+    }
+    </tbody>
+</table>

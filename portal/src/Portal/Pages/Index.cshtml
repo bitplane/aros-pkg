@@ -28,7 +28,7 @@
                 <span>@sh</span>
             }
             <span class="muted small">@Site.KindLabel(p.Kind) · @string.Join(", ", p.Archs.Select(Site.ArchLabel))</span>
-            <span class="cmd-line">Pkg INSTALL @p.Name CHANNEL @Site.ChannelUrl(Request, Options.Value, p.Channel)</span>
+            <span class="cmd-line">@Site.InstallCommand(Site.ChannelUrl(Request, Options.Value, p.Channel), p.Name)</span>
         </a>
     }
     </div>

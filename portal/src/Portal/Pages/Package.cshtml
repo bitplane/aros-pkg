@@ -24,8 +24,8 @@
     ViewData["Title"] = $"{p.Name} {v.Version}";
     var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
     // Pkg itself is already there once bootstrapped: what one does next is keep it current.
-    var install = p.Name == "pkg" && isLatest ? $"Pkg UPGRADE pkg CHANNEL {url}"
-        : $"Pkg INSTALL {p.Name} CHANNEL {url}" + (v.Version != p.Latest.Version ? $" VERSION {v.Version}" : "");
+    var install = p.Name == "pkg" && isLatest ? $"Pkg UPGRADE pkg ROOT SYS: CHANNEL {url}"
+        : Site.InstallCommand(url, p.Name, v.Version != p.Latest.Version ? v.Version : null);
     const int maxFiles = 1500;
     var openFiles = m.Files.Count <= 40;
 }
@@ -60,10 +60,10 @@ else if (!isLatest)
 
 @if (p.Name == "pkg")
 {
-    <partial name="_GetPkg" model="ch" />
-    <h2>Once you have Pkg</h2>
+    <p class="note">New to Pkg? <a href="/downloads">Download it</a> first: this command is for keeping it up to date.</p>
 }
 <div class="cmd"><code>@install</code><button class="copy" data-copy="@install">Copy</button></div>
+<p class="muted small">On AROS, Pkg reads a channel from a drawer for now; the address form works from macOS, Linux and Windows, with ROOT set to the AROS system drawer. <a href="/docs#install">How to install</a></p>
 
 @if (m.Description.Count > 0)
 {

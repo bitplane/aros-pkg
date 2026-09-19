@@ -12,6 +12,11 @@ public static class Site
     public static string ChannelUrl(HttpRequest req, PortalOptions o, string channel) =>
         (string.IsNullOrEmpty(o.PublicUrl) ? $"{req.Scheme}://{req.Host}" : o.PublicUrl.TrimEnd('/')) + "/" + channel;
 
+    /// The command that installs a package, as shown everywhere. ROOT is the
+    /// AROS system: SYS: on AROS, the system drawer from a host.
+    public static string InstallCommand(string url, string name, string? version = null) =>
+        $"Pkg INSTALL {name} ROOT SYS: CHANNEL {url}" + (version is null ? "" : $" VERSION {version}");
+
     public static string Size(long bytes) => bytes switch
     {
         < 1024 => $"{bytes} B",

@@ -32,6 +32,8 @@ builder.Services.AddSingleton<PkgRunner>();
 builder.Services.AddSingleton<PushService>();
 builder.Services.AddSingleton<ArchiveChecker>();
 builder.Services.AddSingleton<ArchiveStore>();
+builder.Services.AddSingleton<Portal.Channels.Downloads>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Downloads>());
 builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ArchiveChecker>());
 builder.Services.AddRazorPages();
@@ -113,6 +115,7 @@ app.MapGet("/get/{channel}/pkg-{cpu}.zip", async (HttpContext http, string chann
     var ch = c.Get(channel);
     var dir = Path.Combine(opts.ChannelsDir, channel);
     if (ch is null || !Portal.Channels.Bootstrap.ArosCpus(dir).Contains(cpu)) return Results.NotFound();
+    http.RequestServices.GetRequiredService<Portal.Channels.Downloads>().Count($"get/{channel}/pkg-{cpu}.zip");
     http.Response.ContentType = "application/zip";
     http.Response.Headers.ContentDisposition = $"attachment; filename=\"Pkg-{cpu}.zip\"";
     await Portal.Channels.Bootstrap.WriteZip(http.Response.Body, ch, dir, cpu, http.RequestAborted);
@@ -120,10 +123,14 @@ app.MapGet("/get/{channel}/pkg-{cpu}.zip", async (HttpContext http, string chann
 });
 
 // Pkg for a host, by platform, for curl and PowerShell one-liners.
-app.MapGet("/get/{channel}/{platform}", (string channel, string platform) =>
-    ChannelPaths.IsChannelName(channel) && ChannelPaths.HostBootstraps.TryGetValue(platform, out var rel)
-        && File.Exists(Path.Combine(opts.ChannelsDir, channel, rel))
-        ? Results.Redirect($"/{channel}/{rel}") : Results.NotFound());
+app.MapGet("/get/{channel}/{platform}", (string channel, string platform, Portal.Channels.Downloads d) =>
+{
+    if (!ChannelPaths.IsChannelName(channel) || !ChannelPaths.HostBootstraps.TryGetValue(platform, out var rel)
+        || !File.Exists(Path.Combine(opts.ChannelsDir, channel, rel)))
+        return Results.NotFound();
+    d.Count($"get/{channel}/{platform}");
+    return Results.Redirect($"/{channel}/{rel}");
+});
 
 // ---- the channel itself, byte for byte as a directory channel --------------
 
@@ -149,6 +156,10 @@ app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], async (HttpContext http, 
     }
     if (!File.Exists(full)) return Results.NotFound();
     var info = new FileInfo(full);
+    // A payload fetched from its first byte is one download; resumed parts are not counted again.
+    if (kind == ChannelPaths.Kind.Object && path.EndsWith(".pkg", StringComparison.Ordinal) && HttpMethods.IsGet(http.Request.Method)
+        && (http.Request.Headers.Range.Count == 0 || http.Request.Headers.Range.ToString().StartsWith("bytes=0-", StringComparison.Ordinal)))
+        http.RequestServices.GetRequiredService<Portal.Channels.Downloads>().Count($"payload/{channel}/{path[8..72]}");
     var immutable = kind is ChannelPaths.Kind.Object or ChannelPaths.Kind.Archive or ChannelPaths.Kind.ArchiveDigest;
     http.Response.Headers.CacheControl = immutable ? "public, max-age=31536000, immutable" : "no-cache";
     var etag = new EntityTagHeaderValue($"\"{info.Length:x}-{info.LastWriteTimeUtc.Ticks:x}\"");
