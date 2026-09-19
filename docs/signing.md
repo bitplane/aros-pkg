@@ -14,8 +14,8 @@ signs the manifest with an Ed25519 key; the signature is a small file beside
 it, `<digest>.sig`:
 
 ```
-Signer: a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7
-Signature: a596b3131e51a2ba0e06b04a39483dbad54a5ffbb39c722908cfc4a88ab0f88b...
+Signer: 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077
+Signature: db6a2def66e78c15ceccbf022c74953d93b72bf8c15fa1055ef903e5d7355d47...
 ```
 
 The files themselves are not signed one by one; they do not need to be.
@@ -42,12 +42,16 @@ signed, or Pkg refuses them.
 
 Nobody vouches for who a publisher *is*. The key is the identity; a name
 beside it on the portal is a label its maintainers attached when they gave
-that publisher a push key. If it matters to you that `pkg` on the portal is
-signed by this project, compare the key with the one published here:
+that publisher a push key. Two keys sign what the portal serves today. If it matters to you that a
+package comes from where it says, compare the key with these:
 
-```
-a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7
-```
+| Key | Publisher | Signs |
+|---|---|---|
+| `43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077` | JKN, the author of Pkg | the `pkg` channel: Pkg itself, from 1.1 |
+| `a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7` | aros-development-team | the `contrib-nightly` channel |
+
+The portal's [publisher pages](https://aros-pkg.azurewebsites.net/publishers)
+show the same keys and everything each has signed.
 
 ## What is checked, and where
 
@@ -93,6 +97,31 @@ Pkg never accepts a new key by itself, and never prints a command with the
 new key filled in for you to paste; an assistant that drives Pkg is told
 the same ([Pkg with an AI assistant](agents.md)).
 
+This happened once to Pkg itself. Versions 0.3 and 0.4 were signed by the
+aros-development-team key; from 1.1 Pkg is signed by its author's key, JKN,
+and the portal's `pkg` channel holds only those. A machine that installed
+0.4 sees, on its next `UPGRADE pkg`:
+
+```
+pkg upgrade: pkg is signed by a different key from the one pinned in SYS:.
+pkg upgrade:   pinned a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7
+pkg upgrade:   signer 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077
+pkg upgrade: Nothing was changed. Either the publisher changed keys or someone else signed this ...
+```
+
+and, having read this page, accepts it once:
+
+```
+Pkg UPGRADE pkg ROOT SYS: CHANNEL <the channel> ACCEPTKEY 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077
+```
+
+A fresh install from the `pkg` channel needs nothing: the channel's first
+version and its newest carry the same key. That is also why the old
+versions were taken out of it rather than left beside the new: a channel
+whose newest version is signed by another key than its first is what a
+takeover looks like, and Pkg refuses a first install from such a channel
+until the person decides.
+
 ## When a publisher loses a key
 
 There is no recovery: a lost secret key cannot sign again, and the portal
@@ -114,10 +143,8 @@ Pkg does this at every install, and `SHOW` does it for a whole channel:
 ```console
 $ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
 Package  Version  Kind         Arch     Status  Signer
-pkg      0.3      application  aarch64  ok      a974a917b19cfc46
-pkg      0.3      application  x86_64   ok      a974a917b19cfc46
-pkg      0.4      application  aarch64  ok      a974a917b19cfc46
-pkg      0.4      application  x86_64   ok      a974a917b19cfc46
+pkg      1.1      application  aarch64  ok      43c550967bc18dfe
+pkg      1.1      application  x86_64   ok      43c550967bc18dfe
 ```
 
 To check without trusting Pkg at all, three files and one script suffice.
@@ -128,15 +155,15 @@ RFC 8032 in sixty readable lines, so you can read what it does:
 ```sh
 B=https://aros-pkg.azurewebsites.net/pkg
 curl -fsSO $B/index
-d=$(awk '$1=="pkg" && $2=="0.4" && $3=="x86_64" {print $4}' index)   # the manifest's digest
+d=$(awk '$1=="pkg" && $2=="1.1" && $3=="x86_64" {print $4}' index)   # the manifest's digest
 curl -fsSO $B/objects/$d.manifest
 curl -fsSO $B/objects/$d.sig
-python3 tools/verify-manifest.py $d.manifest $d.sig a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7
+python3 tools/verify-manifest.py $d.manifest $d.sig 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077
 ```
 
 ```
-digest:    the manifest is the one its name says, sha256 6b31aa973a476b59
-signature: valid, made by a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7
+digest:    the manifest is the one its name says, sha256 5ffcf631a2769496
+signature: valid, made by 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077
 signer:    the expected key
 result:    the manifest is what its publisher signed
 ```

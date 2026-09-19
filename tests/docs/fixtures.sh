@@ -7,7 +7,7 @@
 #   $1/channel        a channel: helloworld 1.0 and 1.1, which need hellolib,
 #                     hellolib 1.0, and notes 1.0, a program as an image
 #   $1/portal/contrib-nightly   stands for the portal's channel of that name
-#   $1/portal/pkg     the portal's Pkg channel: 0.3 and 0.4, aarch64 and x86_64
+#   $1/portal/pkg     the portal's Pkg channel: 1.1, aarch64 and x86_64
 #   $1/drawers/MyTool, MyTool-1.1   a program's drawer, as a publisher has it
 #
 # All signed with fixture.key, so that every output is the same on every run.
@@ -55,8 +55,8 @@ printf 'lua\n' > "$d/lua/Extras/Developer/Lua/Lua"
 "$PKG" PUBLISH "$d/lua" CHANNEL "$out/portal/contrib-nightly" NAME lua BUILD 20260918 \
     ARCH x86_64 KIND application > /dev/null 2>&1
 
-# the portal's pkg channel: Pkg 0.3 and 0.4 for aarch64 and x86_64
-for v in 0.3 0.4; do
+# the portal's pkg channel: Pkg 1.1 for aarch64 and x86_64
+for v in 1.1; do
     for cpu in 62:x86_64 183:aarch64; do
         rm -rf "$d/pkg"; mkdir -p "$d/pkg/C"
         python3 -c "

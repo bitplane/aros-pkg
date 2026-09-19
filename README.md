@@ -82,10 +82,8 @@ one holds Pkg itself, built for two CPUs:
 ```console
 $ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
 Package  Version  Kind         Arch     Status  Signer
-pkg      0.3      application  aarch64  ok      a974a917b19cfc46
-pkg      0.3      application  x86_64   ok      a974a917b19cfc46
-pkg      0.4      application  aarch64  ok      a974a917b19cfc46
-pkg      0.4      application  x86_64   ok      a974a917b19cfc46
+pkg      1.1      application  aarch64  ok      43c550967bc18dfe
+pkg      1.1      application  x86_64   ok      43c550967bc18dfe
 ```
 
 Every entry was checked on the way: its signature, its description, its
@@ -93,7 +91,7 @@ files. Install the newest into a root:
 
 ```console
 $ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg ARCH x86_64
-installed pkg 0.4 into aros: 1 file, payload a767441b7f1b, signed by a974a917b19cfc46
+installed pkg 1.1 into aros: 1 file, payload 08916a1ece2a, signed by 43c550967bc18dfe
 ```
 
 `ARCH x86_64` says which machine the root is for, and the root remembers
@@ -102,9 +100,9 @@ it; on AROS, Pkg knows its own. See what is installed, and check it:
 ```console
 $ pkg LIST ROOT aros
 Package  Version  Kind         Files
-pkg      0.4      application  1 file
+pkg      1.1      application  1 file
 $ pkg VERIFY pkg ROOT aros
-pkg 0.4: 1 file, all intact
+pkg 1.1: 1 file, all intact
 ```
 
 Ask whether anything can be updated, then update everything:
@@ -112,7 +110,7 @@ Ask whether anything can be updated, then update everything:
 ```console
 $ pkg STATUS ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg
 Package  Installed  State
-pkg      0.4        current
+pkg      1.1        current
 1 package in aros, all up to date with https://aros-pkg.azurewebsites.net/pkg
 $ pkg UPGRADE ALL ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg
 nothing needs an update: 1 package, none with a newer version in the channel
@@ -122,7 +120,7 @@ Remove it:
 
 ```console
 $ pkg REMOVE pkg ROOT aros
-removed pkg 0.4 from aros: 1 file removed
+removed pkg 1.1 from aros: 1 file removed
 ```
 
 `STATUS` and `UPGRADE ALL` never ask anything, so you can run them from
