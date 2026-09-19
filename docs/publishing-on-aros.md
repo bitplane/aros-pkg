@@ -13,10 +13,30 @@ its builds: `Work:src/Greet` and, later, `Work:src/Greet-1.1`.
 
 ## 1. Put Pkg on the machine
 
-Pkg is not on a stock AROS yet, and AROS cannot download it: fetch the
-drawer on a Mac or a PC and carry it over.
+Pkg is not on a stock AROS yet. There are three ways to put it there.
 
-1. On the Mac or PC, open the portal's [Downloads](https://aros-pkg.azurewebsites.net/downloads)
+**With a network and `wget`** (AROS One, Icaros, or the nightly with its
+contrib), paste these two lines in the Shell; the script fetches the Pkg
+for your CPU, which then installs the signed `pkg` package from the portal:
+
+```amigados
+wget -q -O RAM:Get-Pkg http://aros-pkg.azurewebsites.net/Get-Pkg
+Execute RAM:Get-Pkg
+```
+
+**On Macaros, or any AROS hosted on your computer**, run
+`curl -fsSL https://aros-pkg.azurewebsites.net/install | sh` in the
+computer's terminal. Besides Pkg for the computer, it puts the AROS drawer
+in the folder AROS shares (`~/AROS/Shared`), checked against the portal's
+signed checksums, and prints the line to paste in the AROS Shell:
+
+```amigados
+Execute MacRW:Pkg-aarch64/Install-Pkg MacRW:Pkg-aarch64
+```
+
+**Without a network**, carry the drawer over:
+
+1. On a Mac or PC, open the portal's [Downloads](https://aros-pkg.azurewebsites.net/downloads)
    page and take the zip for your CPU: `pkg-aarch64.zip` for an ARM
    machine, `pkg-x86_64.zip` for a PC. Unpack it: a drawer `Pkg-aarch64`
    (or `Pkg-x86_64`).
@@ -35,7 +55,7 @@ What you have afterwards is `SYS:C/Pkg`, the copy from the signed package:
 
 ```
 This machine runs the aarch64 build.
-installed pkg 1.2 into SYS:
+installed pkg 1.3 into SYS:
 Pkg is in SYS:C. Try: Pkg HELP.
 ```
 
@@ -268,6 +288,11 @@ stick, a share or a disk image, and anyone installs from it with
 checks the signatures on their machine, so the way the drawer travels
 does not matter.
 
+People with a network install straight from a web address, so a channel
+served over plain `http` reaches every AROS machine:
+`Pkg INSTALL greet ROOT SYS: CHANNEL http://example.org/mychannel`
+([Channels](channels.md) shows how to serve one).
+
 The portal is where people look first. `PUSH`, which sends a channel to
 it, runs on a Mac or a PC, not on AROS yet: copy `Work:mychannel` there and
 follow *Upload to the portal* in [Publishing packages](publishing.md).
@@ -289,7 +314,7 @@ the class of the refusal; a Shell script tests it with `If WARN` or
 | *greet 1.0, the first version in ..., is signed by ...* | 14 | sign with the key that made the channel, or publish into a channel of your own |
 | *CONFIG names "S/x.prefs", which is no file or folder of this package* | 20 | name a path as the package installs it |
 | *this system has no random source* | 17 | run `KEYGEN` in a Shell window, not from a script (section 2) |
-| *Software Failure* on `MANIFEST` or `PUBLISH` | | that is Pkg 1.1: take 1.2 from the Downloads page, or type `Stack 1000000` first |
+| *Software Failure* on `MANIFEST` or `PUBLISH` | | that is Pkg 1.1: take the current Pkg from the Downloads page, or type `Stack 1000000` first |
 | *no executable in the drawer* (a warning, still published) | 0 | the drawer holds a script or a placeholder, not the build; or say `ARCH generic` on purpose |
 
 `Pkg <command> DRYRUN` runs every check and writes nothing; `TRACE

@@ -1,0 +1,48 @@
+.KEY ROOT
+.DEF ROOT "SYS:"
+; Get-Pkg: puts Pkg on this AROS machine over the network.
+;
+;   wget -q -O RAM:Get-Pkg @@HTTP@@/Get-Pkg
+;   Execute RAM:Get-Pkg
+;
+; It needs a started network and wget (AROS One and Icaros have it; in the
+; nightly's contrib it is Extras/Networking/Apps/WGet). It fetches the bare
+; Pkg for this machine's CPU, and that Pkg installs the signed pkg package
+; from @@HTTP@@/@@CHANNEL@@, checking its signature and every
+; file. Only the bare Pkg is not checked by anything: AROS has no tool to check
+; it with. The careful route is the drawer of the Downloads page, fetched on a
+; Mac or a PC over https and checked there against the signed checksums.
+FailAt 21
+Set pkgwget ""
+Which >NIL: wget
+If NOT WARN
+    Set pkgwget "wget"
+EndIf
+If "$pkgwget" EQ ""
+    If EXISTS "SYS:Extras/Networking/Apps/WGet/wget"
+        Set pkgwget "SYS:Extras/Networking/Apps/WGet/wget"
+    EndIf
+EndIf
+If "$pkgwget" EQ ""
+    Echo "Get-Pkg needs wget, which this system does not have."
+    Echo "Take the Pkg drawer from @@HTTP@@/downloads on another machine instead."
+    Quit 20
+EndIf
+Set pkgboot ""
+@@PROBES@@
+Delete RAM:pkgboot.out QUIET >NIL:
+If "$pkgboot" EQ ""
+    Delete RAM:Pkg-bootstrap QUIET >NIL:
+    Echo "No Pkg build for this machine could be fetched and run (tried:@@CPUS@@)."
+    Echo "Check that the network is started: wget @@HTTP@@/health"
+    Quit 20
+EndIf
+RAM:Pkg-bootstrap INSTALL pkg ROOT "<ROOT>" CHANNEL @@HTTP@@/@@CHANNEL@@
+If ERROR
+    Echo "Pkg did not install itself; the lines above say why."
+    Delete RAM:Pkg-bootstrap QUIET >NIL:
+    Quit 20
+EndIf
+Delete RAM:Pkg-bootstrap QUIET >NIL:
+Echo "Pkg is in <ROOT>C. Try: Pkg HELP"
+Echo "Later: Pkg UPGRADE pkg ROOT <ROOT> CHANNEL @@HTTP@@/@@CHANNEL@@"

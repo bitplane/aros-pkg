@@ -229,6 +229,38 @@ foreach (var (route, file) in new[] { ("/install", "install.sh"), ("/install.sh"
         return Results.Text(text, "text/plain; charset=utf-8");
     });
 
+// Get-Pkg: the same for an AROS machine with a network and wget, over plain
+// http since AROS has no TLS. An AmigaDOS script, Latin-1 like the Shell.
+app.MapGet("/Get-Pkg", (HttpContext http, Portal.Channels.Catalogue c, Portal.Channels.Downloads d) =>
+{
+    var channel = opts.Pinned.Split(',', ';')[0].Split('/')[0].Trim();
+    var site = opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";
+    var plain = "http://" + site[(site.IndexOf("://", StringComparison.Ordinal) + 3)..];
+    var cpus = c.Get(channel) is null ? [] : Portal.Channels.Bootstrap.ArosCpus(Path.Combine(opts.ChannelsDir, channel));
+    if (cpus.Count == 0) return Results.NotFound();
+    var probes = string.Concat(cpus.Select(cpu => $"""
+        If "$pkgboot" EQ ""
+            $pkgwget -q -O RAM:Pkg-bootstrap {plain}/{channel}/Bootstrap/{cpu}/Pkg
+            If EXISTS RAM:Pkg-bootstrap
+                Protect RAM:Pkg-bootstrap +e >NIL:
+                RAM:Pkg-bootstrap HELP >RAM:pkgboot.out
+                Search RAM:pkgboot.out "usage" QUIET >NIL:
+                If NOT WARN
+                    Set pkgboot "{cpu}"
+                    Echo "This machine runs the {cpu} build."
+                EndIf
+            EndIf
+        EndIf
+
+        """));
+    var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", "Get-Pkg"))
+        .Replace("@@PROBES@@\n", probes).Replace("@@HTTP@@", plain).Replace("@@CHANNEL@@", channel)
+        .Replace("@@CPUS@@", string.Concat(cpus.Select(x => " " + x)));
+    d.Count("get/pkg/Get-Pkg");
+    http.Response.Headers.CacheControl = "no-cache";
+    return Results.Text(text, "text/plain; charset=iso-8859-1");
+});
+
 // The second opinion on a signature, from the repository's tools/, as /trust uses it.
 app.MapGet("/verify-manifest.py", () =>
     Results.Text(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", "verify-manifest.py")), "text/plain; charset=utf-8"));

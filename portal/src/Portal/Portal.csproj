@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Install/install.sh;Install/install.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Install/install.sh;Install/install.ps1;Install/Get-Pkg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- The verifier that needs no Pkg, served at /verify-manifest.py for /trust. -->
     <Content Include="../../../tools/verify-manifest.py" Link="Install/verify-manifest.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

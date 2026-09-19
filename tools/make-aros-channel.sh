@@ -38,6 +38,8 @@ pkg="$repo_root/build/pkg"
 # where people find newer versions: stock AROS has no TLS, so Install-Pkg
 # names the page to fetch them from rather than a channel AROS cannot reach
 homepage=${PKG_HOMEPAGE:-https://aros-pkg.azurewebsites.net/packages/pkg/pkg}
+# the channel as an AROS machine reaches it: plain http, AROS has no TLS
+channel_url=${PKG_CHANNEL_URL:-http://aros-pkg.azurewebsites.net/pkg}
 # the host builds' drawers under Bootstrap/, as the portal names them: never
 # probed on AROS, where a case-blind disk would take their pkg for Pkg
 host_platforms="macos-arm64 macos-x86_64 linux-x86_64 linux-arm64 windows-x86_64"
@@ -149,9 +151,10 @@ If ERROR
 EndIf
 Assign PKGCH: REMOVE
 Echo "Pkg is in <ROOT>C. Try: Pkg HELP."
-Echo "Newer versions of Pkg: $homepage"
-Echo "To upgrade, bring the newer drawer to this machine and run:"
-Echo "  Pkg UPGRADE pkg ROOT <ROOT> CHANNEL <that drawer>"
+Echo "To upgrade later, with the network started:"
+Echo "  Pkg UPGRADE pkg ROOT <ROOT> CHANNEL $channel_url"
+Echo "Without a network, bring the newer drawer from $homepage"
+Echo "and name that drawer after CHANNEL."
 EOF
 } > "$ch/Install-Pkg"
 
@@ -161,9 +164,10 @@ This is a Pkg channel. To put Pkg on an AROS machine that can reach it:
     Execute <this directory>/Install-Pkg <this directory>
 
 (add a root after it to install somewhere else than SYS:). Pkg then installs
-itself from this channel as a signed package. Newer versions are published
-at $homepage: bring the newer drawer to the machine and run
-\`Pkg UPGRADE pkg ROOT SYS: CHANNEL <that drawer>\`.
+itself from this channel as a signed package. With the network started,
+\`Pkg UPGRADE pkg ROOT SYS: CHANNEL $channel_url\` keeps it
+up to date; without one, bring the newer drawer from
+$homepage and name it after CHANNEL.
 EOF
 # The bootstraps are programs a machine runs before Pkg can check anything:
 # their digests, signed so that ssh-keygen, which every host has, verifies them.

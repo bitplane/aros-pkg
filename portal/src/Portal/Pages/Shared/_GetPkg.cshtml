@@ -6,6 +6,8 @@
     var dir = System.IO.Path.Combine(Options.Value.ChannelsDir, Model.Name);
     var cpus = Bootstrap.ArosCpus(dir);
     var host = (Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Context.Request.Scheme}://{Context.Request.Host}");
+    var plain = "http://" + host[(host.IndexOf("://", StringComparison.Ordinal) + 3)..];
+    var getpkg = $"wget -q -O RAM:Get-Pkg {plain}/Get-Pkg\nExecute RAM:Get-Pkg";
     var hosts = ChannelPaths.HostBootstraps.Where(h => System.IO.File.Exists(System.IO.Path.Combine(dir, h.Value))).ToList();
 }
 <details class="getpkg" open data-remember="getpkg-folded">
@@ -23,9 +25,12 @@
             }
             else
             {
-                <p>Download the drawer for your CPU. AROS has no UnZip before Pkg is installed, so unzip it on the computer next to it and copy the <code>Pkg-&lt;cpu&gt;</code> drawer across (a shared folder, a disk image, or the host's drive for hosted AROS). Then, in a Shell:</p>
+                <p><strong>With a network and <code>wget</code></strong> (AROS One, Icaros, the nightly with contrib), paste these two lines in a Shell:</p>
+                <div class="cmd lines"><code>@getpkg</code><button class="copy" data-copy="@getpkg">Copy</button></div>
+                <p><strong>On Macaros or another hosted AROS</strong>, run the macOS and Linux line on the right: it also puts the drawer in the folder AROS shares and prints the one line to paste in the AROS Shell.</p>
+                <p><strong>Without a network</strong>, download the drawer for your CPU, unzip it on the computer next to the AROS machine and copy the <code>Pkg-&lt;cpu&gt;</code> drawer across (a stick, a shared folder, a disk image). Then, in a Shell:</p>
                 <div class="cmd"><code>Execute Pkg-x86_64/Install-Pkg Pkg-x86_64</code><button class="copy" data-copy="Execute Pkg-x86_64/Install-Pkg Pkg-x86_64">Copy</button></div>
-                <p class="muted small">The bare program installs the signed pkg package through its own checks, and from then on Pkg updates itself like any package.</p>
+                <p class="muted small">Either way the bare program installs the signed pkg package through its own checks, and from then on Pkg updates itself like any package: <code>Pkg UPGRADE pkg ROOT SYS: CHANNEL @plain/@Model.Name</code>.</p>
                 <p class="buttons">
                     @foreach (var cpu in cpus)
                     {

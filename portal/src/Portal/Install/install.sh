@@ -146,3 +146,34 @@ if [ -n "$other" ] && [ "$other" != "$dir/pkg" ] && ! is_ours "$other"; then
 fi
 
 say "pkg $version installed in $dir; run: pkg HELP"
+
+# 6. A hosted AROS on this computer (Macaros): its shared folder is a volume
+#    inside AROS, so Pkg for AROS is put there too, checked like the above,
+#    and one line in the AROS Shell finishes it. PKG_AROS_SHARED names another
+#    folder; PKG_NO_AROS=1 skips this.
+shared=${PKG_AROS_SHARED:-$HOME/AROS/Shared}
+if [ -z "${PKG_NO_AROS:-}" ] && [ -d "$shared" ] && command -v unzip >/dev/null 2>&1; then
+    case "$platform" in *arm64) acpu=aarch64 ;; *) acpu=x86_64 ;; esac
+    zip="$tmp.zip"; stage="$tmp.aros"
+    rm -rf "$stage"; mkdir -p "$stage"
+    if get "$portal/get/pkg/pkg-$acpu.zip" "$zip" && unzip -q -o "$zip" -d "$stage"; then
+        good=1
+        if [ -z "${PKG_SKIP_VERIFY:-}" ] && [ -n "$sshkey" ]; then
+            for f in "Bootstrap/$acpu/Pkg" Install-Pkg ReadMe; do
+                want=$(awk -v p="$f" '$2 == p { print $1 }' "$sums")
+                [ -n "$want" ] && [ "$(sha "$stage/Pkg-$acpu/$f")" = "$want" ] || good=0
+            done
+        fi
+        if [ "$good" = 1 ]; then
+            rm -rf "$shared/Pkg-$acpu"
+            mv "$stage/Pkg-$acpu" "$shared/Pkg-$acpu"
+            say ""
+            say "AROS on this computer: Pkg for AROS ($acpu) is in $shared, checked the same way."
+            say "In the AROS Shell, paste this line:"
+            say "  Execute MacRW:Pkg-$acpu/Install-Pkg MacRW:Pkg-$acpu"
+        else
+            say "Note: the AROS drawer did not match the signed checksums and was not put in $shared."
+        fi
+    fi
+    rm -rf "$zip" "$stage"
+fi

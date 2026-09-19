@@ -62,7 +62,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | Keyword | Value | Used by |
 |---|---|---|
 | `ROOT` | the system installed into: `SYS:`, or a directory | installing verbs, `LIST`, `VERIFY`, `REMOVE`, `SHOW` |
-| `CHANNEL` | a directory, or an `http://` or `https://` address | installing and publishing verbs |
+| `CHANNEL` | a directory, or an `http://` or `https://` address (on AROS `http://` only, with the network started) | installing and publishing verbs |
 | `VERSION` | a version: dotted numbers, and an optional `+build` | `INSTALL`, `UPGRADE`, `PUBLISH`, `MANIFEST`, `WITHDRAW` |
 | `ARCH` | a CPU: `x86_64`, `i386`, `aarch64`, `arm`, `ppc`, `m68k`, or `generic` | installing verbs, `PUBLISH`, `MANIFEST`, `WITHDRAW` |
 | `NAME` | a package name; for `IMAGE`, the volume name | `PUBLISH`, `MANIFEST`, `IMAGE` |

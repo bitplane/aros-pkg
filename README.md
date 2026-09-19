@@ -20,18 +20,38 @@ typing for you**, [Pkg with an AI assistant](docs/agents.md).
 
 ## Install Pkg
 
-**On AROS.** The [downloads page](https://aros-pkg.azurewebsites.net/downloads)
+**On AROS, with a network and `wget`** (AROS One, Icaros, or the nightly
+with its contrib). Paste these two lines in the Shell:
+
+```amigados
+wget -q -O RAM:Get-Pkg http://aros-pkg.azurewebsites.net/Get-Pkg
+Execute RAM:Get-Pkg
+```
+
+The script fetches the Pkg for your CPU, and that Pkg installs the signed
+`pkg` package into `SYS:` from the portal's channel.
+
+**On Macaros, or any AROS hosted on your computer.** Run the macOS and Linux
+line below in the computer's terminal: it also puts the AROS drawer in the
+folder AROS shares (`~/AROS/Shared`), checked against the signed checksums,
+and prints the one line to paste in the AROS Shell:
+
+```amigados
+Execute MacRW:Pkg-aarch64/Install-Pkg MacRW:Pkg-aarch64
+```
+
+**On AROS without a network.** The [downloads page](https://aros-pkg.azurewebsites.net/downloads)
 gives `pkg-<cpu>.zip` for each CPU, a small drawer that is itself a Pkg
 channel: unzip it on your Mac or PC, copy the drawer to the AROS machine (a
 share, a USB stick, an image), and run its install script, naming the drawer
 as the machine sees it:
 
 ```amigados
-Execute Work:pkg-x86_64/Install-Pkg Work:pkg-x86_64
+Execute Work:Pkg-x86_64/Install-Pkg Work:Pkg-x86_64
 ```
 
-The script picks the build for your CPU and installs Pkg into `SYS:` as a
-signed package, so later versions arrive with `Pkg UPGRADE pkg`.
+Either way Pkg is installed as a signed package, so later versions arrive
+with `Pkg UPGRADE pkg ROOT SYS: CHANNEL http://aros-pkg.azurewebsites.net/pkg`.
 
 **On macOS and Linux.** One line downloads the build for your computer,
 checks it runs, puts it where your shell finds it (`/usr/local/bin`, or
@@ -72,9 +92,9 @@ make build/pkg.exe      # Windows, cross-built with mingw-w64
 
 The examples below run on a Mac or a PC, where a *root* is a directory that
 stands for an AROS system, and the channel is read over the network. On
-AROS, use `ROOT SYS:` instead of `ROOT aros`, and name a copy of the
-channel on a volume, since Pkg does not read channels over the network
-there yet ([Channels](docs/channels.md)).
+AROS, use `ROOT SYS:` instead of `ROOT aros` and `http://` instead of
+`https://`, since AROS has no TLS ([Channels](docs/channels.md)); a copy of
+the channel on a volume works too, with no network at all.
 
 See what a channel offers. A channel is where packages are published; this
 one holds Pkg itself, built for two CPUs:

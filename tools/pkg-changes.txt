@@ -1,3 +1,3 @@
-Publishing works on AROS itself. KEYGEN makes a key there: AROS has no random source, so in a Shell window Pkg makes the key from the moments you press keys, and without a window it refuses rather than make a key that could be guessed.
-Pkg runs on a stack of its own on AROS: MANIFEST and PUBLISH no longer stop the system with a Software Failure in a Shell with the default stack.
-Install-Pkg tries only the AROS builds, never a Mac, Linux or Windows one, keeps its test file in RAM: instead of T:, says which CPUs the drawer holds when none runs, and its closing lines name where newer versions are.
+Pkg on AROS reads channels over the network: CHANNEL http://aros-pkg.azurewebsites.net/pkg works for INSTALL, STATUS, UPGRADE and SHOW once the network is started (AROSTCP, or a hosted AROS's own sockets). https is refused with the reason: AROS has no TLS, and Pkg checks every signature and file itself whatever the connection.
+Downloads are kept in SYS:.pkg/cache on AROS, so a reboot does not fetch them again.
+Install-Pkg names the network channel for later upgrades.

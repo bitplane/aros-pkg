@@ -9,6 +9,8 @@ the examples below run on a Mac or a PC, where the root is a directory,
 `aros`, and the channel a directory, `channel`, with a few example packages.
 A channel can also be a web address, such as
 `https://aros-pkg.azurewebsites.net/contrib-nightly`; nothing else changes.
+On AROS write it `http://`: AROS has no TLS, and Pkg checks every signature
+and every file itself, whatever the connection.
 
 Words in capitals are keywords; you can type them in any case, as in any
 AmigaDOS command.

@@ -13,8 +13,11 @@ being trusted: Pkg checks every signature and every file itself.
   or `http://`. On macOS, Linux and Windows, Pkg reads a channel over the
   network exactly as it reads a directory, and keeps what it downloaded in
   a cache (`PKG_CACHE`, else `~/.cache/pkg`, or `%LOCALAPPDATA%\pkg-cache`
-  on Windows). On AROS, reading a channel over the network is not built
-  yet: copy the channel to a volume the machine reads.
+  on Windows). On AROS it is the same over `http://`, once the machine's
+  network is started (AROSTCP, or a hosted AROS's own sockets); the cache
+  is `SYS:.pkg/cache`. AROS has no TLS, so `https://` is refused there
+  with that reason; nothing is lost, since Pkg checks every signature and
+  every file itself whatever the connection.
 
 ## What is in one
 
