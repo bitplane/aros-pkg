@@ -64,6 +64,9 @@ public sealed class PortalOptions
     /// Where checked source archives are kept (Cloudflare R2); off when empty.
     public Push.R2Options R2 { get; set; } = new();
 
+    /// What this instance accepts: see Policy.cs.
+    public PortalPolicy Policy { get; set; } = new();
+
     public string ChannelsDir => Path.Combine(DataDir, "channels");
     public string StagingDir => Path.Combine(DataDir, "staging");
     public string StateDir => Path.Combine(DataDir, "state");

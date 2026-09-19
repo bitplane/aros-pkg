@@ -14,7 +14,7 @@ public sealed record IndexLine(string Name, string Version, string Arch, string 
     public static IndexLine? Parse(string line)
     {
         var p = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return p.Length == 4 && p[3].Length == 64 ? new IndexLine(p[0], p[1], p[2], p[3]) : null;
+        return p.Length == 4 && p[3].Length == 64 && p[3].All(Uri.IsHexDigit) ? new IndexLine(p[0], p[1], p[2], p[3].ToLowerInvariant()) : null;
     }
 
     public static List<IndexLine> ParseAll(string text) =>

@@ -21,6 +21,7 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
 {
     readonly PortalOptions o = options.Value;
     static readonly ConcurrentDictionary<string, SemaphoreSlim> Locks = new();
+    static readonly ConcurrentDictionary<string, SemaphoreSlim> KeyLocks = new();
 
     /// One writer per channel at a time: pushes and admin changes alike.
     public static SemaphoreSlim LockFor(string channel) => Locks.GetOrAdd(channel, _ => new SemaphoreSlim(1, 1));
@@ -58,7 +59,7 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                 continue;
             }
             var p = new PlanLine(text[..a], text[(a + 1)..b].ToLowerInvariant(), size);
-            var why = Refusal(p.Path) ?? LinkOnly(who, p.Path);
+            var why = Refusal(p.Path) ?? LinkOnly(who, p.Path, o.Policy) ?? ChannelFilesRefusal(who, channel, p.Path);
             if (why is not null) { r.Add("refused", $"{p.Path} 20 {why}"); refused++; continue; }
             if (ChannelPaths.PromisedDigest(p.Path) is { } promised && promised != p.Sha)
             {
@@ -108,7 +109,9 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                                                            CancellationToken ct)
     {
         if (Refusal(path) is { } why) return (Record.Refused(20, $"{path}: {why}", "check the path"), 400);
-        if (LinkOnly(who, path) is { } linkOnly)
+        if (ChannelFilesRefusal(who, channel, path) is { } notTheirs)
+            return (Record.Refused(14, $"{path}: {notTheirs}", "ask the portal's maintainers"), 403);
+        if (LinkOnly(who, path, o.Policy) is { } linkOnly)
             return (Record.Refused(20, $"{path}: {linkOnly}", "publish the files as an archive on an https server and name it with an Archive: line"), 403);
         var staging = Staging(who, channel);
         var plan = ReadPlan(staging);
@@ -139,9 +142,16 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
 
         var final = Path.Combine(staging, path);
         var part = final + ".part";
+        // One upload at a time per key, and the quota counts all its channels,
+        // so parallel requests cannot go past it.
+        var keyGate = KeyLocks.GetOrAdd(who.Name, _ => new SemaphoreSlim(1, 1));
+        await keyGate.WaitAsync(ct);
+        try
+        {
         var cap = who.Files ? o.MaxStagingBytes : o.MaxLinkOnlyStagingBytes;
-        var held = Directory.Exists(staging)
-            ? new DirectoryInfo(staging).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length) : 0;
+        var keyRoot = Path.Combine(o.StagingDir, who.Name);
+        var held = Directory.Exists(keyRoot)
+            ? new DirectoryInfo(keyRoot).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length) : 0;
         if (held + (end - start + 1) > cap)
             return (Record.Refused(20, $"this push would hold {Record.Size(held + end - start + 1)} in staging, more than the {Record.Size(cap)} a key may hold",
                 "commit or let the staged files expire, then push again"), 413);
@@ -184,6 +194,8 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         File.Move(part, final, overwrite: true);
         return (new Record().Add("result", "received").Add("path", path).Add("received", received)
             .Add("summary", $"{path} received and checked, {Record.Size(want.Size)}"), 200);
+        }
+        finally { keyGate.Release(); }
     }
 
     // ---- commit -------------------------------------------------------------
@@ -250,7 +262,13 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                 continue;
             }
             var m = Manifest.Load(mp);
-            if (!who.Files && LinkOnlyManifest(m) is { } notLink)
+            // The archive a manifest names becomes a file path here: a plain name only.
+            if (m.SourceArchive is { } named && ChannelPaths.Classify("archives/" + named) != ChannelPaths.Kind.Archive)
+            {
+                refusedItems.Add($"{c.Name} {c.Version} {c.Arch} 12 its Source names the archive '{named}', which is not a plain file name");
+                continue;
+            }
+            if (LinkCheck(who, m, o.Policy) is { } notLink)
             {
                 refusedItems.Add($"{c.Name} {c.Version} {c.Arch} 20 {notLink}");
                 continue;
@@ -271,13 +289,22 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         }
 
         // A package keeps the key of its first version, as Pkg pins it.
-        var owners = new Dictionary<string, (string Signer, string Version)>(StringComparer.Ordinal);
+        var owners = new Dictionary<string, (string Signer, string Version)>(StringComparer.OrdinalIgnoreCase);
         foreach (var l in liveLines)
             if (!owners.ContainsKey(l.Name) && Signer(Path.Combine(live, "objects", l.Digest + ".sig")) is { } s)
                 owners[l.Name] = (s, l.Version);
         var owned = new List<(IndexLine Line, Manifest M, string Signer)>();
+        var spelled = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var l in liveLines) spelled.TryAdd(l.Name, l.Name);
         foreach (var x in ready)
         {
+            // Names differing only in case would be one package on the pages and two in the channel.
+            if (spelled.TryGetValue(x.Line.Name, out var existing) && existing != x.Line.Name)
+            {
+                refusedItems.Add($"{x.Line.Name} {x.Line.Version} {x.Line.Arch} 15 the channel already has a package named {existing}; a name may not differ from another only in case");
+                continue;
+            }
+            spelled.TryAdd(x.Line.Name, x.Line.Name);
             if (!owners.TryGetValue(x.Line.Name, out var owner)) owners[x.Line.Name] = owner = (x.Signer, x.Line.Version);
             // A maintainers' transfer (Portal:Owners) names the key from now on.
             if (publishers.OwnerOf(channel, x.Line.Name, null) is { } moved && !moved.Equals(owner.Signer, StringComparison.OrdinalIgnoreCase))
@@ -341,6 +368,13 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         int mutable = 0;
         foreach (var rel in refusedItems.Count == 0 ? StagedMutable(staging) : [])
         {
+            if (ChannelFilesRefusal(who, channel, rel) is not null) continue;
+            var ownerFile = ChannelFilesOwnerFile(channel);
+            if (!File.Exists(ownerFile))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(ownerFile)!);
+                await File.WriteAllTextAsync(ownerFile, who.Name + "\n", ct);
+            }
             var dst = Path.Combine(live, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
             File.Move(Path.Combine(staging, rel), dst, overwrite: true);
@@ -477,12 +511,43 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
 
     // ---- helpers --------------------------------------------------------------
 
-    /// What a link-only key may send: signed manifests, signatures and withdrawals.
-    static string? LinkOnly(Publisher who, string path) =>
-        who.Files || path.EndsWith(".manifest", StringComparison.Ordinal) || path.EndsWith(".sig", StringComparison.Ordinal)
-            || path.EndsWith(".withdrawn", StringComparison.Ordinal)
-            ? null
-            : "this key publishes by link only: it sends signed manifests and signatures, and the files stay on an https server";
+    /// Channel files (Bootstrap programs, Install-Pkg, ReadMe) belong to the key
+    /// that first published them in the channel: another key may not replace them.
+    string ChannelFilesOwnerFile(string channel) => Path.Combine(o.StateDir, channel, "channel-files-owner");
+
+    string? ChannelFilesRefusal(Publisher who, string channel, string path)
+    {
+        if (ChannelPaths.Classify(path) != ChannelPaths.Kind.Mutable) return null;
+        var f = ChannelFilesOwnerFile(channel);
+        var owner = File.Exists(f) ? File.ReadAllText(f).Trim() : null;
+        return owner is null || owner == who.Name ? null
+            : $"the channel files of {channel} (Bootstrap, Install-Pkg, ReadMe) belong to the key of {owner}, which published them first";
+    }
+
+    /// What a key may send without the right to upload binaries: signed
+    /// manifests, signatures and withdrawals. The reason names which rule applies.
+    static string? LinkOnly(Publisher who, string path, PortalPolicy policy)
+    {
+        if (path.EndsWith(".manifest", StringComparison.Ordinal) || path.EndsWith(".sig", StringComparison.Ordinal)
+            || path.EndsWith(".withdrawn", StringComparison.Ordinal))
+            return null;
+        if (!policy.BinariesAllowed)
+            return policy.Why("Binaries", "off", "this portal accepts no binaries: publishers host their files on an https server and name them with an Archive: line");
+        return who.Files ? null
+            : "this key publishes by link only (it has no files right; the portal's operators grant it): it sends signed manifests and signatures, and the files stay on an https server";
+    }
+
+    /// A version's files: for a key without binaries, no payload of its own and an
+    /// archive named by an https address; for every key, an archive host this
+    /// portal links to.
+    static string? LinkCheck(Publisher who, Manifest m, PortalPolicy policy)
+    {
+        if (m.Upstream is { } up && Uri.TryCreate(up.Url, UriKind.Absolute, out var host) && !policy.HostAllowed(host.Host))
+            return policy.Why("LinkHosts", policy.LinkHosts, $"its archive is on {host.Host}, which this portal does not link to");
+        if (who.Files && policy.BinariesAllowed) return null;
+        var why = LinkOnlyManifest(m);
+        return why is null ? null : policy.BinariesAllowed ? why : policy.Why("Binaries", "off", why);
+    }
 
     /// A version a link-only key may publish: no payload of its own, its files in
     /// an archive the signed manifest names by an https address, size and SHA-256.
@@ -600,8 +665,9 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         foreach (var who in Directory.EnumerateDirectories(o.StagingDir))
             foreach (var ch in Directory.EnumerateDirectories(who))
             {
-                var plan = PlanFile(ch);
-                var when = File.Exists(plan) ? File.GetLastWriteTimeUtc(plan) : Directory.GetLastWriteTimeUtc(ch);
+                // The last file written, so an upload in progress is never taken away.
+                var when = new DirectoryInfo(ch).EnumerateFiles("*", SearchOption.AllDirectories)
+                    .Select(f => f.LastWriteTimeUtc).DefaultIfEmpty(Directory.GetLastWriteTimeUtc(ch)).Max();
                 if (DateTime.UtcNow - when > o.StagingLifetime)
                 {
                     try { Directory.Delete(ch, true); log.LogInformation("removed expired staging {Dir}", ch); }

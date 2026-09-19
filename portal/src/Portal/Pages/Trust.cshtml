@@ -46,6 +46,32 @@
 </ol>
 <p>What the site cannot tell you is who a publisher <em>is</em>: the key is the identity. The name shown beside it is a label the maintainers attached when they gave that publisher an upload key.</p>
 
+@{
+    var pol = Options.Value.Policy;
+}
+<h2>What this portal accepts</h2>
+<ul>
+    <li>@(pol.Push ? "Uploads with a key from its maintainers, checked as above." : "No uploads: this portal serves its channels read-only.")</li>
+    @if (pol.Push)
+    {
+        <li>@(pol.BinariesAllowed
+            ? "Binaries only from publishers the maintainers allow to upload them; every other publisher publishes by link: the signed manifest names an archive on an https server, and Pkg downloads it from there."
+            : "No binaries at all: every publisher publishes by link, the signed manifest naming an archive on an https server that Pkg downloads and checks.")</li>
+        <li>Archives @(pol.Hosts.Count == 0 ? "on any https server" : $"on these hosts only: {string.Join(", ", pol.Hosts)}").</li>
+        <li>@(pol.NewChannels ? "A publisher's first push may create its channel." : "Channels are created by the maintainers.")</li>
+    }
+    <li>@(pol.PlainHttp ? "Channels answer over https and plain http." : "Everything is served over https only.")</li>
+</ul>
+@if (pol.Note.Length > 0)
+{
+    <p class="note">@pol.Note</p>
+}
+@if (pol.Contact.Length > 0)
+{
+    <p class="muted small">About these rules: @pol.Contact</p>
+}
+<p class="muted small">The same rules as JSON: <a href="/api/policy">/api/policy</a>. A refusal they cause names the rule, its value and this note.</p>
+
 <h2>What Pkg checks on your machine</h2>
 <p>At every install, upgrade, verify and repair: the manifest's signature, every file against the manifest, and that the signer is the key remembered for that package on your machine. The first version you install pins its key. A later version signed by another key is refused, with both keys printed. It may be a publisher who changed keys, or someone replacing a program under you; only you can tell, by asking the publisher somewhere you trust. If the new key is theirs, <code>ACCEPTKEY</code> followed by the new key accepts it, once. Pkg never decides that for you.</p>
 <p>The connection proves nothing and does not need to: a channel read over plain http, from a USB stick or a shared drawer is checked the same way.</p>

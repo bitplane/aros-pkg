@@ -86,6 +86,13 @@ Settings (environment variables use `__`, e.g. `Portal__DataDir`):
 | `Portal:SignerNames` | names for signing keys, `hex=Name;…`; keys are otherwise named after the publisher whose push first used them |
 | `Portal:Pinned` | packages shown first, `channel/name` separated by commas; `pkg/pkg` by default |
 | `Portal:AdminKeys` | maintainers' keys for `/_admin`, `name:sha256-of-key;…`; `dotnet Portal.dll adminkey <name>` makes one |
+| `Portal:Policy:Push` | uploads at all (`true`); `false` makes a read-only mirror |
+| `Portal:Policy:Binaries` | `keys`: binaries from keys with the `files` right; `off`: from nobody, every publisher links |
+| `Portal:Policy:LinkHosts` | hosts an `Archive:` address may name, comma-separated; empty: any https host (subdomains match) |
+| `Portal:Policy:NewChannels` | whether a push may create a channel (`true`) |
+| `Portal:Policy:Admin` | the maintainers' API (`true`) |
+| `Portal:Policy:PlainHttp` | channels also over plain http (`true`); `false` sends every http request to https |
+| `Portal:Policy:Note`, `Portal:Policy:Contact` | the operators' sentence and contact, added to every refusal a rule causes and shown on `/trust` |
 | `Portal:AllowLoopbackHttpPush` | pushes over http from 127.0.0.1, for a local instance only |
 
 A key: `dotnet Portal.dll key <publisher> <channel,channel|*> [files]` prints the

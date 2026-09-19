@@ -19,16 +19,16 @@ public static partial class ChannelPaths
         "favicon.ico", "error", "health", "_push", "_admin", "index", "get", "downloads", "statistics", "docs", "install", "install.sh", "install.ps1", "trust", "publishers", "verify-manifest.py", "badge", "feed",
     };
 
-    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,39}$")]
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,39}\\z")]
     private static partial Regex ChannelName();
 
-    [GeneratedRegex("^objects/[0-9a-f]{64}\\.(manifest|sig|pkg|withdrawn|withdrawn\\.sig)$")]
+    [GeneratedRegex("^objects/[0-9a-f]{64}\\.(manifest|sig|pkg|withdrawn|withdrawn\\.sig)\\z")]
     private static partial Regex ObjectPath();
 
-    [GeneratedRegex("^archives/[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$")]
+    [GeneratedRegex("^archives/[A-Za-z0-9][A-Za-z0-9._+-]{0,199}\\z")]
     private static partial Regex ArchivePath();
 
-    [GeneratedRegex("^Bootstrap/[a-z0-9_]{1,32}/Pkg$")]
+    [GeneratedRegex("^Bootstrap/[a-z0-9_]{1,32}/Pkg\\z")]
     private static partial Regex BootstrapPath();
 
     /// Pkg for the machines people manage AROS from, as agreed with the Pkg

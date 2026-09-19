@@ -33,6 +33,23 @@ public static class Endpoints
             });
         });
 
+        // This instance's rules, for publishers and tools deciding before they push.
+        api.MapGet("/policy", (IOptions<PortalOptions> o) =>
+        {
+            var p = o.Value.Policy;
+            return Results.Json(new
+            {
+                push = p.Push,
+                binaries = p.BinariesAllowed ? "keys with the files right" : "off",
+                linkHosts = p.Hosts.Count == 0 ? ["any https host"] : p.Hosts,
+                newChannels = p.NewChannels,
+                admin = p.Admin,
+                plainHttp = p.PlainHttp,
+                note = p.Note.Length > 0 ? p.Note : null,
+                contact = p.Contact.Length > 0 ? p.Contact : null,
+            });
+        });
+
         api.MapGet("/packages/{channel}/{name}", (HttpContext http, string channel, string name, Catalogue c,
                                                       Search search, IOptions<PortalOptions> o) =>
             c.Package(channel, name) is { } p ? Results.Json(Describe(p, Site(http, o.Value), search, null, versions: true))

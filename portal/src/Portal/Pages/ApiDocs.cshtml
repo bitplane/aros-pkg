@@ -16,6 +16,10 @@
 <pre><code>curl '@site/api/packages/pkg/pkg'</code></pre>
 <p>The same fields, plus every version with its CPU, the date the portal first published it, the manifest and payload digests, the signer, downloads, and whether its publisher withdrew it.</p>
 
+<h2>This portal's rules</h2>
+<pre><code>curl '@site/api/policy'</code></pre>
+<p>What this instance accepts: uploads at all, binaries or links only, which archive hosts, whether a push may create a channel, plain http. A refusal caused by one of these rules names it (<code>policy: Binaries=off</code>) with the operators' note.</p>
+
 <h2>Feeds</h2>
 <p>Atom, the 50 newest versions first: <a href="/feed">every channel</a>, or one channel at <code>/channels/&lt;name&gt;/feed</code>, such as <a href="/channels/contrib-nightly/feed">contrib-nightly</a>.</p>
 

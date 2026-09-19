@@ -76,6 +76,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(f =>
     f.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     f.KnownIPNetworks.Clear();
     f.KnownProxies.Clear();
+    // Only the last hop, the one Azure's front end adds; what a client sends before it is ignored.
+    f.ForwardLimit = 1;
 });
 builder.WebHost.ConfigureKestrel((ctx, k) =>
     k.Limits.MaxRequestBodySize = (ctx.Configuration.GetValue<long?>("Portal:MaxPartBytes") ?? 40L * 1024 * 1024) + 1024 * 1024);
@@ -89,6 +91,15 @@ if (!OperatingSystem.IsWindows() && File.Exists(opts.PkgPath))
         | UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
 
 app.UseForwardedHeaders();
+// Behind App Service, X-Forwarded-Proto comes through as the client sent it, so
+// it proves nothing: the front end marks a request that really arrived over TLS
+// with X-ARR-SSL. There, that mark alone decides whether a request is https.
+if (Environment.GetEnvironmentVariable("WEBSITE_SITE_NAME") is not null)
+    app.Use(async (ctx, next) =>
+    {
+        ctx.Request.Scheme = ctx.Request.Headers.ContainsKey("X-ARR-SSL") ? "https" : "http";
+        await next();
+    });
 if (!app.Environment.IsDevelopment()) app.UseExceptionHandler("/Error");
 
 // Unlisted: nothing here is to be indexed. No HTTPS redirect and no HSTS,
@@ -105,6 +116,13 @@ app.Use(async (ctx, next) =>
     ctx.Response.Headers.XFrameOptions = "DENY";
     await next();
 });
+// Portal:Policy:PlainHttp off: this instance answers over https only.
+if (!opts.Policy.PlainHttp)
+    app.Use(async (ctx, next) =>
+    {
+        if (ctx.Request.IsHttps) { await next(); return; }
+        ctx.Response.Redirect($"https://{ctx.Request.Host}{ctx.Request.PathBase}{ctx.Request.Path}{ctx.Request.QueryString}", permanent: true, preserveMethod: true);
+    });
 app.UseStaticFiles();
 // Routing after static files: the channel route would otherwise claim /css/site.css.
 app.UseRouting();
@@ -118,6 +136,8 @@ app.MapRazorPages();
 var admin = app.MapGroup("/_admin").RequireRateLimiting("admin").AddEndpointFilter(async (ctx, next) =>
 {
     var http = ctx.HttpContext;
+    if (!opts.Policy.Admin)
+        return Results2.Text(opts.Policy.Refuse("Admin", "off", "the maintainers' API is switched off on this portal", "change it on the server, where the portal's settings are"), 403);
     var loopback = http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
     if (!http.Request.IsHttps && !(opts.AllowLoopbackHttpPush && loopback))
         return Results2.Text(Record.Refused(20, "the admin API needs https: its key must never travel in clear", "use the https address"), 403);
@@ -129,7 +149,9 @@ var admin = app.MapGroup("/_admin").RequireRateLimiting("admin").AddEndpointFilt
 });
 
 admin.MapPost("/channels/{channel}/remove", async (HttpContext http, string channel, Portal.Admin.AdminService s) =>
-    Results2.Text(await s.Remove((string)http.Items["admin"]!, channel, await ReadBody(http),
+    !ChannelPaths.IsChannelName(channel)
+        ? Results2.Text(Record.Refused(20, $"'{channel}' is not a channel name", "check the address"), 400)
+        : Results2.Text(await s.Remove((string)http.Items["admin"]!, channel, await ReadBody(http),
         http.Request.Query["dryrun"] is var d && (d == "1" || d == "true"), http.RequestAborted)));
 
 admin.MapPost("/restore/{stamp}", async (HttpContext http, string stamp, Portal.Admin.AdminService s) =>
@@ -143,6 +165,9 @@ var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpo
 {
     var http = ctx.HttpContext;
     var channel = (string)http.GetRouteValue("channel")!;
+    if (!opts.Policy.Push)
+        return Results2.Text(opts.Policy.Refuse("Push", "off", "this portal accepts no uploads: it serves its channels read-only",
+            "ask the portal's operators where to publish"), 403);
     var loopback = http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
     if (!http.Request.IsHttps && !(opts.AllowLoopbackHttpPush && loopback))
         return Results2.Text(Record.Refused(20, "a push needs https: its key must never travel in clear", "use the https address"), 403);
@@ -153,6 +178,9 @@ var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpo
         return Results2.Text(Record.Refused(14, "no push key, or one the portal does not know", "set PKG_PUSHKEY to the key you were given"), 401);
     if (!who.MayPush(channel))
         return Results2.Text(Record.Refused(14, $"the key of {who.Name} may not push to {channel}", "ask for the channel to be added to your key"), 403);
+    if (!opts.Policy.NewChannels && !Directory.Exists(Path.Combine(opts.ChannelsDir, channel)))
+        return Results2.Text(opts.Policy.Refuse("NewChannels", "off", $"there is no channel {channel}, and this portal does not create channels on a push",
+            "push to an existing channel, or ask the operators to create this one"), 403);
     http.Items["publisher"] = who;
     return await next(ctx);
 });
