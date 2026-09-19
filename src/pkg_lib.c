@@ -724,9 +724,10 @@ static int cmd_keygen(const struct pkg_options *a)
     kv("result", "created");
     kv("file", "%s", a->file);
     kv("public", "%s", k.pkhex);
-    if (!machine)
+    if (!machine) {
         say_result("key written to %s, readable by you alone", a->file);
         say_detail("public key %s", k.pkhex);
+    }
     hint("every later version of what this key publishes must be signed with it: keep the "
          "file with the person's secrets, outside any channel or repository, and back it up. "
          "Use it with SIGN <file> or PKG_SIGNKEY; only the public key may be shared");
@@ -2647,7 +2648,7 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
     pkg_fs_mkdirs(dir);
     free(dir);
     if (!machine)
-        say_result("downloading %s (%llu MB) from %s, once for every package it holds", an,
+        say_kind(PKG_LINE_NOTE, "%s\n", "downloading %s (%llu MB) from %s, once for every package it holds", an,
             (m->archive_size + 524288ull) / 1048576ull, m->archive_url);
     rc = pkg_net_get(m->archive_url, dest, net_err, sizeof net_err);
     if (rc == 0 && file_digest(dest, hex, &size) == 0
