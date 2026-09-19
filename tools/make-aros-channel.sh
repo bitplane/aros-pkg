@@ -35,6 +35,12 @@ ch=${1:?usage: make-aros-channel.sh <channel>}
 mkdir -p "$ch"
 ch=$(CDPATH= cd -- "$ch" && pwd)
 pkg="$repo_root/build/pkg"
+# where people find newer versions: stock AROS has no TLS, so Install-Pkg
+# names the page to fetch them from rather than a channel AROS cannot reach
+homepage=${PKG_HOMEPAGE:-https://aros-pkg.azurewebsites.net/packages/pkg/pkg}
+# the host builds' drawers under Bootstrap/, as the portal names them: never
+# probed on AROS, where a case-blind disk would take their pkg for Pkg
+host_platforms="macos-arm64 macos-x86_64 linux-x86_64 linux-arm64 windows-x86_64"
 [ -n "${PKG_SIGNKEY:-}" ] || {
     echo "make-aros-channel: set PKG_SIGNKEY to the publisher's key (pkg KEYINFO FILE <key> names it;" >&2
     echo "  a first publisher creates one with pkg KEYGEN FILE <key>)" >&2
@@ -54,7 +60,7 @@ for b in "$repo_root/build/aros/Pkg" "$repo_root/build/aros-x86_64/Pkg" "$repo_r
     "$pkg" PUBLISH "$work/d" CHANNEL "$ch" KIND application \
         SHORT "Installs and updates AROS software" DESCRIPTION "$repo_root/tools/pkg-about.txt" \
         CATEGORY util/sys TAGS "packages, install, update, signed" AUTHOR "John Knipper" \
-        LICENSE MIT DISTRIBUTION open-source HOMEPAGE https://aros-pkg.azurewebsites.net/packages/pkg/pkg \
+        LICENSE MIT DISTRIBUTION open-source HOMEPAGE "$homepage" \
         CHANGES "$repo_root/tools/pkg-changes.txt" ${ACCEPTKEY:+ACCEPTKEY "$ACCEPTKEY"} MACHINE > "$work/out" || {
         cat "$work/out" >&2; exit 1; }
     mkdir -p "$ch/Bootstrap/$cpu"
@@ -95,47 +101,69 @@ host windows-x86_64 pkg.exe "$repo_root/build/pkg.exe"
     echo '    Quit 20'
     echo 'EndIf'
     echo 'Set pkgboot ""'
+    echo 'Set pkgnoprobe ""'
+    echo '; Each build is tried with HELP, its answer kept in RAM:, which every AROS'
+    echo '; has: T: is an assign a minimal boot does not make.'
+    aros_cpus=
     for d in "$ch"/Bootstrap/*/; do
         cpu=$(basename "$d")
+        case " $host_platforms " in *" $cpu "*) continue ;; esac
+        aros_cpus="$aros_cpus $cpu"
         cat <<EOF
 If "\$pkgboot" EQ ""
     If EXISTS "PKGCH:Bootstrap/$cpu/Pkg"
-        "PKGCH:Bootstrap/$cpu/Pkg" HELP >T:pkgboot.out
-        Search T:pkgboot.out "usage" QUIET >NIL:
-        If NOT WARN
-            Set pkgboot "PKGCH:Bootstrap/$cpu/Pkg"
-            Echo "This machine runs the $cpu build."
+        Delete RAM:pkgboot.out QUIET >NIL:
+        "PKGCH:Bootstrap/$cpu/Pkg" HELP >RAM:pkgboot.out
+        If NOT EXISTS RAM:pkgboot.out
+            Echo "The $cpu build could not be tried: RAM:pkgboot.out could not be written."
+            Set pkgnoprobe "yes"
+        Else
+            Search RAM:pkgboot.out "usage" QUIET >NIL:
+            If NOT WARN
+                Set pkgboot "PKGCH:Bootstrap/$cpu/Pkg"
+                Echo "This machine runs the $cpu build."
+            EndIf
         EndIf
     EndIf
 EndIf
 EOF
     done
-    cat <<'EOF'
-Delete T:pkgboot.out QUIET >NIL:
-If "$pkgboot" EQ ""
-    Echo "None of the Pkg builds in the channel's Bootstrap drawer runs on this machine."
+    cat <<EOF
+Delete RAM:pkgboot.out QUIET >NIL:
+If "\$pkgboot" EQ ""
+    If "\$pkgnoprobe" EQ "yes"
+        Echo "Pkg could not try its builds here: the lines above say which and why."
+    Else
+        Echo "None of the Pkg builds in the channel's Bootstrap drawer runs on this machine."
+        Echo "It holds Pkg for:$aros_cpus. For another CPU, take that CPU's drawer from the Downloads page."
+        Echo "To see AROS's own reason, run one yourself: <CHANNEL>/Bootstrap/<cpu>/Pkg HELP"
+    EndIf
     Assign PKGCH: REMOVE
     Quit 20
 EndIf
-"$pkgboot" INSTALL pkg ROOT "<ROOT>" CHANNEL PKGCH:
+"\$pkgboot" INSTALL pkg ROOT "<ROOT>" CHANNEL PKGCH:
 If ERROR
     Echo "Pkg did not install itself; the lines above say why."
     Assign PKGCH: REMOVE
     Quit 20
 EndIf
 Assign PKGCH: REMOVE
-Echo "Pkg is in <ROOT>C. Try: Pkg HELP. Later: Pkg UPGRADE pkg ROOT <ROOT> CHANNEL <CHANNEL>"
+Echo "Pkg is in <ROOT>C. Try: Pkg HELP."
+Echo "Newer versions of Pkg: $homepage"
+Echo "To upgrade, bring the newer drawer to this machine and run:"
+Echo "  Pkg UPGRADE pkg ROOT <ROOT> CHANNEL <that drawer>"
 EOF
 } > "$ch/Install-Pkg"
 
-cat > "$ch/ReadMe" <<'EOF'
+cat > "$ch/ReadMe" <<EOF
 This is a Pkg channel. To put Pkg on an AROS machine that can reach it:
 
     Execute <this directory>/Install-Pkg <this directory>
 
 (add a root after it to install somewhere else than SYS:). Pkg then installs
-itself from this channel as a signed package; `Pkg UPGRADE pkg ROOT SYS:
-CHANNEL <this directory>` keeps it up to date.
+itself from this channel as a signed package. Newer versions are published
+at $homepage: bring the newer drawer to the machine and run
+\`Pkg UPGRADE pkg ROOT SYS: CHANNEL <that drawer>\`.
 EOF
 # The bootstraps are programs a machine runs before Pkg can check anything:
 # their digests, signed so that ssh-keygen, which every host has, verifies them.

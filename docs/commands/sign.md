@@ -41,7 +41,7 @@ $ pkg SIGN notes.txt KEY my.key OUT notes.txt.sshsig SSH NAMESPACE release-notes
 signed notes.txt with b01be86b74a9c904
 $ echo "me $(pkg KEYINFO FILE my.key SSH)" > allowed_signers
 $ ssh-keygen -Y verify -f allowed_signers -I me -n release-notes -s notes.txt.sshsig < notes.txt
-Good "release-notes" signature for me with ED25519 key SHA256:7cquSLw7MRSqFRZPIvuIsU7nMzER4Bdt9ob0qYKfSzQ
+Good "release-notes" signature for me with ED25519 key SHA256:Ca5qXjeBMgkPkiOoRPyLjl3ZjwbQpAZl+BWsnfg1Cgg
 ```
 
 ## Records (`MACHINE`)

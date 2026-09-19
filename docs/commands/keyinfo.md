@@ -29,7 +29,7 @@ key written to my.key, readable by you alone
 $ pkg KEYINFO FILE my.key
 my.key holds the public key e7b8fc13ae67ec39af29ad1e2ee75e2396109320d24d4c8e6f0662f1f4e429f8
 $ pkg KEYINFO FILE my.key SSH
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN13/qqhgko5gmpxaYSg2wSae9eRdbnvwaTf2I2m/1z7 my
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILSOwjws1D/9diSlj0KngDo1EbOif5DqNswGMrH+B/8K my
 $ pkg KEYINFO FILE channel/index    # exits 12
 pkg keyinfo: "channel/index" is not a Pkg key file
   next: stop here: the bytes or signatures are not what was published, and no keyword or other channel makes that safe

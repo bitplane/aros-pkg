@@ -18,6 +18,16 @@ it: losing the key means a new one that every machine must accept by hand,
 so keep the file with your secrets and back it up. `SIGN <keyfile>` on
 `PUBLISH`, or `PKG_SIGNKEY`, names it.
 
+The 32 bytes the key is made from come from the system's random source. AROS
+has none, and the clock, free memory and the task's address can all be
+guessed, so there Pkg asks the person at the Shell window to press keys at
+random and hashes the moment of each one, read from the CPU's cycle counter
+and the system clock, with what was typed. A key press counts for 4 bits
+(2 without a cycle counter), a repeated one for none, and typing goes on
+until 256 bits are counted: 64 keys. Without a window (output redirected,
+`MACHINE`, the ARexx port) `KEYGEN` refuses with exit 17 and writes nothing;
+Ctrl-C while typing does the same.
+
 ## Examples
 
 ```console

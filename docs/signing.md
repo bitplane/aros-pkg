@@ -98,7 +98,7 @@ new key filled in for you to paste; an assistant that drives Pkg is told
 the same ([Pkg with an AI assistant](agents.md)).
 
 Pre-release builds of Pkg (0.3 to 0.5) were signed by the aros-development-team
-key and are no longer in the `pkg` channel; Pkg 1.1 is its first version. A
+key and are no longer in the `pkg` channel; Pkg 1.1 was its first version. A
 test machine that still has one of those builds sees the refusal above on its
 next `UPGRADE pkg` and accepts the JKN key with `ACCEPTKEY`. A fresh install
 needs nothing: the channel's first version and its newest carry the same key.
@@ -157,8 +157,8 @@ Pkg does this at every install, and `SHOW` does it for a whole channel:
 ```console
 $ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
 Package  Version  Kind         Arch     Status  Signer
-pkg      1.1      application  aarch64  ok      43c550967bc18dfe
-pkg      1.1      application  x86_64   ok      43c550967bc18dfe
+pkg      1.2      application  aarch64  ok      43c550967bc18dfe
+pkg      1.2      application  x86_64   ok      43c550967bc18dfe
 ```
 
 To check without trusting Pkg at all, three files and one script suffice.

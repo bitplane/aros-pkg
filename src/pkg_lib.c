@@ -710,8 +710,15 @@ static int cmd_keygen(const struct pkg_options *a)
         return refuse_c(20, "name the key file with FILE <path>");
     if (pkg_fs_exists(a->file))
         return refuse_c(15, "\"%s\" already exists; a key is never overwritten", a->file);
-    if (pkg_fs_random(seed, sizeof seed) != 0)
-        return refuse_c(17, "cannot read the system random source");
+    if (pkg_fs_random(seed, sizeof seed) != 0) {
+        int typed = machine ? -2 : pkg_fs_random_typed(seed, sizeof seed);
+        if (typed == -2)
+            return refuse_c(17, "this system has no random source, and a key made without one could be "
+                            "guessed: run KEYGEN in a Shell window, where Pkg makes it from the moments "
+                            "you press keys, or make the key on a Mac or a PC and bring the file here");
+        if (typed != 0)
+            return refuse_c(17, "the key was not made: typing stopped before there was enough of it");
+    }
     pkg_ed25519_keypair(k.pk, k.sk, seed);
     tohex(seed, sizeof seed, seedhex);
     tohex(k.pk, sizeof k.pk, k.pkhex);
@@ -877,7 +884,8 @@ static void ssh_pubkey_line(const struct key *k, const char *path, char *out, si
             comment[p - comment] = '-';
     ssh_pubkey_blob(&s, k->pk);
     base64(s.b, s.n, b64, 0);
-    snprintf(out, outsz, "ssh-ed25519 %s %s", b64, comment);
+    if (snprintf(out, outsz, "ssh-ed25519 %s %s", b64, comment) >= (int)outsz)
+        out[outsz - 1] = '\0';   /* a long comment is cut; the key is whole */
 }
 
 /* An SSHSIG signature over msg for namespace ns, armored, as ssh-keygen -Y

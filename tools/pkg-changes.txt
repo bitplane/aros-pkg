@@ -1,5 +1,3 @@
-The first version on this portal, published by JKN with its own key.
-RESOLVE <library> or <program> says which copy of a library AROS will open and why, checking its CPU, resident tag, type and version, and what to do when it is the wrong one.
-Packages list the libraries and devices they ship (Provides), and PUBLISH warns about a library a program opens that no dependency provides.
-Manifest keys Pkg does not know are ignored and named by SHOW instead of refused, so packages can carry lines for other systems.
-On AROS, a file written to a volume's root, such as MOUNTLIST OUT RAM:GURU0, is no longer refused.
+Publishing works on AROS itself. KEYGEN makes a key there: AROS has no random source, so in a Shell window Pkg makes the key from the moments you press keys, and without a window it refuses rather than make a key that could be guessed.
+Pkg runs on a stack of its own on AROS: MANIFEST and PUBLISH no longer stop the system with a Software Failure in a Shell with the default stack.
+Install-Pkg tries only the AROS builds, never a Mac, Linux or Windows one, keeps its test file in RAM: instead of T:, says which CPUs the drawer holds when none runs, and its closing lines name where newer versions are.

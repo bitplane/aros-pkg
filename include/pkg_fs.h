@@ -64,6 +64,10 @@ int pkg_host_args(int *argc, char ***argv);
 
 /* Fill buf from the system's cryptographic random source. 0 or -1. */
 int pkg_fs_random(void *buf, size_t len);
+/* Where the system has no random source (AROS): bytes made from the moments a
+ * person presses keys, asked for at the console. 0 done; -1 given up or
+ * failed; -2 there is nobody to ask (no console), or none is needed here. */
+int pkg_fs_random_typed(void *buf, size_t len);
 
 /* Like pkg_fs_write_atomic, readable and writable by the owner alone. For a
  * signing key, which must not be world-readable even for the instant between

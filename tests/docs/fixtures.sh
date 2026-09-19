@@ -55,8 +55,8 @@ printf 'lua\n' > "$d/lua/Extras/Developer/Lua/Lua"
 "$PKG" PUBLISH "$d/lua" CHANNEL "$out/portal/contrib-nightly" NAME lua BUILD 20260918 \
     ARCH x86_64 KIND application > /dev/null 2>&1
 
-# the portal's pkg channel: Pkg 1.1 for aarch64 and x86_64
-for v in 1.1; do
+# the portal's pkg channel: Pkg 1.2 for aarch64 and x86_64
+for v in 1.2; do
     for cpu in 62:x86_64 183:aarch64; do
         rm -rf "$d/pkg"; mkdir -p "$d/pkg/C"
         python3 -c "

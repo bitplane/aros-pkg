@@ -210,6 +210,106 @@ int pkg_fs_write_private(const char *path, const void *buf, size_t len)
     return write_atomic_mode(path, buf, len, 0600);
 }
 
+#ifdef __AROS__
+/* AROS has no random source: no /dev/urandom, no kernel pool. A signing key
+ * needs 256 bits nobody can guess, and the clock, the task's address and free
+ * memory are all guessable. What is not is when a person presses keys: each
+ * moment is read from the CPU's cycle counter (nanoseconds, where a person is
+ * exact to milliseconds) and from the system clock, and hashed with what was
+ * typed. A key press is credited 4 bits with a cycle counter, 2 with only the
+ * clock, and none when it repeats the last one, as a held key does; typing
+ * goes on until 256 bits are credited. PGP on the Amiga made keys this way. */
+#include <devices/timer.h>
+#include <proto/timer.h>
+#include "pkg_sha512.h"
+
+struct Device *TimerBase;
+
+static unsigned long long cycles(void)
+{
+#if defined(__aarch64__)
+    unsigned long long v;
+    __asm__ volatile("mrs %0, cntvct_el0" : "=r"(v));
+    return v;
+#elif defined(__x86_64__) || defined(__i386__)
+    unsigned int lo, hi;
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((unsigned long long)hi << 32) | lo;
+#else
+    return 0;
+#endif
+}
+
+int pkg_fs_random_typed(void *buf, size_t len)
+{
+    BPTR in = Input(), out = Output();
+    struct MsgPort *port = NULL;
+    struct timerequest *tr = NULL;
+    struct pkg_sha512 pool;
+    unsigned char digest[PKG_SHA512_LEN], last = 0;
+    struct { struct EClockVal e; unsigned long long c; struct DateStamp d; APTR task; IPTR mem; unsigned char key; } ev;
+    const int per_key = cycles() != 0 ? 4 : 2;
+    int need = 256, rc = -1, opened = 0;
+    char line[96];
+
+    if (len > sizeof digest || !IsInteractive(in) || !IsInteractive(out))
+        return -2;
+    if ((port = CreateMsgPort()) == NULL
+        || (tr = (struct timerequest *)CreateIORequest(port, sizeof *tr)) == NULL
+        || OpenDevice((CONST_STRPTR)"timer.device", UNIT_MICROHZ, (struct IORequest *)tr, 0) != 0)
+        goto out;
+    opened = 1;
+    TimerBase = tr->tr_node.io_Device;
+
+    pkg_sha512_init(&pool);
+    FPuts(out, (CONST_STRPTR)"AROS has no random source, so the key is made from the moments you press keys.\n"
+                             "Type anything, at random, until the count reaches 0. What you type is not kept.\n");
+    Flush(out);
+    SetMode(in, 1);
+    while (need > 0) {
+        unsigned char c;
+        snprintf(line, sizeof line, "\r  %3d  ", (need + per_key - 1) / per_key);
+        FPuts(out, (CONST_STRPTR)line);
+        Flush(out);
+        if (Read(in, &c, 1) != 1 || c == 3)     /* end of input, or Ctrl-C */
+            break;
+        memset(&ev, 0, sizeof ev);
+        ReadEClock(&ev.e);
+        ev.c = cycles();
+        DateStamp(&ev.d);
+        ev.task = FindTask(NULL);
+        ev.mem = AvailMem(MEMF_ANY);
+        ev.key = c;
+        pkg_sha512_update(&pool, &ev, sizeof ev);
+        if (c != last)
+            need -= per_key;
+        last = c;
+    }
+    SetMode(in, 0);
+    FPuts(out, (CONST_STRPTR)"\r       \r");
+    Flush(out);
+    if (need <= 0) {
+        pkg_sha512_final(&pool, digest);
+        memcpy(buf, digest, len);
+        rc = 0;
+    }
+    memset(&pool, 0, sizeof pool);
+    memset(digest, 0, sizeof digest);
+    memset(&ev, 0, sizeof ev);
+out:
+    if (opened) CloseDevice((struct IORequest *)tr);
+    if (tr) DeleteIORequest((struct IORequest *)tr);
+    if (port) DeleteMsgPort(port);
+    return rc;
+}
+#else
+int pkg_fs_random_typed(void *buf, size_t len)
+{
+    (void)buf; (void)len;
+    return -2;
+}
+#endif
+
 int pkg_fs_random(void *buf, size_t len)
 {
     FILE *f = fopen("/dev/urandom", "rb");
@@ -573,7 +673,12 @@ int pkg_fs_replace_if_same(const char *path, const struct pkg_fs_id *before,
          * does, written out because AROS's C library has no mkstemp. */
         for (tries = 0; tries < 8 && fd < 0; tries++) {
             unsigned char r[4];
-            if (pkg_fs_random(r, sizeof r) != 0) break;
+            if (pkg_fs_random(r, sizeof r) != 0) {
+                /* no random source (AROS): a name only has to be unused */
+                static unsigned long counter;
+                unsigned long v = (unsigned long)getpid() * 2654435761ul + ++counter * 40503ul + (unsigned long)time(NULL);
+                r[0] = (unsigned char)(v >> 24); r[1] = (unsigned char)(v >> 16); r[2] = (unsigned char)(v >> 8); r[3] = (unsigned char)v;
+            }
             snprintf(tmp, pl + 16, "%s.%02x%02x%02x%02x", path, r[0], r[1], r[2], r[3]);
             fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0644);
         }

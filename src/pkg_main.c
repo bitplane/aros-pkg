@@ -466,7 +466,7 @@ static int run_verb(int argc, char **argv)
     return PKG_RC_USAGE;
 }
 
-int main(int argc, char **argv)
+static int pkg_main(int argc, char **argv)
 {
     int rc;
 
@@ -488,3 +488,54 @@ int main(int argc, char **argv)
     }
     return run_verb(argc, argv);
 }
+
+#ifdef __AROS__
+#include <proto/exec.h>
+#include <exec/tasks.h>
+
+/* The Shell gives a command 40 KB of stack unless someone typed Stack, and
+ * AROS's startup has no convention for a program to ask for more. Publishing
+ * (the payload, the archive readers, the manifest) goes well past that, and
+ * a stack overrun on AROS is a Software Failure, not a refusal. So Pkg runs
+ * on a stack of its own whenever the one it was given is smaller. */
+#define PKG_STACK_BYTES (1024ul * 1024ul)
+
+struct entry_args { int argc; char **argv; };
+
+static IPTR on_own_stack(struct entry_args *a)
+{
+    return (IPTR)pkg_main(a->argc, a->argv);
+}
+
+int main(int argc, char **argv)
+{
+    struct Task *me = FindTask(NULL);
+    struct StackSwapStruct sss;
+    struct StackSwapArgs ssa;
+    struct entry_args a;
+    UBYTE *stack;
+    int rc;
+
+    if ((IPTR)me->tc_SPUpper - (IPTR)me->tc_SPLower >= PKG_STACK_BYTES)
+        return pkg_main(argc, argv);
+    stack = (UBYTE *)AllocVec(PKG_STACK_BYTES, MEMF_ANY);
+    if (stack == NULL) {
+        pkg_err("pkg: not enough memory for a %lu KB stack\n", PKG_STACK_BYTES / 1024ul);
+        return PKG_RC_IO;
+    }
+    a.argc = argc;
+    a.argv = argv;
+    sss.stk_Lower = stack;
+    sss.stk_Upper = stack + PKG_STACK_BYTES;
+    sss.stk_Pointer = sss.stk_Upper;
+    ssa.Args[0] = (IPTR)&a;
+    rc = (int)NewStackSwap(&sss, on_own_stack, &ssa);
+    FreeVec(stack);
+    return rc;
+}
+#else
+int main(int argc, char **argv)
+{
+    return pkg_main(argc, argv);
+}
+#endif

@@ -530,6 +530,12 @@ int pkg_fs_list(const char *dir, char ***names, size_t *count)
     return 0;
 }
 
+int pkg_fs_random_typed(void *buf, size_t len)
+{
+    (void)buf; (void)len;
+    return -2;   /* Windows has a random source */
+}
+
 int pkg_fs_random(void *buf, size_t len)
 {
     return BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0 ? 0 : -1;

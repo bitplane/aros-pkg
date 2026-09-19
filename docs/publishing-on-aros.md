@@ -35,25 +35,18 @@ What you have afterwards is `SYS:C/Pkg`, the copy from the signed package:
 
 ```
 This machine runs the aarch64 build.
-installed pkg 1.1 into SYS:
+installed pkg 1.2 into SYS:
 Pkg is in SYS:C. Try: Pkg HELP.
 ```
 
 Add a root after the drawer to install elsewhere than `SYS:`
 (`Execute Work:Pkg-aarch64/Install-Pkg Work:Pkg-aarch64 Work:aros/`).
 
-If it says *None of the Pkg builds in the channel's Bootstrap drawer runs on
-this machine* although this is the right CPU, the machine has no `T:`
-assign (a minimal boot); `Assign T: RAM:` and run it again.
-
-**Give the Shell a larger stack before publishing.** Pkg 1.1 needs more
-than the Shell's default for `MANIFEST` and `PUBLISH`; without it AROS
-stops with a *Software Failure*. Type this once in the Shell you publish
-from (installing and updating do not need it):
-
-```amigados
-Stack 1000000
-```
+If `Execute` itself fails (*object not found*, *error while creating
+temporary file*), the machine has no `T:` assign, which AmigaDOS needs for
+any script that takes arguments: `Assign T: RAM:` and run it again. If the
+script says *None of the Pkg builds in the channel's Bootstrap drawer runs on
+this machine*, the drawer is for another CPU: it names the CPUs it holds.
 
 `Pkg HELP` lists every verb and keyword; [Reference](reference.md) has each in full.
 Words in capitals are keywords, in any case, in any order, as in any
@@ -67,22 +60,28 @@ later version of what you publish must be signed with the same key,
 because people who installed your package accept a new version only from
 it ([Signatures and trust](signing.md) says why).
 
-**Make it on a Mac or a PC for now.** On AROS, `KEYGEN` of Pkg 1.1 answers
-*cannot read the system random source* (exit 17) and writes nothing. On
-the machine where you fetched the drawer, with the Pkg of the Downloads
-page:
-
-```sh
-pkg KEYGEN FILE my.key
+```amigados
+MakeDir Work:keys
+Pkg KEYGEN FILE Work:keys/my.key
 ```
 
+AROS has no random source, and a key made from the clock could be guessed.
+So Pkg makes it from the moments you press keys, read from the CPU's
+cycle counter: type anything, at random, until the count reaches 0 (64
+keys; a held key does not count). What you type is not kept.
+
 ```
-key written to my.key, readable by you alone
+AROS has no random source, so the key is made from the moments you press keys.
+Type anything, at random, until the count reaches 0. What you type is not kept.
+   64
+key written to Work:keys/my.key, readable by you alone
   public key d0e87172f204b4e6663aa1d58fb79022bb59a83ba4d8a69acf19e4ff830c776e
 ```
 
-Carry `my.key` to the AROS machine with the drawer, into a drawer of its
-own, here `Work:keys`, and delete it from the stick afterwards.
+This needs a Shell window: from a script with its output redirected, or
+through the ARexx port, `KEYGEN` refuses (exit 17) rather than make a weak
+key. A key made on a Mac or a PC with `pkg KEYGEN FILE my.key` is the same
+kind of file, if you would rather carry one over.
 
 Tell Pkg where it is, once for this session and once for every boot:
 
@@ -289,8 +288,8 @@ the class of the refusal; a Shell script tests it with `If WARN` or
 | *no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY* | 14 | `SetEnv PKG_SIGNKEY` (section 2) |
 | *greet 1.0, the first version in ..., is signed by ...* | 14 | sign with the key that made the channel, or publish into a channel of your own |
 | *CONFIG names "S/x.prefs", which is no file or folder of this package* | 20 | name a path as the package installs it |
-| *cannot read the system random source* | 17 | `KEYGEN` on AROS: make the key on a Mac or PC (section 2) |
-| *Software Failure*, the system stops | | `Stack 1000000` before `MANIFEST` or `PUBLISH` (section 1) |
+| *this system has no random source* | 17 | run `KEYGEN` in a Shell window, not from a script (section 2) |
+| *Software Failure* on `MANIFEST` or `PUBLISH` | | that is Pkg 1.1: take 1.2 from the Downloads page, or type `Stack 1000000` first |
 | *no executable in the drawer* (a warning, still published) | 0 | the drawer holds a script or a placeholder, not the build; or say `ARCH generic` on purpose |
 
 `Pkg <command> DRYRUN` runs every check and writes nothing; `TRACE
