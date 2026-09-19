@@ -875,7 +875,7 @@ static char *archive_index(const char *archive, char *err, size_t errlen)
         return NULL;
     }
     /* The version changes whenever what it records is computed differently. */
-    snprintf(head, sizeof head, "pkgidx 3 %llu %lld\n", id.size, id.mtime_s);
+    snprintf(head, sizeof head, "pkgidx 4 %llu %lld\n", id.size, id.mtime_s);
     ip = (char *)malloc(strlen(archive) + 8);
     if (ip == NULL) { snprintf(err, errlen, "out of memory"); return NULL; }
     snprintf(ip, strlen(archive) + 8, "%s.pkgidx", archive);
@@ -1099,34 +1099,54 @@ static const char *file_arch(const unsigned char *p, size_t len)
         at += 16 + 4 * (size_t)(last - first + 1);
         if (at + 4 > len) return NULL;
         type = pkg_be32_get(p + at) & 0x3FFFFFFFul;
-        return type == 0x3E9ul ? "m68k" : NULL;      /* HUNK_CODE */
+        if (type != 0x3E9ul)                        /* HUNK_CODE */
+            return NULL;
+        /* A classic font starts its code with moveq #n,d0 and rts: a stub
+         * that returns at once, before the data diskfont.library reads. */
+        if (at + 12 <= len && p[at + 8] == 0x70 && p[at + 10] == 0x4E && p[at + 11] == 0x75)
+            return NULL;
+        return "m68k";
     }
     return NULL;
 }
 
+/* The CPU a file of the drawer is built for, NULL for none. A hunk file in
+ * a Keymaps drawer is a keymap, data keymap.library loads on any CPU. */
+static const char *entry_arch(const struct loaded *f)
+{
+    const char *a = f->pre ? f->pre_arch : file_arch(f->data, f->len);
+    if (a != NULL && strcmp(a, "m68k") == 0
+        && (strncmp(f->rel, "Keymaps/", 8) == 0 || strstr(f->rel, "/Keymaps/") != NULL))
+        return NULL;
+    return a;
+}
+
 /* The drawer's architecture: the one its executables share, "generic" when
- * it has none. 1 found, 0 none, -1 more than one, listed in `seen`. */
+ * it has none. 1 found, 0 none, -1 more than one: `seen` then says how many
+ * files each CPU has, with one of them. */
 static int drawer_arch(const struct drawer *d, const char **arch, const char **from,
                        char *seen, size_t sl)
 {
-    size_t i, at = 0;
-    int clash = 0;
+    const char *cpu[8], *ex[8];
+    size_t cnt[8], nc = 0, i, k, at = 0;
     *arch = NULL;
     seen[0] = '\0';
     for (i = 0; i < d->n; i++) {
-        const char *a = d->v[i].pre ? d->v[i].pre_arch : file_arch(d->v[i].data, d->v[i].len);
+        const char *a = entry_arch(&d->v[i]);
         if (a == NULL)
             continue;
-        if (at + 80 < sl)
-            at += (size_t)snprintf(seen + at, sl - at, "%s%s (%s)", at ? ", " : "", d->v[i].rel, a);
         if (*arch == NULL) {
             *arch = a;
             *from = d->v[i].rel;
-        } else if (strcmp(*arch, a) != 0) {
-            clash = 1;
         }
+        for (k = 0; k < nc && strcmp(cpu[k], a) != 0; k++) ;
+        if (k == nc && nc < 8) { cpu[nc] = a; ex[nc] = d->v[i].rel; cnt[nc++] = 0; }
+        if (k < nc) cnt[k]++;
     }
-    return clash ? -1 : *arch != NULL;
+    for (k = 0; nc > 1 && k < nc && at + 1 < sl; k++)
+        at += (size_t)snprintf(seen + at, sl - at, "%s%s in %lu file%s, such as %.200s", k ? "; " : "",
+                               cpu[k], (unsigned long)cnt[k], cnt[k] == 1 ? "" : "s", ex[k]);
+    return nc > 1 ? -1 : *arch != NULL;
 }
 
 /* DEPENDS "a >= 1.0, b": each item a name, alone or with ">=" and the lowest
@@ -1275,7 +1295,7 @@ static void check_cookie_names(const struct drawer *d)
     for (i = 0; i < d->n; i++) {
         const char *base = strrchr(d->v[i].rel, '/');
         base = base ? base + 1 : d->v[i].rel;
-        if ((d->v[i].pre ? d->v[i].pre_arch : file_arch(d->v[i].data, d->v[i].len)) == NULL
+        if (entry_arch(&d->v[i]) == NULL
             || !cookie(&d->v[i], n, sizeof n, v, sizeof v))
             continue;
         squash(n, sn, sizeof sn);
@@ -1588,15 +1608,30 @@ static int build(const struct pkg_options *a, struct built *out)
         }
     }
     {
-        char seen[600];
+        char seen[1200];
         const char *found_arch = NULL, *afrom = NULL;
         int got = drawer_arch(&d, &found_arch, &afrom, seen, sizeof seen);
-        if (got < 0) {
+        /* A boot package carries the loader stages the firmware runs (GRUB's
+         * i386-pc for an x86_64 system), an SDK the libraries of each target
+         * it compiles for: their CPU is the machine ARCH names. */
+        const char *k0 = a->kind;
+        int several_ok;
+        if (k0 == NULL && a->arch != NULL && inherit_ix != NULL && name != NULL
+            && inherited(name, a->arch, ikind, sizeof ikind, ideps, sizeof ideps, ifrom, sizeof ifrom,
+                         iconf, sizeof iconf))
+            k0 = ikind;
+        several_ok = k0 != NULL && a->arch != NULL && (strcmp(k0, "boot") == 0 || strcmp(k0, "sdk") == 0);
+        if (got < 0 && several_ok) {
+            tr("executables for several CPUs (%s), accepted for KIND %s, ARCH %s", seen, k0, a->arch);
+            got = 0;
+        } else if (got < 0) {
             drawer_free(&d);
             return refuse_c(20, "the drawer holds executables for different CPUs: %s. One "
-                            "package is one architecture; publish each separately", seen);
+                            "package is one architecture: publish each separately (FILES picks "
+                            "the paths). A boot or sdk package may hold several, when KIND and "
+                            "ARCH name the kind and the machine it is for", seen);
         }
-        if (a->arch != NULL && got > 0 && strcmp(a->arch, found_arch) != 0) {
+        if (a->arch != NULL && got > 0 && strcmp(a->arch, found_arch) != 0 && !several_ok) {
             /* afrom points into the drawer: refuse before freeing it. */
             refuse_c(20, "ARCH %s, but %s is built for %s", a->arch, afrom, found_arch);
             drawer_free(&d);
@@ -2827,26 +2862,29 @@ static int ameta_set(const char *root, const char *rel, unsigned long long prot,
 /* Give each installed file its protection and comment: on AROS the file
  * system holds them; elsewhere the host mode takes owner Execute and the
  * directory's .ameta the rest. */
+static void attrs_one(const char *root, const struct pkg_file *f)
+{
+    char latin[PKG_COMMENT_MAX + 1], *full = pkg_join(root, f->path);
+    int r;
+    if (full == NULL) return;
+    latin[0] = '\0';
+    if (f->comment) pkg_comment_latin1(f->comment, latin, sizeof latin);
+    r = pkg_fs_amiga_set(full, f->prot, latin);
+    if (r < 0) {
+        warn("the protection or comment of %s could not be set", f->path);
+    } else if (r == 0) {
+        if (pkg_fs_set_owner_exec(full, (f->prot & PKG_AMETA_OWNER_EXECUTE) == 0) != 0)
+            warn("the host mode of %s could not be set", f->path);
+        ameta_set(root, f->path, f->prot, f->comment);
+    }
+    free(full);
+}
+
 static void apply_attrs(const char *root, const struct pkg_manifest *m)
 {
     size_t i;
-    for (i = 0; i < m->nfiles; i++) {
-        const struct pkg_file *f = &m->files[i];
-        char latin[PKG_COMMENT_MAX + 1], *full = pkg_join(root, f->path);
-        int r;
-        if (full == NULL) continue;
-        latin[0] = '\0';
-        if (f->comment) pkg_comment_latin1(f->comment, latin, sizeof latin);
-        r = pkg_fs_amiga_set(full, f->prot, latin);
-        if (r < 0) {
-            warn("the protection or comment of %s could not be set", f->path);
-        } else if (r == 0) {
-            if (pkg_fs_set_owner_exec(full, (f->prot & PKG_AMETA_OWNER_EXECUTE) == 0) != 0)
-                warn("the host mode of %s could not be set", f->path);
-            ameta_set(root, f->path, f->prot, f->comment);
-        }
-        free(full);
-    }
+    for (i = 0; i < m->nfiles; i++)
+        attrs_one(root, &m->files[i]);
 }
 
 struct installed {
@@ -4738,12 +4776,83 @@ static int moved_one(const char *rel, void *ctx)
     return 0;
 }
 
+/* VERIFY ALL: every installed package, a line each; the files that differ
+ * named with their package. Moved files are looked for by VERIFY <name>. */
+static int verify_all(const struct pkg_options *a)
+{
+    struct installed in;
+    size_t p, i, bad = 0, files = 0, edited = 0;
+    char first[200] = "";
+
+    if (load_all(a->root, &in) != 0) return 1;
+    if (in.n == 0) {
+        installed_free(&in);
+        kv("result", "empty");
+        kv("summary", "no package is installed in %s", a->root);
+        return 0;
+    }
+    for (p = 0; p < in.n; p++) {
+        const struct pkg_manifest *m = &in.m[p];
+        size_t changed = 0, missing = 0;
+        for (i = 0; i < m->nfiles; i++) {
+            int s = file_state(a->root, m->files[i].path, m->files[i].digest, m->files[i].size);
+            if (s == 1 && m->files[i].config) {
+                edited++;
+                if (machine) kv("edited", "%s %s", m->name, m->files[i].path);
+                else say("  edited   %s (%s, a configuration file)\n", m->files[i].path, m->name);
+            } else if (s == 1) {
+                changed++;
+                if (machine) kv("changed", "%s %s", m->name, m->files[i].path);
+                else say("  changed  %s (%s)\n", m->files[i].path, m->name);
+            } else if (s == 2) {
+                missing++;
+                if (machine) kv("missing", "%s %s", m->name, m->files[i].path);
+                else say("  missing  %s (%s)\n", m->files[i].path, m->name);
+            }
+        }
+        files += m->nfiles;
+        if (changed + missing) {
+            if (bad++ == 0)
+                snprintf(first, sizeof first, "%s (%lu changed, %lu missing)", m->name,
+                         (unsigned long)changed, (unsigned long)missing);
+            if (machine) kv("package", "%s %s damaged %lu %lu", m->name, m->version,
+                            (unsigned long)changed, (unsigned long)missing);
+            else say("%s %s: %lu changed, %lu missing, of %lu files\n", m->name, m->version,
+                     (unsigned long)changed, (unsigned long)missing, (unsigned long)m->nfiles);
+        } else if (machine) {
+            kv("package", "%s %s intact", m->name, m->version);
+        } else {
+            say("%s %s: %lu files, all intact\n", m->name, m->version, (unsigned long)m->nfiles);
+        }
+    }
+    kv("packages", "%lu", (unsigned long)in.n);
+    kv("files", "%lu", (unsigned long)files);
+    if (bad == 0) {
+        kv("result", "intact");
+        kv("summary", "%lu packages, %lu files, all intact%s", (unsigned long)in.n,
+           (unsigned long)files, edited ? "; configuration files edited, as people do" : "");
+        installed_free(&in);
+        return 0;
+    }
+    refused_class = PKGRC_INTEGRITY;
+    kv("result", "damaged");
+    kv("class", "integrity");
+    kv("code", "%d", PKGRC_INTEGRITY);
+    kv("summary", "%lu of %lu packages damaged, first %s", (unsigned long)bad,
+       (unsigned long)in.n, first);
+    hint("VERIFY <name> also says which missing files were moved by hand. Pkg overwrites no "
+         "changed file: whether the change is damage or someone's work is the requester's call");
+    installed_free(&in);
+    return 1;
+}
+
 static int cmd_verify(const struct pkg_options *a)
 {
     struct pkg_manifest m;
-    size_t i, changed = 0, missing = 0;
+    size_t i, changed = 0, missing = 0, edited = 0;
 
-    if (a->target == NULL)  return refuse_c(20, "name the package to verify");
+    if (a->all && a->root != NULL) return verify_all(a);
+    if (a->target == NULL)  return refuse_c(20, "name the package to verify, or VERIFY ALL");
     if (a->root == NULL) return refuse_c(20, "name the root with ROOT <dir>");
     if (load_installed(a->root, a->target, &m, 0) != 0) return 1;
     kv("name", "%s", m.name);
@@ -4751,7 +4860,11 @@ static int cmd_verify(const struct pkg_options *a)
     kv("files", "%lu", (unsigned long)m.nfiles);
     for (i = 0; i < m.nfiles; i++) {
         int s = file_state(a->root, m.files[i].path, m.files[i].digest, m.files[i].size);
-        if (s == 1) {
+        if (s == 1 && m.files[i].config) {
+            edited++;           /* a configuration file: editing it is what it is for */
+            if (machine) kv("edited", "%s", m.files[i].path);
+            else say("  edited   %s (a configuration file)\n", m.files[i].path);
+        } else if (s == 1) {
             changed++;
             if (machine) kv("changed", "%s", m.files[i].path);
             else say("  changed  %s\n", m.files[i].path);
@@ -4804,8 +4917,10 @@ static int cmd_verify(const struct pkg_options *a)
     }
     if (changed + missing == 0) {
         kv("result", "intact");
+        if (edited) kv("edited-config", "%lu", (unsigned long)edited);
         if (!machine)
-            say("%s %s: %lu files, all intact\n", m.name, m.version, (unsigned long)m.nfiles);
+            say("%s %s: %lu files, all intact%s\n", m.name, m.version, (unsigned long)m.nfiles,
+                edited ? ", configuration files edited as people do" : "");
         pkg_manifest_free(&m);
         return 0;
     }
@@ -4818,6 +4933,204 @@ static int cmd_verify(const struct pkg_options *a)
     kv("code", "%d", PKGRC_INTEGRITY);
     pkg_manifest_free(&m);
     return 1;
+}
+
+/* ---- REPAIR ------------------------------------------------------------ *
+ *
+ * Puts an installed version's own files back from the channel: the missing
+ * ones, and the changed ones, whose change is kept beside as <file>.pkgold.
+ * An edited configuration file is the person's and stays as it is. Every
+ * file written is checked against the digest the root recorded at install. */
+
+struct repair_ctx {
+    const char                *root;
+    const struct pkg_manifest *m;
+    unsigned char             *need;    /* per file of m: 1 missing, 2 changed */
+    unsigned long              restored, aside;
+    char                       err[400];
+};
+
+static int repair_entry(const struct pkg_entry *e, void *ctx)
+{
+    struct repair_ctx *c = (struct repair_ctx *)ctx;
+    const struct pkg_file *pf = find_file(c->m, e->path);
+    char hex[PKG_SHA256_HEXLEN + 1], *to, *slash;
+    size_t k;
+
+    if (pf == NULL || !c->need[pf - c->m->files])
+        return 0;
+    k = (size_t)(pf - c->m->files);
+    pkg_sha256_hex(e->data, e->data_len, hex);
+    if ((unsigned long long)e->data_len != pf->size || strcmp(hex, pf->digest) != 0) {
+        snprintf(c->err, sizeof c->err, "the channel's copy of \"%s\" is not the file installed", e->path);
+        return 1;
+    }
+    to = pkg_join(c->root, pf->path);
+    if (to == NULL) { snprintf(c->err, sizeof c->err, "out of memory"); return 1; }
+    if (c->need[k] == 2) {
+        size_t tl = strlen(to);
+        char *old = malloc(tl + 8);
+        int good;
+        if (old == NULL) { free(to); snprintf(c->err, sizeof c->err, "out of memory"); return 1; }
+        memcpy(old, to, tl);
+        memcpy(old + tl, ".pkgold", 8);
+        if (pkg_fs_exists(old)) {
+            /* An earlier change is set aside there already: never lose one. */
+            warn("%s.pkgold already holds an earlier change; %s is left as it is", pf->path, pf->path);
+            free(old);
+            free(to);
+            return 0;
+        }
+        pkg_fs_unprotect(to);
+        good = pkg_fs_rename(to, old) == 0;
+        free(old);
+        if (!good) {
+            snprintf(c->err, sizeof c->err, "cannot set \"%s\" aside: %s", pf->path, strerror(errno));
+            free(to);
+            return 1;
+        }
+        c->aside++;
+        if (machine) kv("set-aside", "%s %s.pkgold", pf->path, pf->path);
+        else say("  aside    %s -> %s.pkgold\n", pf->path, pf->path);
+    }
+    slash = strrchr(to, '/');
+    if (slash != NULL) {
+        *slash = '\0';
+        pkg_fs_mkdirs(to);
+        *slash = '/';
+    }
+    if (pkg_fs_write_atomic(to, e->data, e->data_len) != 0) {
+        snprintf(c->err, sizeof c->err, "cannot write \"%s\": %s", pf->path, strerror(errno));
+        free(to);
+        return 1;
+    }
+    free(to);
+    attrs_one(c->root, pf);
+    c->restored++;
+    if (machine) kv("restored", "%s", pf->path);
+    else say("  restored %s\n", pf->path);
+    return 0;
+}
+
+/* One package: 0 intact or repaired, 1 refused (reason given). */
+static int repair_one(const struct pkg_options *a, const struct index *ix, const char *name,
+                      unsigned long *restored, unsigned long *aside)
+{
+    struct pkg_manifest m;
+    struct fetched f;
+    struct repair_ctx c;
+    const struct entry *e;
+    size_t i, needed = 0;
+    int stopped, rc = 1;
+
+    *restored = *aside = 0;
+    if (load_installed(a->root, name, &m, 0) != 0) return 1;
+    c.need = calloc(m.nfiles ? m.nfiles : 1, 1);
+    if (c.need == NULL) { pkg_manifest_free(&m); return refuse("out of memory"); }
+    for (i = 0; i < m.nfiles; i++) {
+        int s = file_state(a->root, m.files[i].path, m.files[i].digest, m.files[i].size);
+        if (s == 2 || (s == 1 && !m.files[i].config)) {
+            c.need[i] = (unsigned char)(s == 2 ? 1 : 2);
+            needed++;
+        }
+    }
+    if (needed == 0) {
+        free(c.need);
+        pkg_manifest_free(&m);
+        return 0;
+    }
+    e = pick(ix, m.name, m.version);
+    if (e == NULL) {
+        refuse_c(11, "%s %s is installed and the channel no longer offers it, so its %lu damaged "
+                 "file%s cannot be put back; UPGRADE to a version the channel has", m.name,
+                 m.version, (unsigned long)needed, needed == 1 ? "" : "s");
+        goto out;
+    }
+    if (fetch(a->channel, e, &f) != 0)
+        goto out;
+    if (!dryrun) {
+        c.root = a->root; c.m = &m; c.restored = c.aside = 0; c.err[0] = '\0';
+        if (pkg_read(f.pkg, f.pkg_len, repair_entry, &c, &stopped) != PKG_OK) {
+            refuse_c(c.err[0] && strstr(c.err, "is not the file") ? 12 : 17, "%s %s: %s; %lu file%s "
+                     "put back before it", m.name, m.version, c.err[0] ? c.err : "the payload is unreadable",
+                     c.restored, c.restored == 1 ? "" : "s");
+            fetched_free(&f);
+            goto out;
+        }
+        *restored = c.restored;
+        *aside = c.aside;
+    } else {
+        *restored = (unsigned long)needed;
+    }
+    fetched_free(&f);
+    rc = 0;
+out:
+    free(c.need);
+    pkg_manifest_free(&m);
+    return rc;
+}
+
+static int cmd_repair(const struct pkg_options *a)
+{
+    struct index ix;
+    struct installed in;
+    size_t p, npk = 0, refused = 0;
+    unsigned long total = 0, total_aside = 0, fixed_pk = 0;
+    int first = 0;
+    char firstwhy[200] = "";
+
+    if (!a->all && a->target == NULL) return refuse_c(20, "name the package to repair, or REPAIR ALL");
+    if (a->root == NULL)    return refuse_c(20, "name the root with ROOT <dir>");
+    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
+    if (resolve_arch(a) != 0) return 1;
+    if (read_index(a->channel, &ix) != 0) return 1;
+    if (a->all) {
+        if (load_all(a->root, &in) != 0) { free(ix.e); return 1; }
+    } else {
+        in.m = NULL;
+        in.n = 0;
+    }
+    npk = a->all ? in.n : 1;
+    for (p = 0; p < npk; p++) {
+        const char *name = a->all ? in.m[p].name : a->target;
+        unsigned long r = 0, s = 0;
+        if (repair_one(a, &ix, name, &r, &s) != 0) {
+            refused++;
+            if (!first) {
+                first = refused_class ? refused_class : 17;
+                snprintf(firstwhy, sizeof firstwhy, "%s", name);
+            }
+            if (machine) kv("refused", "%s", name);
+            refused_class = 0;
+            continue;
+        }
+        total += r;
+        total_aside += s;
+        if (r) fixed_pk++;
+        if (machine) kv("package", "%s %s", name, r ? "repaired" : "intact");
+        else if (r) say("%s: %lu file%s put back\n", name, r, r == 1 ? "" : "s");
+    }
+    installed_free(&in);
+    free(ix.e);
+    kv("restored", "%lu", total);
+    kv("set-aside", "%lu", total_aside);
+    if (refused) {
+        refused_class = first;
+        kv("result", "refused");
+        kv("summary", "%lu file%s put back in %lu package%s; %lu package%s could not be repaired, "
+           "first %s", total, total == 1 ? "" : "s", fixed_pk, fixed_pk == 1 ? "" : "s",
+           (unsigned long)refused, refused == 1 ? "" : "s", firstwhy);
+        return 1;
+    }
+    kv("result", total ? (dryrun ? "would-repair" : "repaired") : "unchanged");
+    if (total == 0)
+        kv("summary", "nothing needed repair: every file is the one installed, or a configuration "
+           "file someone edited");
+    else
+        kv("summary", "%lu file%s %sput back in %lu package%s%s", total, total == 1 ? "" : "s",
+           dryrun ? "would be " : "", fixed_pk, fixed_pk == 1 ? "" : "s",
+           total_aside ? "; the changed ones kept beside as <file>.pkgold" : "");
+    return 0;
 }
 
 /* Take one package out of an in-memory list, as removing it would. */
@@ -5532,6 +5845,7 @@ int pkg_upgrade  (const struct pkg_sink *s, const struct pkg_options *o) { retur
 int pkg_rollback (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "rollback", cmd_rollback, o); }
 int pkg_list     (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "list", cmd_list, o); }
 int pkg_verify   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "verify", cmd_verify, o); }
+int pkg_repair   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "repair", cmd_repair, o); }
 int pkg_remove   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "remove", cmd_remove, o); }
 int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "image", cmd_image, o); }
 int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "mountlist", cmd_mountlist, o); }

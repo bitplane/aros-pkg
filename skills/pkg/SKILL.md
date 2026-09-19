@@ -211,6 +211,11 @@ link the archive into the channel as `archives/<name>` first. Keep the
 archive's own layout: files install at the paths the archive gives them. A
 nightly's version is the component's `$VER` plus the date: `2.1+20260918`.
 
+**Checking a system**: `VERIFY ALL ROOT <root>` for everything installed;
+`REPAIR ALL ROOT <root> CHANNEL <channel>` puts back what is missing or
+changed and keeps each change as `<file>.pkgold`. Tell the requester about
+every `.pkgold`: the change may have been someone's work.
+
 **An AROS installed with InstallAROS**: install the packages of the
 version it was installed from; the files already there are taken over
 (`adopted:`). A refusal with 15 names each file that differs: report it.

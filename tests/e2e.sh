@@ -150,10 +150,25 @@ cp "$T/elf/C/Tool" "$T/mix/C/Tool"
 $PKG MANIFEST "$T/elf" > "$T/elf.m" 2>&1
 has "$T/elf.m" '^Architecture: aarch64$';            ok $? "an aarch64 ELF executable makes the package aarch64"
 $PKG MANIFEST "$T/mix" NAME tool > "$T/mix.m" 2>&1
-[ $? -eq 20 ] && has "$T/mix.m" 'C/Old (m68k)';       ok $? "aarch64 and 68k hunk executables in one drawer: refused with 20, both named"
+[ $? -eq 20 ] && has "$T/mix.m" 'm68k in 1 file, such as C/Old' && has "$T/mix.m" 'aarch64 in 1 file'
+                                                      ok $? "aarch64 and 68k hunk executables in one drawer: refused with 20, each CPU counted and named"
+$PKG MANIFEST "$T/mix" NAME tool KIND boot ARCH aarch64 > "$T/mix.m3" 2>&1
+[ $? -eq 0 ] && has "$T/mix.m3" '^Architecture: aarch64$'
+                                                      ok $? "a boot package may hold other CPUs' loader stages when ARCH names its machine"
+$PKG MANIFEST "$T/mix" NAME tool KIND boot > "$T/mix.m4" 2>&1
+[ $? -eq 20 ] && has "$T/mix.m4" 'KIND and ARCH';     ok $? "without ARCH it is still refused, saying what would allow it"
 mkdir -p "$T/hd/C" "$T/hd/Prefs"; cp "$T/elf/C/Tool" "$T/hd/C/Tool"; cp "$T/hunkdata" "$T/hd/Prefs/deficons.prefs"
 $PKG MANIFEST "$T/hd" > "$T/hd.m" 2>&1
 [ $? -eq 0 ] && has "$T/hd.m" '^Architecture: aarch64$'; ok $? "a hunk file of data only, like deficons.prefs, is bound to no CPU"
+mkdir -p "$T/hf/C" "$T/hf/Fonts/topaz" "$T/hf/Devs/Keymaps"; cp "$T/elf/C/Tool" "$T/hf/C/Tool"
+python3 -c "
+import sys
+# a classic font: its code starts with moveq #100,d0 and rts
+open(sys.argv[1], 'wb').write(bytes.fromhex('000003f3 00000000 00000001 00000000 00000000 00000002 000003e9 00000002 70644e75 00000000 000003f2'.replace(' ', '')))
+" "$T/hf/Fonts/topaz/8"
+cp "$T/mix/C/Old" "$T/hf/Devs/Keymaps/usa"
+$PKG MANIFEST "$T/hf" > "$T/hf.m" 2>&1
+[ $? -eq 0 ] && has "$T/hf.m" '^Architecture: aarch64$'; ok $? "a classic font and a keymap are data any CPU loads, not 68k programs"
 $PKG MANIFEST "$T/elf" ARCH m68k > "$T/elf.m2" 2>&1
 [ $? -eq 20 ] && has "$T/elf.m2" 'built for aarch64'; ok $? "ARCH contradicting the executables is refused"
 $PKG MANIFEST "$D" > "$T/gen.m" 2>&1
@@ -820,6 +835,28 @@ $PKG INSTALL other ROOT "$AD/r" CHANNEL "$AD/ch" MACHINE > "$T/ad2" 2>&1
 mkdir -p "$AD/r2/C"; printf 'not the same' > "$AD/r2/C/Base"
 $PKG INSTALL base ROOT "$AD/r2" CHANNEL "$AD/ch" MACHINE > "$T/ad3" 2>&1
 [ $? -eq 15 ] && grep -q 'not the same' "$AD/r2/C/Base"; ok $? "a different file already there is still refused, and left alone"
+
+echo "repair"
+RP="$T/rp"; mkdir -p "$RP/d/C" "$RP/d/Libs" "$RP/d/S"
+printf 'x\000$VER: sysr 1.0 (1.1.2026)\000' > "$RP/d/C/Sysr"; printf 'lib' > "$RP/d/Libs/r.library"; printf 'seq\n' > "$RP/d/S/Startup-Sequence"
+$PKG PUBLISH "$RP/d" CHANNEL "$RP/ch" KIND application CONFIG S/Startup-Sequence > /dev/null 2>&1
+$PKG INSTALL sysr ROOT "$RP/r" CHANNEL "$RP/ch" > /dev/null 2>&1
+rm "$RP/r/C/Sysr"; printf 'broken' > "$RP/r/Libs/r.library"; printf 'mine\n' > "$RP/r/S/Startup-Sequence"
+$PKG VERIFY ALL ROOT "$RP/r" MACHINE > "$T/rp1" 2>&1
+[ $? -eq 12 ] && has "$T/rp1" '^missing: sysr C/Sysr$' && has "$T/rp1" '^changed: sysr Libs/r.library$' \
+  && has "$T/rp1" '^edited: sysr S/Startup-Sequence$'; ok $? "VERIFY ALL names each damaged file with its package, an edited configuration apart"
+$PKG REPAIR ALL ROOT "$RP/r" CHANNEL "$RP/ch" MACHINE > "$T/rp2" 2>&1
+[ $? -eq 0 ] && cmp -s "$RP/r/C/Sysr" "$RP/d/C/Sysr" && cmp -s "$RP/r/Libs/r.library" "$RP/d/Libs/r.library" \
+  && grep -q broken "$RP/r/Libs/r.library.pkgold" && grep -q mine "$RP/r/S/Startup-Sequence"
+                                                      ok $? "REPAIR puts files back, keeps a change as .pkgold, leaves the configuration edit"
+$PKG VERIFY ALL ROOT "$RP/r" MACHINE > "$T/rp3" 2>&1
+[ $? -eq 0 ] && has "$T/rp3" '^result: intact$';     ok $? "and VERIFY ALL then finds the system intact"
+$PKG REPAIR ALL ROOT "$RP/r" CHANNEL "$RP/ch" MACHINE > "$T/rp4" 2>&1
+[ $? -eq 0 ] && has "$T/rp4" '^result: unchanged$';  ok $? "a second REPAIR has nothing to do"
+printf 'again' > "$RP/r/Libs/r.library"
+$PKG REPAIR sysr ROOT "$RP/r" CHANNEL "$RP/ch" MACHINE > "$T/rp5" 2>&1
+grep -q again "$RP/r/Libs/r.library" && grep -q broken "$RP/r/Libs/r.library.pkgold"
+                                                      ok $? "an earlier .pkgold is never overwritten: the file is left as it is"
 
 echo
 echo "$checks checks, $fails failures"

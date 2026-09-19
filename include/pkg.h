@@ -283,6 +283,7 @@ int pkg_upgrade  (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_rollback (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_list     (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_verify   (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_repair   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_remove   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o);

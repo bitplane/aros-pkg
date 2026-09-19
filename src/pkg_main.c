@@ -179,8 +179,9 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
             a->metadata = 1;
             continue;
         }
-        /* A switch for UPGRADE only, so INSTALL all still names a package. */
-        if (strcmp(verb_name, "upgrade") == 0 && ieq(argv[i], "ALL")) {
+        /* A switch for UPGRADE and VERIFY only, so INSTALL all still names a package. */
+        if ((strcmp(verb_name, "upgrade") == 0 || strcmp(verb_name, "verify") == 0
+             || strcmp(verb_name, "repair") == 0) && ieq(argv[i], "ALL")) {
             a->all = 1;
             continue;
         }
@@ -255,7 +256,8 @@ static int usage(void)
         "               names each package not upgraded, why, and what waits for it\n"
         "  pkg ROLLBACK <name> ROOT <dir> CHANNEL <dir>\n"
         "  pkg LIST     ROOT <dir>\n"
-        "  pkg VERIFY   <name> ROOT <dir>\n"
+        "  pkg VERIFY   <name>|ALL ROOT <dir>\n"
+        "  pkg REPAIR   <name>|ALL ROOT <dir> CHANNEL <dir>   (puts damaged files back)\n"
         "  pkg REMOVE   <name> ROOT <dir>\n"
         "  pkg REMOVE   ORPHANS ROOT <dir>\n"
         "  pkg IMAGE    <drawer> OUT <file> [NAME <volume>]\n"
@@ -297,6 +299,7 @@ static int run_verb(int argc, char **argv)
         { "ROLLBACK",  "rollback",  pkg_rollback },
         { "LIST",      "list",      pkg_list },
         { "VERIFY",    "verify",    pkg_verify },
+        { "REPAIR",    "repair",    pkg_repair },
         { "REMOVE",    "remove",    pkg_remove },
         { "IMAGE",     "image",     pkg_image },
         { "MOUNTLIST", "mountlist", pkg_mountlist },

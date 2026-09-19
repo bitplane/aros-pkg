@@ -461,6 +461,31 @@ already has the file keeps it the same way. Any other edited file still
 stops the upgrade with 15, and the refusal names CONFIG. `tests/e2e.sh`,
 section `config_files`.
 
+### Checking and repairing a whole system
+
+`VERIFY ALL` checks every installed package, one line each, and names each
+file that differs with its package: `changed:`, `missing:`, and `edited:`
+for a configuration file, which is not damage. It refuses with 12 when a
+package is damaged. `REPAIR <name>` or `REPAIR ALL` takes the installed
+version from the channel, checks its signature, and puts back each missing
+or changed file, after checking its bytes against the digest the root
+recorded at install. A changed file is kept beside as `<file>.pkgold`, never
+overwritten; when a `.pkgold` is already there, the file is left as it is,
+with a warning. Edited configuration files stay as they are. Like UPGRADE
+ALL, REPAIR ALL goes as far as it can and names what it could not repair.
+`tests/e2e.sh`, section `repair`.
+
+### Executables of several CPUs
+
+One package is one architecture, so a drawer holding executables for two
+CPUs is refused. The refusal counts the files of each CPU and names one.
+Two kinds are exempt when ARCH names the machine: `boot`, whose GRUB
+stages for i386-pc boot an x86_64 system, and `sdk`, which carries the
+libraries of every target it compiles for. Hunk files that AROS loads as
+data on any CPU are not counted as 68k programs: data-only hunk files such
+as deficons.prefs, classic fonts (their code starts with the
+`moveq #n,d0; rts` stub) and keymaps in a `Keymaps` drawer.
+
 ### An AROS installed without Pkg
 
 InstallAROS copies the system with no package database. When INSTALL finds
