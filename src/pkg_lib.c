@@ -3070,6 +3070,22 @@ static int load_all(const char *root, struct installed *in)
     return 0;
 }
 
+/* The name beside `path` that Pkg sets a file down under: `path` plus
+ * `suffix`, the file name shortened when needed to stay within the 30
+ * characters an FFS name may have. Allocated. */
+static char *beside(const char *path, const char *suffix)
+{
+    const char *base = strrchr(path, '/');
+    size_t dl = base ? (size_t)(base - path) + 1 : 0, bl = strlen(path) - dl, sl = strlen(suffix);
+    char *out;
+    if (bl + sl > 30) bl = 30 > sl ? 30 - sl : 1;
+    out = malloc(dl + bl + sl + 1);
+    if (out == NULL) return NULL;
+    memcpy(out, path, dl + bl);
+    memcpy(out + dl + bl, suffix, sl + 1);
+    return out;
+}
+
 static int apply(const char *root, const struct pkg_manifest *old, const struct fetched *f,
                  unsigned long *placed, unsigned long *dropped, unsigned long *kept)
 {
@@ -3143,9 +3159,10 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             if (there) {
                 free(keep);
                 installed_free(&others);
-                return refuse_c(15, "\"%s\" already exists in %s and belongs to no installed version "
-                              "of %s; nothing was changed. It may be the requester's own file",
-                              m->files[i].path, root, m->name);
+                return refuse_c(15, "\"%s\" already exists in %s with other content than %s %s "
+                              "ships, and no installed package lists it; nothing was changed. It "
+                              "may be the requester's own file, or another version's",
+                              m->files[i].path, root, m->name, m->version);
             }
         } else if (file_state(root, of->path, of->digest, of->size) == 1) {
             free(keep);
@@ -3165,16 +3182,20 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     for (i = 0; i < m->nfiles; i++)
         if (keep[i]) {
             (*kept)++;
+            char *nw = keep[i] == 1 ? beside(m->files[i].path, ".pkgnew") : NULL;
             if (machine) {
                 kv("config-kept", "%s", m->files[i].path);
-                if (keep[i] == 1) kv("config-new", "%s.pkgnew", m->files[i].path);
+                if (nw) kv("config-new", "%s", nw);
+            } else if (nw) {
+                say("  kept     %s (edited; %s %s's version is beside it as %s)\n",
+                    m->files[i].path, m->name, m->version, nw);
             } else if (keep[i] == 1) {
-                say("  kept     %s (edited; %s %s's version is beside it as %s.pkgnew)\n",
-                    m->files[i].path, m->name, m->version, m->files[i].path);
+                say("  kept     %s (edited)\n", m->files[i].path);
             } else {
                 say("  kept     %s (edited; %s %s ships it unchanged)\n", m->files[i].path,
                     m->name, m->version);
             }
+            free(nw);
         }
 
     installed_free(&others);
@@ -3217,9 +3238,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             continue;
         }
         if (keep[i] == 1 && to != NULL) {
-            size_t tl = strlen(to);
-            char *nw = malloc(tl + 8);
-            if (nw != NULL) memcpy(nw, to, tl), memcpy(nw + tl, ".pkgnew", 8);
+            char *nw = beside(to, ".pkgnew");
             free(to);
             to = nw;
         }
@@ -5127,16 +5146,17 @@ static int repair_entry(const struct pkg_entry *e, void *ctx)
     to = pkg_join(c->root, pf->path);
     if (to == NULL) { snprintf(c->err, sizeof c->err, "out of memory"); return 1; }
     if (c->need[k] == 2) {
-        size_t tl = strlen(to);
-        char *old = malloc(tl + 8);
+        char *old = beside(to, ".pkgold"), *oldrel = beside(pf->path, ".pkgold");
         int good;
-        if (old == NULL) { free(to); snprintf(c->err, sizeof c->err, "out of memory"); return 1; }
-        memcpy(old, to, tl);
-        memcpy(old + tl, ".pkgold", 8);
+        if (old == NULL || oldrel == NULL) {
+            free(old); free(oldrel); free(to);
+            snprintf(c->err, sizeof c->err, "out of memory");
+            return 1;
+        }
         if (pkg_fs_exists(old)) {
             /* An earlier change is set aside there already: never lose one. */
-            warn("%s.pkgold already holds an earlier change; %s is left as it is", pf->path, pf->path);
-            free(old);
+            warn("%s already holds an earlier change; %s is left as it is", oldrel, pf->path);
+            free(old); free(oldrel);
             free(to);
             return 0;
         }
@@ -5145,12 +5165,14 @@ static int repair_entry(const struct pkg_entry *e, void *ctx)
         free(old);
         if (!good) {
             snprintf(c->err, sizeof c->err, "cannot set \"%s\" aside: %s", pf->path, strerror(errno));
+            free(oldrel);
             free(to);
             return 1;
         }
         c->aside++;
-        if (machine) kv("set-aside", "%s %s.pkgold", pf->path, pf->path);
-        else say("  aside    %s -> %s.pkgold\n", pf->path, pf->path);
+        if (machine) kv("set-aside", "%s %s", pf->path, oldrel);
+        else say("  aside    %s -> %s\n", pf->path, oldrel);
+        free(oldrel);
     }
     slash = strrchr(to, '/');
     if (slash != NULL) {

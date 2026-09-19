@@ -45,6 +45,13 @@ fails=0
 ok() { checks=$((checks + 1)); [ "$1" -eq 0 ] || { fails=$((fails + 1)); echo "  FAIL $2"; }; }
 has() { grep -q -- "$2" "$1" 2>/dev/null; }
 
+# The system partition as InstallAROS makes it: its SFS choice by default
+# here, since FFS takes no name over 30 characters and the ISO has some;
+# PKG_SYSFS=FFSIntl for its other choice. PKG_SYSSIZE in MB.
+sysfs=${PKG_SYSFS:-SFS}
+syssize=${PKG_SYSSIZE:-2048}
+case $sysfs in FFSIntl) fmtflags="FFS INTL" ;; *) fmtflags="" ;; esac
+
 # What InstallAROS copies, less Developer (an option there too).
 pkgs="aros-boot aros-base aros-prefs aros-fonts aros-locale aros-tools aros-demos aros-extras"
 drawers="boot C L Libs Devs S Classes System Rexxc Storage WBStartup Prefs Fonts Locale Tools Utilities Demos Extras"
@@ -66,6 +73,9 @@ for p in $pkgs; do
     cp "$W/ch/objects/$pl.pkg" "$CH/objects/"
 done
 cp "$aros_pkg" "$T/PkgTest/C/Pkg"
+# xorriso patches the boot image's table as it builds this CD, so its copy is
+# not the released ISO's; InstallAROS copies the released one.
+cp "$T/boot/grub/i386-pc/eltorito.img" "$T/PkgTest/eltorito.img"
 [ -s "$CH/index" ];                                   ok $? "the CD carries the channel of the system packages"
 
 P='CD0:PkgTest/C/Pkg'
@@ -74,7 +84,7 @@ step() {  # step <name> <command...>
     printf 'Echo "==BEGIN %s==" >SER1:\n%s >SER1:\nEcho "==RC $RC" >SER1:\nEcho "==END==" >SER1:\n' "$1" "$2" \
         >> "$T/S/User-Startup"
 }
-cat > "$T/S/User-Startup" <<'EOF'
+cat > "$T/S/User-Startup" <<EOF
 FailAt 21
 Echo "==BOOT==" >SER1:
 If EXISTS SYS:pkgtest-installed
@@ -83,18 +93,20 @@ EndIf
 Assign >NIL: EXISTS DH0:
 If WARN
     Echo "==STEP partition" >SER1:
-    C:Partition DEVICE ata.device UNIT 0 SYSTYPE FFSIntl SYSNAME DH0 WIPE FORCE QUIET >SER1:
+    C:Partition DEVICE ata.device UNIT 0 SYSSIZE $syssize SYSTYPE $sysfs SYSNAME DH0 MAXWORK WORKTYPE SFS WORKNAME DH1 WIPE FORCE QUIET >SER1:
     Echo "==BOOT-END==" >SER1:
     C:Reboot
 EndIf
 Echo "==STEP install" >SER1:
 Echo "" >RAM:cr
-SYS:System/Format <RAM:cr DRIVE DH0: NAME System FFS INTL QUICK NOICONS >SER1:
+SYS:System/Format <RAM:cr DRIVE DH0: NAME System $fmtflags QUICK NOICONS >SER1:
+SYS:System/Format <RAM:cr DRIVE DH1: NAME Work QUICK NOICONS >SER1:
 EOF
 for d in $drawers; do
     printf 'Copy SYS:%s DH0:%s ALL CLONE QUIET\n' "$d" "$d" >> "$T/S/User-Startup"
 done
 printf 'Copy SYS:#?.info DH0: CLONE QUIET\n' >> "$T/S/User-Startup"
+printf 'Copy CD0:PkgTest/eltorito.img DH0:boot/grub/i386-pc/eltorito.img CLONE QUIET\n' >> "$T/S/User-Startup"
 for p in $pkgs; do step "adopt-$p" "$P INSTALL $p ROOT DH0: $C MACHINE"; done
 step grub 'C:Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub'
 cat >> "$T/S/User-Startup" <<'EOF'
@@ -136,13 +148,19 @@ while [ $boots -lt 6 ] && ! LC_ALL=C grep -a -q 'PKGTEST-DONE' "$work/all.log"; 
     : > "$work/com2.log"
     qemu-system-x86_64 -m 2048 -drive file="$disk",format=raw,if=ide,index=0 -cdrom "$work/test.iso" \
         -boot $from -display none -no-reboot -serial file:"$work/com1.log" -serial file:"$work/com2.log" \
-        > "$work/qemu.log" 2>&1 &
+        -monitor unix:"$work/mon",server,nowait > "$work/qemu.log" 2>&1 &
     qemu_pid=$!
     w=0
     while [ $w -lt 5400 ] && kill -0 "$qemu_pid" 2>/dev/null \
           && ! LC_ALL=C grep -a -q 'PKGTEST-DONE\|BOOT-END' "$work/com2.log"; do
         sleep 5; w=$((w + 5))
+        # nothing on either serial port after five minutes: it never started
+        [ $w -ge 300 ] && [ ! -s "$work/com1.log" ] && [ ! -s "$work/com2.log" ] && break
     done
+    if ! LC_ALL=C grep -a -q 'PKGTEST-DONE\|BOOT-END' "$work/com2.log"; then
+        echo "screendump $W/screen-boot$boots.ppm" | nc -U -w 2 "$work/mon" > /dev/null 2>&1
+        echo "  boot $boots stopped without finishing: its screen is in $W/screen-boot$boots.ppm"
+    fi
     sleep 2
     kill "$qemu_pid" 2>/dev/null; wait "$qemu_pid" 2>/dev/null; qemu_pid=
     LC_ALL=C tr -d '\r' < "$work/com2.log" >> "$work/all.log"

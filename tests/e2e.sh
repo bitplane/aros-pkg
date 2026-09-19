@@ -813,6 +813,15 @@ $PKG PUBLISH "$CF/d2" CHANNEL "$CF/ch3" MACHINE > /dev/null 2>&1
 $PKG UPGRADE sys ROOT "$CF/r3" CHANNEL "$CF/ch3" MACHINE > "$T/cf6" 2>&1
 [ $? -eq 15 ] && grep -q 'declares it with CONFIG' "$T/cf6"
                                                       ok $? "without CONFIG an edit still stops the upgrade, and the refusal names CONFIG"
+LN="$T/ln"; mkdir -p "$LN/d1/S" "$LN/d2/S"
+printf 'a\n' > "$LN/d1/S/averylongconfigname12.prefs"; printf 'b\n' > "$LN/d2/S/averylongconfigname12.prefs"
+$PKG PUBLISH "$LN/d1" CHANNEL "$LN/ch" NAME lng VERSION 1 KIND data CONFIG S > /dev/null 2>&1
+$PKG PUBLISH "$LN/d2" CHANNEL "$LN/ch" NAME lng VERSION 2 > /dev/null 2>&1
+$PKG INSTALL lng VERSION 1 ROOT "$LN/r" CHANNEL "$LN/ch" > /dev/null 2>&1
+printf 'mine\n' > "$LN/r/S/averylongconfigname12.prefs"
+$PKG UPGRADE lng ROOT "$LN/r" CHANNEL "$LN/ch" MACHINE > "$T/ln1" 2>&1
+[ $? -eq 0 ] && grep -q '^config-new: S/averylongconfigname12.p.pkgnew$' "$T/ln1" && [ -f "$LN/r/S/averylongconfigname12.p.pkgnew" ]
+                                                      ok $? "a .pkgnew name is shortened to the 30 characters an FFS name may have"
 
 echo "adopt"
 # An AROS set up with InstallAROS: the files are there, no package owns them.

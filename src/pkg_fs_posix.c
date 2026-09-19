@@ -21,6 +21,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #if !defined(__AROS__)
 #include <sys/file.h>
@@ -151,6 +152,30 @@ int pkg_fs_random(void *buf, size_t len)
     return got == len ? 0 : -1;
 }
 
+/* A temporary name beside `path`, short whatever the file's name: FFS takes
+ * names of 30 characters at most, and a file's own name may already be that
+ * long. "<dir>/.pkg" and eight hex digits, created exclusively. */
+static int open_tmp_beside(const char *path, char *tmp, size_t tl, int mode)
+{
+    static unsigned long counter;
+    const char *slash = strrchr(path, '/');
+    int dl = slash ? (int)(slash - path) + 1 : 0, fd = -1, tries;
+    for (tries = 0; tries < 16 && fd < 0; tries++) {
+        unsigned char r[4];
+        unsigned long v;
+        if (pkg_fs_random(r, sizeof r) == 0)
+            v = (unsigned long)r[0] << 24 | (unsigned long)r[1] << 16 | (unsigned long)r[2] << 8 | r[3];
+        else    /* no /dev/urandom: the process and a counter */
+            v = ((unsigned long)getpid() * 2654435761ul + ++counter * 40503ul + (unsigned long)time(NULL))
+                & 0xFFFFFFFFul;
+        snprintf(tmp, tl, "%.*s.pkg%08lx", dl, path, v);
+        fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, mode);
+        if (fd < 0 && errno != EEXIST)
+            break;
+    }
+    return fd;
+}
+
 static int write_atomic_mode(const char *path, const void *buf, size_t len, int mode)
 {
     size_t lp = strlen(path);
@@ -161,8 +186,7 @@ static int write_atomic_mode(const char *path, const void *buf, size_t len, int 
     if (tmp == NULL)
         return -1;
     if (mkparents(path) != 0) { free(tmp); return -1; }
-    snprintf(tmp, lp + 16u, "%s.tmp%ld", path, (long)getpid());
-    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, mode);
+    fd = open_tmp_beside(path, tmp, lp + 16u, mode);
     if (fd < 0) { free(tmp); return -1; }
     while (len > 0) {
         ssize_t w = write(fd, b, len);
