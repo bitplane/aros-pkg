@@ -163,6 +163,9 @@ Publishing
 - [Publishing packages](docs/publishing.md): keys, making a package,
   versions, dependencies, configuration files, withdrawing, uploading to
   the portal.
+- [Publishing from an AROS machine, from zero](docs/publishing-on-aros.md):
+  every step typed in the AROS Shell, from putting Pkg on the machine to a
+  second version of your own program, with what each command prints.
 - [Channels](docs/channels.md): what a channel holds, serving one over
   HTTP or a share, the portal.
 - [Distributing builds for several platforms](docs/distributing.md): one
