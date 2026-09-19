@@ -117,7 +117,8 @@ What the portal holds and enforces:
   key is refused (14). A published file never changes (15), and a push
   never removes anything.
 - Every push is checked by the portal running Pkg itself (`SHOW ... METADATA`)
-  before anything is published.
+  before anything is published. What that proves and what it cannot:
+  [Signatures and trust](signing.md).
 
 Publishers upload with `PUSH`; see
 [Publishing](publishing.md#upload-to-the-portal).

@@ -131,7 +131,9 @@ package from that nightly.
 
 ## When Pkg says no
 
-A refusal says what happened and what to do next, and its exit code names
+A refusal says what happened and what to do next
+([Signatures and trust](docs/signing.md) explains the ones that protect
+you), and its exit code names
 the kind of problem: 11 not found, 12 a file that does not match its
 signature, 13 no valid signature, 14 a different publisher's key, 15
 something in the way (such as a file you edited), 16 a dependency, 17 the
@@ -146,6 +148,9 @@ Using Pkg
   rolling back and removing software; images; what each refusal means.
 - [Libraries](docs/libraries.md): how AROS finds a library, what that means
   for packages, and RESOLVE, which shows why a program gets the copy it gets.
+- [Signatures and trust](docs/signing.md): what is signed and by whom, what
+  is checked where, what a key change means for you, checking a package by
+  hand.
 - [Pkg with an AI assistant](docs/agents.md): the skill an agent loads, what
   to ask it, what it will not decide for you.
 

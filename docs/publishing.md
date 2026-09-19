@@ -10,6 +10,9 @@ newer build of it in `MyTool-1.1`.
 
 ## Your key
 
+What the key proves, how machines pin it and what happens when it is lost:
+[Signatures and trust](signing.md).
+
 Every package is signed; there is no unsigned mode. Make a key once:
 
 ```console
