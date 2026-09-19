@@ -68,7 +68,9 @@ public static class Site
     public static string Short(string? hex, int n = 16) => hex is null ? "" : hex.Length > n ? hex[..n] : hex;
 
     public static string ArchiveStatus(ChannelInfo ch, string archive) =>
-        ch.ArchiveChecks.TryGetValue(archive, out var c)
+        !ch.Archives.Contains(archive) && ch.Upstream.TryGetValue(archive, out var up)
+            ? $"{Size(up.Size)}, downloaded from {up.Host} once; Pkg checks its size and SHA-256 against the signed manifest, then every file"
+        : ch.ArchiveChecks.TryGetValue(archive, out var c)
             ? c.Status == "ok" ? $"checked {Ago(c.When)}: {c.Detail}" : $"check failed: {c.Detail}"
             : "check pending";
 }

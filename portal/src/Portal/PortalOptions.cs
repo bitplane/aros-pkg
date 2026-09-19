@@ -39,6 +39,9 @@ public sealed class PortalOptions
     /// How long a commit waits for Pkg's check before refusing.
     public TimeSpan CheckTimeout { get; set; } = TimeSpan.FromSeconds(150);
 
+    /// Where checked source archives are kept (Cloudflare R2); off when empty.
+    public Push.R2Options R2 { get; set; } = new();
+
     public string ChannelsDir => Path.Combine(DataDir, "channels");
     public string StagingDir => Path.Combine(DataDir, "staging");
     public string StateDir => Path.Combine(DataDir, "state");

@@ -15,7 +15,7 @@ namespace Portal.Push;
 /// check has run, the catalogue says so.
 /// </summary>
 public sealed class ArchiveChecker(IOptions<PortalOptions> options, PkgRunner pkg, Catalogue catalogue,
-                                   ILogger<ArchiveChecker> log) : BackgroundService
+                                   ArchiveStore store, ILogger<ArchiveChecker> log) : BackgroundService
 {
     readonly PortalOptions o = options.Value;
     readonly Channel<(string Channel, string Archive)> queue = System.Threading.Channels.Channel.CreateUnbounded<(string, string)>();
@@ -25,6 +25,8 @@ public sealed class ArchiveChecker(IOptions<PortalOptions> options, PkgRunner pk
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
         // Archives published before a restart and never checked.
+        // Only archives never checked. Nothing is uploaded at startup: an
+        // archive goes to R2 only right after this process has checked it.
         foreach (var ch in catalogue.Channels())
             foreach (var a in ch.Archives)
                 if (!ch.ArchiveChecks.ContainsKey(a)) Enqueue(ch.Name, a);
@@ -60,6 +62,18 @@ public sealed class ArchiveChecker(IOptions<PortalOptions> options, PkgRunner pk
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             await File.AppendAllTextAsync(path, $"{archive} {status} {DateTime.UtcNow:O} {detail.Replace('\n', ' ')}\n", stop);
             log.LogInformation("archive check {Channel}/{Archive}: {Status}, {Detail}", channel, archive, status, detail);
+            catalogue.Invalidate(channel);
+            if (status == "ok") await OffloadIfConfigured(channel, archive, stop);
         }
     }
+
+    async Task OffloadIfConfigured(string channel, string archive, CancellationToken stop)
+    {
+        if (!store.Enabled) return;
+        string? why;
+        try { why = await store.Offload(channel, archive, stop); }
+        catch (Exception e) when (e is not OperationCanceledException) { why = e.Message; }
+        if (why is not null)
+            log.LogWarning("archive {Channel}/{Archive} stays on the disk: {Why}", channel, archive, why);
+}
 }

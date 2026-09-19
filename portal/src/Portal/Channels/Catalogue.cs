@@ -59,6 +59,8 @@ public sealed class ChannelInfo
     public required SortedDictionary<string, PackageInfo> Packages { get; init; }
     public required List<string> Archives { get; init; }
     public required IReadOnlyDictionary<string, ArchiveCheck> ArchiveChecks { get; init; }
+    /// Archives the manifests name upstream, by name.
+    public required IReadOnlyDictionary<string, UpstreamArchive> Upstream { get; init; }
     public DateTime Updated { get; init; }
 
     public IEnumerable<BuildStats> Builds()
@@ -172,13 +174,17 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
                 if (packages.TryGetValue(d.Name, out var dep) && !dep.UsedBy.Contains(p.Name))
                     dep.UsedBy.Add(p.Name);
         var archives = Directory.Exists(Path.Combine(dir, "archives"))
-            ? Directory.EnumerateFiles(Path.Combine(dir, "archives")).Select(Path.GetFileName).OfType<string>()
+            // Every published archive has its .sha256, on the disk or in R2.
+            ? Directory.EnumerateFiles(Path.Combine(dir, "archives"), "*.sha256").Select(Path.GetFileName).OfType<string>()
+                .Select(f => f[..^".sha256".Length])
                 .Where(f => ChannelPaths.Classify("archives/" + f) == ChannelPaths.Kind.Archive).Order().ToList()
             : [];
         return new ChannelInfo
         {
             Name = channel, Lines = lines, Packages = packages, Archives = archives,
             ArchiveChecks = ReadChecks(channel),
+            Upstream = entries.Where(e => e.Manifest.Upstream is not null && e.Manifest.SourceArchive is not null)
+                .GroupBy(e => e.Manifest.SourceArchive!).ToDictionary(g => g.Key, g => g.First().Manifest.Upstream!),
             Updated = entries.Count > 0 ? entries.Max(e => e.Published) : Directory.GetLastWriteTimeUtc(dir),
         };
     }

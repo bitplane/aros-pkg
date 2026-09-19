@@ -31,6 +31,8 @@ builder.Services.AddSingleton<PublisherKeys>();
 builder.Services.AddSingleton<PkgRunner>();
 builder.Services.AddSingleton<PushService>();
 builder.Services.AddSingleton<ArchiveChecker>();
+builder.Services.AddSingleton<ArchiveStore>();
+builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ArchiveChecker>());
 builder.Services.AddRazorPages();
 builder.Services.Configure<ForwardedHeadersOptions>(f =>
@@ -103,12 +105,32 @@ push.MapPut("/files/{**path}", async (HttpContext http, string channel, string p
 push.MapPost("/commit", async (HttpContext http, string channel, PushService s) =>
     Results2.Text(await s.Commit((Publisher)http.Items["publisher"]!, channel, await ReadBody(http), http.RequestAborted)));
 
+// ---- getting Pkg before one has it ------------------------------------------
+
+// The drawer for one AROS CPU, zipped for the machine next to it.
+app.MapGet("/get/{channel}/pkg-{cpu}.zip", async (HttpContext http, string channel, string cpu, Catalogue c) =>
+{
+    var ch = c.Get(channel);
+    var dir = Path.Combine(opts.ChannelsDir, channel);
+    if (ch is null || !Portal.Channels.Bootstrap.ArosCpus(dir).Contains(cpu)) return Results.NotFound();
+    http.Response.ContentType = "application/zip";
+    http.Response.Headers.ContentDisposition = $"attachment; filename=\"Pkg-{cpu}.zip\"";
+    await Portal.Channels.Bootstrap.WriteZip(http.Response.Body, ch, dir, cpu, http.RequestAborted);
+    return Results.Empty;
+});
+
+// Pkg for a host, by platform, for curl and PowerShell one-liners.
+app.MapGet("/get/{channel}/{platform}", (string channel, string platform) =>
+    ChannelPaths.IsChannelName(channel) && ChannelPaths.HostBootstraps.TryGetValue(platform, out var rel)
+        && File.Exists(Path.Combine(opts.ChannelsDir, channel, rel))
+        ? Results.Redirect($"/{channel}/{rel}") : Results.NotFound());
+
 // ---- the channel itself, byte for byte as a directory channel --------------
 
 app.MapMethods("/{channel}", ["GET", "HEAD"], (string channel) =>
     ChannelPaths.IsChannelName(channel) ? Results.Redirect($"/channels/{channel}") : Results.NotFound());
 
-app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], (HttpContext http, string channel, string? path) =>
+app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], async (HttpContext http, string channel, string? path) =>
 {
     if (!ChannelPaths.IsChannelName(channel)) return Results.NotFound();
     if (string.IsNullOrEmpty(path)) return Results.Redirect($"/channels/{channel}");
@@ -118,7 +140,13 @@ app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], (HttpContext http, string
     // An archive kept elsewhere (a GitHub release asset, R2): the client
     // checks every file it takes out against the signed manifest.
     if (kind == ChannelPaths.Kind.Archive && File.Exists(full + ".url") && !File.Exists(full))
-        return Results.Redirect(File.ReadAllText(full + ".url").Trim());
+    {
+        var at = File.ReadAllText(full + ".url").Trim();
+        // https clients go straight there; r2.dev answers only https, so a
+        // plain-http client (68k, no TLS) gets the bytes through the portal.
+        if (http.Request.IsHttps || !at.StartsWith("https:", StringComparison.Ordinal)) return Results.Redirect(at);
+        return await Relay(http, at);
+    }
     if (!File.Exists(full)) return Results.NotFound();
     var info = new FileInfo(full);
     var immutable = kind is ChannelPaths.Kind.Object or ChannelPaths.Kind.Archive or ChannelPaths.Kind.ArchiveDigest;
@@ -129,6 +157,25 @@ app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], (HttpContext http, string
 });
 
 app.Run();
+
+// Relay an archive held elsewhere, Range included, for a client that cannot follow https.
+static async Task<IResult> Relay(HttpContext http, string url)
+{
+    var req = new HttpRequestMessage(HttpMethods.IsHead(http.Request.Method) ? HttpMethod.Head : HttpMethod.Get, url);
+    if (http.Request.Headers.Range.Count > 0) req.Headers.TryAddWithoutValidation("Range", http.Request.Headers.Range.ToString());
+    var resp = await http.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("r2")
+        .SendAsync(req, HttpCompletionOption.ResponseHeadersRead, http.RequestAborted);
+    http.Response.RegisterForDispose(resp);
+    http.Response.StatusCode = (int)resp.StatusCode;
+    foreach (var h in new[] { "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified" })
+        if (resp.Headers.TryGetValues(h, out var v) || resp.Content.Headers.TryGetValues(h, out v))
+            http.Response.Headers[h] = v.ToArray();
+    http.Response.ContentType = resp.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+    http.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    if (!HttpMethods.IsHead(http.Request.Method))
+        await (await resp.Content.ReadAsStreamAsync(http.RequestAborted)).CopyToAsync(http.Response.Body, http.RequestAborted);
+    return Results.Empty;
+}
 
 static async Task<string> ReadBody(HttpContext http)
 {

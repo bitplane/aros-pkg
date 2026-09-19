@@ -16,7 +16,7 @@ public static partial class ChannelPaths
     static readonly HashSet<string> Reserved = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "channels", "packages", "search", "about", "static", "css", "robots.txt",
-        "favicon.ico", "error", "health", "_push", "index",
+        "favicon.ico", "error", "health", "_push", "index", "get",
     };
 
     [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,39}$")]
@@ -31,6 +31,17 @@ public static partial class ChannelPaths
     [GeneratedRegex("^Bootstrap/[a-z0-9_]{1,32}/Pkg$")]
     private static partial Regex BootstrapPath();
 
+    /// Pkg for the machines people manage AROS from, as agreed with the Pkg
+    /// side: exactly these five paths, by platform.
+    public static readonly IReadOnlyDictionary<string, string> HostBootstraps = new Dictionary<string, string>
+    {
+        ["macos-arm64"] = "Bootstrap/macos-arm64/pkg",
+        ["macos-x86_64"] = "Bootstrap/macos-x86_64/pkg",
+        ["linux-x86_64"] = "Bootstrap/linux-x86_64/pkg",
+        ["linux-arm64"] = "Bootstrap/linux-arm64/pkg",
+        ["windows-x86_64"] = "Bootstrap/windows-x86_64/pkg.exe",
+    };
+
     public static bool IsChannelName(string name) =>
         ChannelName().IsMatch(name) && !Reserved.Contains(name);
 
@@ -41,7 +52,8 @@ public static partial class ChannelPaths
     {
         if (path == "index") return Kind.Index;
         if (ObjectPath().IsMatch(path)) return Kind.Object;
-        if (path is "Install-Pkg" or "ReadMe" || BootstrapPath().IsMatch(path)) return Kind.Mutable;
+        if (path is "Install-Pkg" or "ReadMe" || BootstrapPath().IsMatch(path) || HostBootstraps.Values.Contains(path))
+            return Kind.Mutable;
         if (ArchivePath().IsMatch(path))
         {
             // The publisher's cache of an archive is never served: installers

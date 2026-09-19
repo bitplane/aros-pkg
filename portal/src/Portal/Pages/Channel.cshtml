@@ -97,7 +97,7 @@
     </tbody>
 </table>
 
-@if (ch.Archives.Count > 0)
+@if (ch.Archives.Count > 0 || ch.Upstream.Count > 0)
 {
     <h2>Source archives</h2>
     <p class="muted small">Packages whose files stay inside a published archive, such as a nightly contrib build. Pkg takes each package's files out and checks them one by one.</p>
@@ -105,6 +105,10 @@
     @foreach (var a in ch.Archives)
     {
         <li><a href="/@ch.Name/archives/@a">@a</a> <span class="muted small">· @Site.ArchiveStatus(ch, a)</span></li>
+    }
+    @foreach (var (a, up) in ch.Upstream.Where(u => !ch.Archives.Contains(u.Key)))
+    {
+        <li><a href="@(Site.SafeUrl(up.Url) ?? "#")" rel="nofollow noopener">@a</a> <span class="muted small">· @Site.ArchiveStatus(ch, a)</span></li>
     }
     </ul>
 }

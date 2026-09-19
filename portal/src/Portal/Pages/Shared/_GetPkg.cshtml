@@ -1,0 +1,71 @@
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@model ChannelInfo
+@inject IOptions<PortalOptions> Options
+@{
+    var dir = System.IO.Path.Combine(Options.Value.ChannelsDir, Model.Name);
+    var cpus = Bootstrap.ArosCpus(dir);
+    var host = (Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Context.Request.Scheme}://{Context.Request.Host}");
+    var hosts = ChannelPaths.HostBootstraps.Where(h => System.IO.File.Exists(System.IO.Path.Combine(dir, h.Value))).ToList();
+}
+<section class="getpkg">
+    <h2>Get Pkg</h2>
+    <p>Pkg installs everything else, so it comes first. Pick the machine you are on.</p>
+    <div class="grid">
+        <div>
+            <h3>On AROS</h3>
+            @if (cpus.Count == 0)
+            {
+                <p class="muted">No AROS build is published in this channel yet.</p>
+            }
+            else
+            {
+                <p>Download the drawer for your CPU. AROS has no UnZip before Pkg is installed, so unzip it on the computer next to it and copy the <code>Pkg-&lt;cpu&gt;</code> drawer across (a shared folder, a disk image, or the host's drive for hosted AROS). Then, in a Shell:</p>
+                <div class="cmd"><code>Execute Pkg-x86_64/Install-Pkg Pkg-x86_64</code><button class="copy" data-copy="Execute Pkg-x86_64/Install-Pkg Pkg-x86_64">Copy</button></div>
+                <p class="muted small">The bare program installs the signed pkg package through its own checks, and from then on Pkg updates itself like any package.</p>
+                <p class="buttons">
+                    @foreach (var cpu in cpus)
+                    {
+                        <a class="button" href="/get/@Model.Name/pkg-@(cpu).zip">Pkg for @cpu (.zip)</a>
+                    }
+                </p>
+                <details>
+                    <summary class="small">Or the files one by one, for a browser on AROS</summary>
+                    <p class="muted small">Keep the layout: each file goes to the same path under one drawer, and <code>index</code> lists only the version for your CPU.</p>
+                    @foreach (var cpu in cpus)
+                    {
+                        <h3 class="small">@cpu</h3>
+                        <table class="list mono">
+                            <tbody>
+                            @foreach (var f in Bootstrap.DrawerFiles(Model, dir, cpu).Select(r => Bootstrap.Offer(dir, r)))
+                            {
+                                <tr><td><a href="/@Model.Name/@f.Path">@f.Path</a></td><td class="num">@Site.Size(f.Size)</td><td class="hide-s" title="SHA-256 @f.Sha256">@Site.Short(f.Sha256)</td></tr>
+                            }
+                            </tbody>
+                        </table>
+                    }
+                </details>
+            }
+        </div>
+        <div>
+            <h3>On macOS, Linux or Windows</h3>
+            <p>To manage a hosted AROS, a disk image or a drawer from your computer.</p>
+            @if (hosts.Count == 0)
+            {
+                <p class="muted">Host builds come with the next Pkg upload.</p>
+            }
+            else
+            {
+                @foreach (var (platform, rel) in hosts)
+                {
+                    var cmd = platform.StartsWith("windows")
+                        ? $"Invoke-WebRequest {host}/get/{Model.Name}/{platform} -OutFile pkg.exe"
+                        : $"curl -fsSLo pkg {host}/get/{Model.Name}/{platform} && chmod +x pkg";
+                    var f = Bootstrap.Offer(dir, rel);
+                    <p class="small muted">@platform · @Site.Size(f.Size) · <span title="SHA-256 @f.Sha256">SHA-256 @Site.Short(f.Sha256)</span></p>
+                    <div class="cmd"><code>@cmd</code><button class="copy" data-copy="@cmd">Copy</button></div>
+                }
+            }
+        </div>
+    </div>
+</section>

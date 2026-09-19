@@ -23,7 +23,9 @@
     var isLatest = v.Version == p.Latest.Version;
     ViewData["Title"] = $"{p.Name} {v.Version}";
     var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
-    var install = $"Pkg INSTALL {p.Name} CHANNEL {url}" + (v.Version != p.Latest.Version ? $" VERSION {v.Version}" : "");
+    // Pkg itself is already there once bootstrapped: what one does next is keep it current.
+    var install = p.Name == "pkg" && isLatest ? $"Pkg UPGRADE pkg CHANNEL {url}"
+        : $"Pkg INSTALL {p.Name} CHANNEL {url}" + (v.Version != p.Latest.Version ? $" VERSION {v.Version}" : "");
     const int maxFiles = 1500;
     var openFiles = m.Files.Count <= 40;
 }
@@ -56,6 +58,11 @@ else if (!isLatest)
     <p class="note">The latest version is <a href="/packages/@ch.Name/@p.Name">@p.Latest.Version</a>.</p>
 }
 
+@if (p.Name == "pkg")
+{
+    <partial name="_GetPkg" model="ch" />
+    <h2>Once you have Pkg</h2>
+}
 <div class="cmd"><code>@install</code><button class="copy" data-copy="@install">Copy</button></div>
 
 @if (m.Description.Count > 0)
@@ -154,10 +161,15 @@ else if (!isLatest)
             {
                 <text>@Site.Size(v.PayloadSize), <a href="/@ch.Name/objects/@(m.Payload).pkg">the signed package</a></text>
             }
-            else if (m.SourceArchive is { } arc)
+            else if (m.SourceArchive is { } arc && m.Upstream is { } up && Site.SafeUrl(up.Url) is { } upUrl && !ch.Archives.Contains(arc))
             {
-                <text>files taken from <a href="/@ch.Name/archives/@arc">@arc</a></text>
+                <text>files taken from <a href="@upUrl" rel="nofollow noopener">@arc</a>, downloaded from @up.Host</text>
                 <div class="muted small">@Site.ArchiveStatus(ch, arc)</div>
+            }
+            else if (m.SourceArchive is { } onPortal)
+            {
+                <text>files taken from <a href="/@ch.Name/archives/@onPortal">@onPortal</a></text>
+                <div class="muted small">@Site.ArchiveStatus(ch, onPortal)</div>
             }
         </dd>
         <dt>Published</dt><dd>@Site.Date(v.Published)</dd>

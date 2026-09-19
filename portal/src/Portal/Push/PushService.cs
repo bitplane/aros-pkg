@@ -64,7 +64,7 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                 continue;
             }
             var live = Path.Combine(Live(channel), p.Path);
-            if (File.Exists(live))
+            if (Published(live))
             {
                 var liveSha = await LiveSha(channel, p.Path);
                 if (liveSha == p.Sha) { have++; haveBytes += p.Size; continue; }
@@ -110,7 +110,7 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         if (!plan.TryGetValue(path, out var want))
             return (Record.Refused(20, $"{path} is not in this push's plan", "send the plan first, then the files it lists"), 400);
         var live = Path.Combine(Live(channel), path);
-        if (File.Exists(live) && ChannelPaths.Immutable(path))
+        if (Published(live) && ChannelPaths.Immutable(path))
         {
             if (await LiveSha(channel, path) == want.Sha)
                 return (new Record().Add("result", "unchanged").Add("path", path)
@@ -220,7 +220,7 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
         // Each candidate's files, from this push or already published.
         string? Find(string rel) =>
             File.Exists(Path.Combine(staging, rel)) ? Path.Combine(staging, rel)
-            : File.Exists(Path.Combine(live, rel)) ? Path.Combine(live, rel) : null;
+            : Published(Path.Combine(live, rel)) ? Path.Combine(live, rel) : null;
 
         var ready = new List<(IndexLine Line, Manifest M, string Signer)>();
         foreach (var c in candidates)
@@ -244,7 +244,8 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                 refusedItems.Add($"{c.Name} {c.Version} {c.Arch} 11 its payload {pay[..16]} was not sent");
                 continue;
             }
-            if (m.SourceArchive is { } arc && Find($"archives/{arc}") is null)
+            // An archive published upstream (Archive: line) is fetched from there by the client.
+            if (m.SourceArchive is { } arc && m.Upstream is null && Find($"archives/{arc}") is null)
             {
                 refusedItems.Add($"{c.Name} {c.Version} {c.Arch} 11 the archive {arc} it names is neither on the portal nor in this push");
                 continue;
@@ -459,11 +460,15 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
     {
         var src = Path.Combine(staging, rel);
         var dst = Path.Combine(live, rel);
-        if (!File.Exists(src) || File.Exists(dst)) return false;
+        if (!File.Exists(src)) return false;
+        if (Published(dst)) { File.Delete(src); return false; }
         Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
         File.Move(src, dst);
         return true;
     }
+
+    /// On the disk, or moved to R2 with its .url left behind.
+    static bool Published(string path) => File.Exists(path) || File.Exists(path + ".url");
 
     static IEnumerable<string> StagedMutable(string staging) =>
         Directory.Exists(staging)

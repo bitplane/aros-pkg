@@ -49,6 +49,10 @@ public sealed class Manifest
     }
 
     /// The archive a Source line names, by basename.
+    /// Where the Source archive is published upstream, pinned by size and SHA-256:
+    /// "Archive: <sha256> <size> <url>". The portal then holds no copy.
+    public UpstreamArchive? Upstream { get; private set; }
+
     public string? SourceArchive => Source is null ? null : Source.Split("!/", 2)[0];
     public string? SourcePrefix => Source is null ? null : Source.Split("!/", 2) is [_, var p] ? p : null;
 
@@ -86,6 +90,11 @@ public sealed class Manifest
                 case "Depends":
                     var parts = val.Split(" >= ", 2);
                     m.Depends.Add(new Dependency(parts[0].Trim(), parts.Length > 1 ? parts[1].Trim() : null));
+                    break;
+                case "Archive":
+                    var ap = val.Trim().Split(' ', 3);
+                    if (ap.Length == 3 && ap[0].Length == 64 && long.TryParse(ap[1], out var asz))
+                        m.Upstream = new UpstreamArchive(ap[0], asz, ap[2]);
                     break;
                 case "Short": m.Short = val.Trim(); break;
                 case "Description": m.Description.Add(val); break;
@@ -142,6 +151,16 @@ public sealed class ManifestFile(string path, string digest, long size)
     public long Size { get; } = size;
     public string? Protect { get; set; }
     public string? Comment { get; set; }
+}
+
+public sealed record UpstreamArchive(string Sha256, long Size, string Url)
+{
+    /// Who serves it, in a word people know.
+    public string Host => Uri.TryCreate(Url, UriKind.Absolute, out var u)
+        ? u.Host.EndsWith("sourceforge.net", StringComparison.OrdinalIgnoreCase) ? "SourceForge"
+        : u.Host.EndsWith("github.com", StringComparison.OrdinalIgnoreCase) ? "GitHub"
+        : u.Host
+        : "its publisher";
 }
 
 public sealed record Dependency(string Name, string? Min)
