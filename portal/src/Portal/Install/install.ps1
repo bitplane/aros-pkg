@@ -8,15 +8,43 @@
 #
 # It downloads pkg.exe into %LOCALAPPDATA%\Programs\pkg, checks that it runs
 # ("pkg HELP"), and adds that folder to your user Path when it is not there.
+# Before installing, it checks pkg.exe against Bootstrap/SHA256SUMS, whose
+# signature ssh-keygen -Y verify checks with the key below (when the portal has
+# one; Windows 10 and 11 carry ssh-keygen). $env:PKG_SKIP_VERIFY = 1 skips it.
 # Running it again installs the newest Pkg over the old one.
 
 $ErrorActionPreference = 'Stop'
 $portal = '@@PORTAL@@'
+$sshkey = '@@SSHKEY@@'
 $dir = Join-Path $env:LOCALAPPDATA 'Programs\pkg'
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("pkg-" + [guid]::NewGuid().ToString('N') + '.exe')
 
 try {
     Invoke-WebRequest -UseBasicParsing -Uri "$portal/get/pkg/windows-x86_64" -OutFile $tmp
+    if ($env:PKG_SKIP_VERIFY) {
+        Write-Output 'Warning: PKG_SKIP_VERIFY is set, so this Pkg is not checked against its signed checksum.'
+    }
+    elseif (-not $sshkey) {
+        Write-Output 'Note: this portal publishes no signed checksum list yet; the download is protected by https alone.'
+    }
+    else {
+        if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
+            throw 'ssh-keygen is needed to check the download (the OpenSSH client of Windows); set PKG_SKIP_VERIFY=1 to install without the check'
+        }
+        $sums = "$tmp.sums"; $sig = "$tmp.sums.sig"; $signers = "$tmp.signers"
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri "$portal/pkg/Bootstrap/SHA256SUMS" -OutFile $sums
+            Invoke-WebRequest -UseBasicParsing -Uri "$portal/pkg/Bootstrap/SHA256SUMS.sig" -OutFile $sig
+            Set-Content -Path $signers -Value "pkg namespaces=`"aros-pkg-bootstrap`" $sshkey" -Encoding ascii
+            Get-Content -Raw $sums | & ssh-keygen -Y verify -f $signers -I pkg -n aros-pkg-bootstrap -s $sig *> $null
+            if ($LASTEXITCODE -ne 0) { throw 'the checksum list is not signed by the key this portal names; nothing was installed' }
+            $want = (Get-Content $sums | Where-Object { ($_ -split '\s+')[1] -eq 'Bootstrap/windows-x86_64/pkg.exe' } | ForEach-Object { ($_ -split '\s+')[0] }) | Select-Object -First 1
+            if (-not $want) { throw 'the signed checksum list names no Bootstrap/windows-x86_64/pkg.exe' }
+            if ((Get-FileHash -Algorithm SHA256 $tmp).Hash.ToLowerInvariant() -ne $want) { throw 'the download does not match its signed checksum; nothing was installed' }
+            Write-Output 'Checked: the download matches the checksum signed by the portal''s bootstrap key.'
+        }
+        finally { Remove-Item -Force -ErrorAction SilentlyContinue $sums, $sig, $signers }
+    }
     $help = & $tmp HELP 2>&1
     if ($LASTEXITCODE -ne 0) { throw 'the downloaded Pkg does not run on this computer' }
     $version = (($help | Select-Object -First 1).ToString() -split ' ')[1]

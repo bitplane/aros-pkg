@@ -52,7 +52,8 @@ public static partial class ChannelPaths
     {
         if (path == "index") return Kind.Index;
         if (ObjectPath().IsMatch(path)) return Kind.Object;
-        if (path is "Install-Pkg" or "ReadMe" || BootstrapPath().IsMatch(path) || HostBootstraps.Values.Contains(path))
+        if (path is "Install-Pkg" or "ReadMe" or "Bootstrap/SHA256SUMS" or "Bootstrap/SHA256SUMS.sig"
+            || BootstrapPath().IsMatch(path) || HostBootstraps.Values.Contains(path))
             return Kind.Mutable;
         if (ArchivePath().IsMatch(path))
         {
@@ -92,6 +93,7 @@ public static partial class ChannelPaths
         Kind.Object when path.EndsWith(".pkg", StringComparison.Ordinal) => "application/octet-stream",
         Kind.Object => "text/plain; charset=utf-8",
         Kind.Mutable when path is "ReadMe" or "Install-Pkg" => "text/plain; charset=iso-8859-1",
+        Kind.Mutable when path.StartsWith("Bootstrap/SHA256SUMS", StringComparison.Ordinal) => "text/plain; charset=utf-8",
         Kind.Archive when path.EndsWith(".tar.bz2", StringComparison.Ordinal) => "application/x-bzip2",
         Kind.Archive when path.EndsWith(".tar", StringComparison.Ordinal) => "application/x-tar",
         _ => "application/octet-stream",

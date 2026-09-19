@@ -93,6 +93,7 @@ Settings (environment variables use `__`, e.g. `Portal__DataDir`):
 | `Portal:Policy:Admin` | the maintainers' API (`true`) |
 | `Portal:Policy:PlainHttp` | channels also over plain http (`true`); `false` sends every http request to https |
 | `Portal:Policy:Note`, `Portal:Policy:Contact` | the operators' sentence and contact, added to every refusal a rule causes and shown on `/trust` |
+| `Portal:BootstrapKey` | the OpenSSH public key (`ssh-ed25519 …`) that signs the pkg channel's `Bootstrap/SHA256SUMS`; set, `/install` and `/install.ps1` check what they download with `ssh-keygen -Y verify` before installing it |
 | `Portal:AllowLoopbackHttpPush` | pushes over http from 127.0.0.1, for a local instance only |
 
 A key: `dotnet Portal.dll key <publisher> <channel,channel|*> [files]` prints the

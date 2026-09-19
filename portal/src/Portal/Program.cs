@@ -222,7 +222,8 @@ foreach (var (route, file) in new[] { ("/install", "install.sh"), ("/install.sh"
     app.MapGet(route, (HttpContext http, Portal.Channels.Downloads d) =>
     {
         var site = opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";
-        var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", file)).Replace("@@PORTAL@@", site);
+        var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", file))
+            .Replace("@@PORTAL@@", site).Replace("@@SSHKEY@@", opts.BootstrapKey.Trim());
         d.Count($"get/pkg/{file}");
         http.Response.Headers.CacheControl = "no-cache";
         return Results.Text(text, "text/plain; charset=utf-8");

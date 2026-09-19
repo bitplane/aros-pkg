@@ -64,6 +64,11 @@ public sealed class PortalOptions
     /// Where checked source archives are kept (Cloudflare R2); off when empty.
     public Push.R2Options R2 { get; set; } = new();
 
+    /// The key that signs Bootstrap/SHA256SUMS of the pkg channel, in OpenSSH
+    /// form ("ssh-ed25519 AAAA… name"). Set, the installers verify what they
+    /// download with ssh-keygen -Y verify before installing it.
+    public string BootstrapKey { get; set; } = "";
+
     /// What this instance accepts: see Policy.cs.
     public PortalPolicy Policy { get; set; } = new();
 

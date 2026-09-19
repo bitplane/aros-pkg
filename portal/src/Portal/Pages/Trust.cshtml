@@ -91,6 +91,19 @@
     <p class="muted small">It says <code>the manifest is what its publisher signed</code>, or <code>do not trust this package</code> when a single byte differs. The manifest's <code>File:</code> lines then give each file's SHA-256 to compare with <code>shasum -a 256</code>.</p>
 }
 
+@if (Options.Value.BootstrapKey.Length > 0)
+{
+    var sshKey = Options.Value.BootstrapKey.Trim();
+    var byHand = $"curl -fsSLO {site}/pkg/Bootstrap/SHA256SUMS -O {site}/pkg/Bootstrap/SHA256SUMS.sig\n" +
+                 $"echo 'pkg namespaces=\"aros-pkg-bootstrap\" {sshKey}' > signers\n" +
+                 "ssh-keygen -Y verify -f signers -I pkg -n aros-pkg-bootstrap -s SHA256SUMS.sig < SHA256SUMS\n" +
+                 "shasum -a 256 pkg     # compare with its line in SHA256SUMS";
+    <h2>Checking the Pkg you download</h2>
+    <p>The installers and the programs on <a href="/downloads">Downloads</a> are listed with their SHA-256 in <code>Bootstrap/SHA256SUMS</code>, signed by this key in OpenSSH's format. <code>/install</code> and <code>/install.ps1</code> check that signature and the file before installing anything; by hand, with the ssh-keygen every Mac, Linux and Windows 10 or 11 machine has:</p>
+    <div class="cmd wrapcode"><code>@sshKey</code><button class="copy" data-copy="@sshKey">Copy</button></div>
+    <pre><code>@byHand</code></pre>
+}
+
 <h2>When a publisher loses a key</h2>
 <p>There is no recovery, and this site cannot re-sign anything. The publisher makes a new key, says so where their users can see it, and signs the next version with it; the maintainers move that publisher's upload permission to the new key. Every machine that has the package refuses the new key once, and its owner accepts it with <code>ACCEPTKEY</code>. Nothing already installed is affected.</p>
 

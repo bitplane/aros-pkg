@@ -17,13 +17,18 @@
 #   5. when that directory is not on your PATH, adds one line to your shell's
 #      start-up file (~/.zshrc, ~/.bashrc, ~/.bash_profile or fish's config) and
 #      says which; PKG_NO_MODIFY_PATH=1 prints the line instead.
+#   4. before that, checks it against Bootstrap/SHA256SUMS, whose signature
+#      ssh-keygen -Y verify checks with the key below (when the portal has one);
 # Running it again installs the newest Pkg over the old one.
+# PKG_SKIP_VERIFY=1 installs without that check, saying so.
 # PKG_INSTALL_DIR=<dir> chooses the directory yourself; PKG_SYSTEM_BIN names the
 # system-wide one (/usr/local/bin by default, which macOS has on its PATH).
 
 set -eu
 
 portal="@@PORTAL@@"
+# The key that signs the list of bootstrap files, as the portal publishes it (/trust).
+sshkey="@@SSHKEY@@"
 say() { printf '%s\n' "$*"; }
 fail() { printf 'install: %s\n' "$*" >&2; exit 1; }
 
@@ -51,7 +56,27 @@ else
 fi
 chmod 755 "$tmp"
 
-# 3. It must run here before it replaces anything.
+# 3. It is the file its publisher signed, and it runs here, before anything is replaced.
+sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+get() { if command -v curl >/dev/null 2>&1; then curl -fsSL -o "$2" "$1"; else wget -q -O "$2" "$1"; fi; }
+if [ -n "${PKG_SKIP_VERIFY:-}" ]; then
+    say "Warning: PKG_SKIP_VERIFY is set, so this Pkg is not checked against its signed checksum."
+elif [ -z "$sshkey" ]; then
+    say "Note: this portal publishes no signed checksum list yet; the download is protected by https alone."
+else
+    command -v ssh-keygen >/dev/null 2>&1 || fail "ssh-keygen is needed to check the download's signature (OpenSSH 8.1 or later); PKG_SKIP_VERIFY=1 installs without the check"
+    sums="$tmp.sums"; sig="$tmp.sums.sig"; signers="$tmp.signers"
+    trap 'rm -f "$tmp" "$sums" "$sig" "$signers"' EXIT INT TERM
+    get "$portal/pkg/Bootstrap/SHA256SUMS" "$sums" || fail "could not download the checksum list"
+    get "$portal/pkg/Bootstrap/SHA256SUMS.sig" "$sig" || fail "could not download the checksum list's signature"
+    printf 'pkg namespaces="aros-pkg-bootstrap" %s\n' "$sshkey" > "$signers"
+    ssh-keygen -Y verify -f "$signers" -I pkg -n aros-pkg-bootstrap -s "$sig" < "$sums" >/dev/null 2>&1 \
+        || fail "the checksum list is not signed by the key this portal names; nothing was installed"
+    want=$(awk -v p="Bootstrap/$platform/pkg" '$2 == p { print $1 }' "$sums")
+    [ -n "$want" ] || fail "the signed checksum list names no Bootstrap/$platform/pkg"
+    [ "$(sha "$tmp")" = "$want" ] || fail "the download does not match its signed checksum; nothing was installed"
+    say "Checked: the download matches the checksum signed by the portal's bootstrap key."
+fi
 "$tmp" HELP >/dev/null 2>&1 || fail "the Pkg downloaded for $platform does not run on this computer"
 version=$("$tmp" HELP 2>&1 | awk 'NR == 1 { print $2 }')
 
