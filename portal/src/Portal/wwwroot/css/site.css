@@ -65,6 +65,8 @@ h2 { font-size: 1.15rem; margin: 2rem 0 0.6rem; }
 main { padding-top: 16px; padding-bottom: 48px; min-height: 70vh; }
 .hero { padding: 24px 0 8px; }
 .lead { font-size: 1.1rem; color: var(--muted); margin: 0; }
+.welcome { max-width: 72ch; font-size: 1.05rem; }
+.welcome p { margin: 0 0 0.6em; }
 .crumbs { margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
