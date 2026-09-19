@@ -25,8 +25,6 @@
     ViewData["Title"] = $"{p.Name} {v.Version}";
     var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
     // Pkg itself is already there once bootstrapped: what one does next is keep it current.
-    var install = p.Name == "pkg" && isLatest ? $"Pkg UPGRADE pkg ROOT SYS: CHANNEL {url}"
-        : Site.InstallCommand(url, p.Name, v.Version != p.Latest.Version ? v.Version : null);
     const int maxFiles = 1500;
     var openFiles = m.Files.Count <= 40;
 }
@@ -63,8 +61,7 @@ else if (!isLatest)
 {
     <p class="note">New to Pkg? <a href="/downloads">Download it</a> first: this command is for keeping it up to date.</p>
 }
-<div class="cmd"><code>@install</code><button class="copy" data-copy="@install">Copy</button></div>
-<p class="muted small">On AROS, Pkg reads a channel from a drawer for now; the address form works from macOS, Linux and Windows, with ROOT set to the AROS system drawer. <a href="/docs/using#install">How to install</a></p>
+<partial name="_Install" model="(p, v, url)" />
 
 @if (m.Description.Count > 0)
 {
@@ -183,10 +180,33 @@ else if (!isLatest)
                 <div class="muted small">@Site.ArchiveStatus(ch, onPortal)</div>
             }
         </dd>
-        <dt>Published</dt><dd>@Site.Date(v.Published)</dd>
+        <dt>First seen</dt><dd>@Site.Date(v.Published)</dd>
         <dt>Signed by</dt><dd><a href="/publishers/@v.Signer">@(Publishers.Names().GetValueOrDefault(v.Signer ?? "") ?? "key")</a> <code title="@v.Signer">@Site.Short(v.Signer)</code> <span class="muted small">Ed25519; Pkg pins this key at the first install · <a href="/trust">what this means</a></span></dd>
         <dt>Manifest</dt><dd><a href="/@ch.Name/objects/@(v.Line.Digest).manifest">@Site.Short(v.Line.Digest)</a> · <a href="/@ch.Name/objects/@(v.Line.Digest).sig">signature</a></dd>
     </dl>
+</section>
+<section>
+    <h2>Verify</h2>
+    @{
+        var show = $"pkg SHOW {p.Name} CHANNEL {url}";
+        var issue = "https://github.com/jonx/aros-pkg/issues/new?title=" + Uri.EscapeDataString($"[{ch.Name}] {p.Name} {v.Version} ({v.Arch}): ")
+            + "&body=" + Uri.EscapeDataString($"Channel: {url}\nPackage: {p.Name}\nVersion: {v.Version}\nCPU: {v.Arch}\nManifest: {v.Line.Digest}\n\nWhat happened:\n\nWhat I expected:\n");
+    }
+    <dl class="facts">
+        <dt>Manifest</dt><dd><code class="digest">@v.Line.Digest</code></dd>
+        @if (m.Payload is not null)
+        {
+            <dt>Payload</dt><dd><code class="digest">@m.Payload</code></dd>
+        }
+        else if (m.Upstream is { } upv)
+        {
+            <dt>Archive</dt><dd><code class="digest">@upv.Sha256</code></dd>
+        }
+        <dt>Signer</dt><dd><a href="/publishers/@v.Signer"><code>@Site.Short(v.Signer)</code></a></dd>
+    </dl>
+    <div class="cmd"><code>@show</code><button class="copy" data-copy="@show">Copy</button></div>
+    <p class="muted small">Checks the signature and digests of every version of @p.Name in the channel. To check it without Pkg: <a href="/trust">by hand</a>.</p>
+    <p class="small"><a href="@issue" rel="nofollow noopener">Report a problem with this version</a></p>
 </section>
 <section>
     <h2>Dependencies</h2>
@@ -235,7 +255,7 @@ else if (!isLatest)
 
 <h2>Versions</h2>
 <table class="list">
-    <thead><tr><th>Version</th><th>CPU</th><th class="hide-s">Published</th><th class="num">Size</th><th></th></tr></thead>
+    <thead><tr><th>Version</th><th>CPU</th><th class="hide-s">First seen</th><th class="num">Size</th><th></th></tr></thead>
     <tbody>
     @foreach (var x in p.Versions)
     {

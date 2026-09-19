@@ -159,6 +159,17 @@ a.button:hover { text-decoration: none; filter: brightness(1.1); }
 pre { background: var(--code); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; overflow-x: auto; }
 pre code { font-size: 0.85rem; }
 @media (max-width: 720px) { .docs { grid-template-columns: minmax(0, 1fr); } .toc { position: static; flex-direction: row; flex-wrap: wrap; } }
+.tabs { display: flex; flex-wrap: wrap; margin: 12px 0; }
+.tabs > input { position: absolute; opacity: 0; pointer-events: none; }
+.tabs > label { padding: 6px 12px; cursor: pointer; font-size: 0.9rem; color: var(--muted); border-bottom: 2px solid var(--line); }
+.tabs > input:checked + label { color: var(--fg); font-weight: 600; border-bottom-color: var(--brand); }
+.tabs > input:focus-visible + label { outline: 2px solid var(--accent); }
+.tabs > .tab { display: none; width: 100%; order: 1; }
+.tabs > input:nth-of-type(1):checked ~ .tab:nth-of-type(1),
+.tabs > input:nth-of-type(2):checked ~ .tab:nth-of-type(2),
+.tabs > input:nth-of-type(3):checked ~ .tab:nth-of-type(3),
+.tabs > input:nth-of-type(4):checked ~ .tab:nth-of-type(4) { display: block; }
+code.digest { font-size: 0.8rem; overflow-wrap: anywhere; }
 .foot { border-top: 1px solid var(--line); padding-top: 16px; padding-bottom: 32px; color: var(--muted); font-size: 0.85rem; }
 
 @media (max-width: 720px) {

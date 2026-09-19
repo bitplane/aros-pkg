@@ -141,6 +141,7 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
     ChannelInfo Build(string channel, string dir, FileInfo index)
     {
         var lines = index.Exists ? IndexLine.ParseAll(File.ReadAllText(index.FullName)) : [];
+        var firstSeen = ReadFirstSeen(channel);
         var entries = new List<VersionEntry>();
         foreach (var l in lines)
         {
@@ -159,7 +160,9 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
                 // Shown as withdrawn; Pkg checked the withdrawal's signature
                 // when the push that brought it was committed.
                 Withdrawn = File.Exists(Path.Combine(dir, "objects", l.Digest + ".withdrawn")),
-                Published = File.GetLastWriteTimeUtc(mp),
+                // When the portal published it, recorded at commit; for versions older
+                // than that record, when its manifest was written here.
+                Published = firstSeen.TryGetValue(l.Digest, out var seen) ? seen : File.GetLastWriteTimeUtc(mp),
                 PayloadSize = payload,
             });
         }
@@ -188,6 +191,19 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
                 .GroupBy(e => e.Manifest.SourceArchive!).ToDictionary(g => g.Key, g => g.First().Manifest.Upstream!),
             Updated = entries.Count > 0 ? entries.Max(e => e.Published) : Directory.GetLastWriteTimeUtc(dir),
         };
+    }
+
+    public string FirstSeenPath(string channel) => Path.Combine(o.StateDir, channel, "first-seen");
+
+    Dictionary<string, DateTime> ReadFirstSeen(string channel)
+    {
+        var d = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        var p = FirstSeenPath(channel);
+        if (File.Exists(p))
+            foreach (var l in File.ReadLines(p))
+                if (l.Split('\t') is [var digest, var when] && DateTime.TryParse(when, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t))
+                    d.TryAdd(digest, t);
+        return d;
     }
 
     Dictionary<string, ArchiveCheck> ReadChecks(string channel)

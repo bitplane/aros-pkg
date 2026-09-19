@@ -1,0 +1,39 @@
+@using Portal.Channels
+@model (PackageInfo P, VersionEntry V, string Url)
+@{
+    var (p, v, url) = Model;
+    var isLatest = v.Version == p.Latest.Version;
+    var verb = p.Name == "pkg" && isLatest ? "UPGRADE" : "INSTALL";
+    var ver = isLatest ? "" : $" VERSION {v.Version}";
+    var arch = v.Arch == "generic" ? "" : $" ARCH {v.Arch}";
+    var drawer = $"Work:{p.Channel}";
+    var aros = $"Pkg {verb} {p.Name}{ver} ROOT SYS: CHANNEL {drawer}";
+    var host = $"pkg {verb} {p.Name}{ver} ROOT aros CHANNEL {url}{arch}";
+    var arexx = $"ADDRESS PKG\nOPTIONS RESULTS\n'{verb} {p.Name}{ver} ROOT SYS: CHANNEL {drawer}'\nIF RC ~= 0 THEN SAY 'refused, class' RC";
+    var ask = verb == "UPGRADE"
+        ? $"Upgrade Pkg in ~/aros-root from {url}{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it."
+        : $"Install {p.Name}{(ver.Length > 0 ? $" version {v.Version}" : "")} from {url} into ~/aros-root{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it.";
+    var id = "t" + Math.Abs((p.Channel + p.Name).GetHashCode());
+}
+<div class="tabs">
+    <input type="radio" name="@id" id="@(id)a" checked /><label for="@(id)a">AROS</label>
+    <input type="radio" name="@id" id="@(id)h" /><label for="@(id)h">macOS, Linux, Windows</label>
+    <input type="radio" name="@id" id="@(id)r" /><label for="@(id)r">ARexx</label>
+    <input type="radio" name="@id" id="@(id)k" /><label for="@(id)k">Ask an assistant</label>
+    <div class="tab">
+        <div class="cmd"><code>@aros</code><button class="copy" data-copy="@aros">Copy</button></div>
+        <p class="muted small">In a Shell. Pkg on AROS reads a channel from a drawer for now: @drawer stands for a copy of this channel on one of your volumes (<a href="/docs/channels">how</a>). Reading it from its address comes in a later version.</p>
+    </div>
+    <div class="tab">
+        <div class="cmd"><code>@host</code><button class="copy" data-copy="@host">Copy</button></div>
+        <p class="muted small">For a hosted AROS, a disk image or a drawer on your computer: <code>aros</code> is its system directory@(arch.Length > 0 ? $", and ARCH names the CPU it runs" : "")</p>
+    </div>
+    <div class="tab">
+        <pre><code>@arexx</code></pre>
+        <p class="muted small">Through the port <code>Pkg PORT</code> opens. RESULT holds the answer, RC the class of a refusal.</p>
+    </div>
+    <div class="tab">
+        <div class="cmd wrapcode"><code>@ask</code><button class="copy" data-copy="@ask">Copy</button></div>
+        <p class="muted small">For an assistant that has loaded Pkg's skill (<a href="/docs/agents">how</a>). It runs the commands and checks, and leaves decisions such as accepting a new key to you.</p>
+    </div>
+</div>

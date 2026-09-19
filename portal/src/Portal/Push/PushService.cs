@@ -331,6 +331,13 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
             await File.WriteAllTextAsync(tmp, text, ct);
             File.Move(tmp, Path.Combine(live, "index"), overwrite: true);
         }
+        // Recorded before the catalogue is rebuilt, so no page shows the version without it.
+        if (accepted.Count > 0)
+        {
+            var seen = catalogue.FirstSeenPath(channel);
+            Directory.CreateDirectory(Path.GetDirectoryName(seen)!);
+            await File.AppendAllLinesAsync(seen, accepted.Select(a => $"{a.Line.Digest}\t{DateTime.UtcNow:O}"), ct);
+        }
         catalogue.Invalidate(channel);
         foreach (var arc in newArchives.Distinct()) archives.Enqueue(channel, arc);
         foreach (var signer in accepted.Select(a => a.Signer).Distinct()) publishers.Learn(signer, who.Name);
