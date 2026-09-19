@@ -105,9 +105,22 @@ progress counter; AROS has no `tee`.
 | `PKG_OUTPUT` | `machine`: the same as `MACHINE` on every command |
 | `PKG_TRACE` | the same as `TRACE <file>` on every command |
 | `PKG_PROGRESS` | `1`: show the progress counter even when the output is not a terminal |
+| `PKG_COLOR` | `always` or `never`: colour and marks whatever the output is. Without it, a terminal gets them and a pipe, a file or the ARexx port gets plain text. `NO_COLOR` and `TERM=dumb` turn them off too |
+| `COLUMNS` | the width long lines are wrapped at on a terminal, 80 when unset |
 | `PKG_CACHE` | where downloaded channel files are kept; else `$XDG_CACHE_HOME/pkg`, `~/.cache/pkg`, `%LOCALAPPDATA%\pkg-cache` on Windows, `T:pkg-cache` on AROS |
 
 On AROS, set them with `SetEnv`.
+
+## What the output looks like
+
+At a terminal, a result carries a mark and its figures on the line under it,
+a refusal is marked and names the command, a hint follows an arrow, and a
+list is a table with a header. Piped or redirected, the same lines are plain
+text, one per line, with `warning:`, `hint:` and `next:` spelled out, so a
+script or a log reads them; the tables keep their columns. `LOG <file>`
+always receives the plain form. On AROS the console shows the same
+structure with its own means: bold, italic, inverse video and the screen's
+pens.
 
 ## Exit codes
 
