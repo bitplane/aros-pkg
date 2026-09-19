@@ -122,6 +122,18 @@ app.MapGet("/get/{channel}/pkg-{cpu}.zip", async (HttpContext http, string chann
     return Results.Empty;
 });
 
+// The installers: curl -fsSL <site>/install | sh, and irm <site>/install.ps1 | iex.
+// Plain scripts, readable at the same address, with this site's address in them.
+foreach (var (route, file) in new[] { ("/install", "install.sh"), ("/install.sh", "install.sh"), ("/install.ps1", "install.ps1") })
+    app.MapGet(route, (HttpContext http, Portal.Channels.Downloads d) =>
+    {
+        var site = opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";
+        var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", file)).Replace("@@PORTAL@@", site);
+        d.Count($"get/pkg/{file}");
+        http.Response.Headers.CacheControl = "no-cache";
+        return Results.Text(text, "text/plain; charset=utf-8");
+    });
+
 // Pkg for a host, by platform, for curl and PowerShell one-liners.
 app.MapGet("/get/{channel}/{platform}", (string channel, string platform, Portal.Channels.Downloads d) =>
 {

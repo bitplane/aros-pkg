@@ -16,7 +16,7 @@ public static partial class ChannelPaths
     static readonly HashSet<string> Reserved = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "channels", "packages", "search", "about", "static", "css", "robots.txt",
-        "favicon.ico", "error", "health", "_push", "index", "get", "downloads", "statistics", "docs",
+        "favicon.ico", "error", "health", "_push", "index", "get", "downloads", "statistics", "docs", "install", "install.sh", "install.ps1",
     };
 
     [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,39}$")]

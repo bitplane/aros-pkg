@@ -56,15 +56,29 @@
             }
             else
             {
-                @foreach (var (platform, rel) in hosts)
-                {
-                    var cmd = platform.StartsWith("windows")
-                        ? $"Invoke-WebRequest {host}/get/{Model.Name}/{platform} -OutFile pkg.exe"
-                        : $"curl -fsSLo pkg {host}/get/{Model.Name}/{platform} && chmod +x pkg";
-                    var f = Bootstrap.Offer(dir, rel);
-                    <p class="small muted">@platform · @Site.Size(f.Size) · <span title="SHA-256 @f.Sha256">SHA-256 @Site.Short(f.Sha256)</span></p>
-                    <div class="cmd"><code>@cmd</code><button class="copy" data-copy="@cmd">Copy</button></div>
-                }
+                var sh = $"curl -fsSL {host}/install | sh";
+                var ps = $"irm {host}/install.ps1 | iex";
+                <p class="small"><strong>macOS and Linux</strong>, in a terminal:</p>
+                <div class="cmd wrapcode"><code>@sh</code><button class="copy" data-copy="@sh">Copy</button></div>
+                <p class="small"><strong>Windows</strong>, in PowerShell:</p>
+                <div class="cmd wrapcode"><code>@ps</code><button class="copy" data-copy="@ps">Copy</button></div>
+                <p class="muted small">Each picks the build for your computer, checks that it runs, and puts <code>pkg</code> where you can run it by name, adding that folder to your PATH if needed. Run it again to upgrade. Read them first: <a href="/install.sh">install.sh</a>, <a href="/install.ps1">install.ps1</a>.</p>
+                <details>
+                    <summary class="small">Or download a build yourself</summary>
+                    @foreach (var (platform, rel) in hosts)
+                    {
+                        var cmd = platform.StartsWith("windows")
+                            ? $"Invoke-WebRequest {host}/get/{Model.Name}/{platform} -OutFile pkg.exe"
+                            : $"curl -fsSLo pkg {host}/get/{Model.Name}/{platform} && chmod +x pkg && sudo mv pkg /usr/local/bin/";
+                        var f = Bootstrap.Offer(dir, rel);
+                        <p class="small muted">@platform · @Site.Size(f.Size) · <span title="SHA-256 @f.Sha256">SHA-256 @Site.Short(f.Sha256)</span></p>
+                        <div class="cmd"><code>@cmd</code><button class="copy" data-copy="@cmd">Copy</button></div>
+                        @if (platform.StartsWith("windows"))
+                        {
+                            <p class="muted small">Then move <code>pkg.exe</code> into a folder on your Path.</p>
+                        }
+                    }
+                </details>
             }
         </div>
     </div>
