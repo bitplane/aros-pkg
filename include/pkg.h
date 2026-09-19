@@ -62,7 +62,7 @@
 #define PKG_H
 
 #define PKG_API_VERSION 1   /* stays 1 until the first official release */
-#define PKG_VERSION_STRING "0.5"   /* the tool's own version, as in its $VER */
+#define PKG_VERSION_STRING "1.1"   /* the tool's own version, as in its $VER */
 
 enum {
     PKG_RC_OK         = 0,

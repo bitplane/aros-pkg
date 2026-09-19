@@ -1,4 +1,5 @@
-Published by a new publisher, JKN, with its own key. A machine that installed Pkg 0.3 or 0.4 refuses this upgrade once with 14, a new publisher key; accept it with ACCEPTKEY 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077 after comparing that key with the one on the portal's Trust page.
+The first version on this portal, published by JKN with its own key.
 RESOLVE <library> or <program> says which copy of a library AROS will open and why, checking its CPU, resident tag, type and version, and what to do when it is the wrong one.
 Packages list the libraries and devices they ship (Provides), and PUBLISH warns about a library a program opens that no dependency provides.
 Manifest keys Pkg does not know are ignored and named by SHOW instead of refused, so packages can carry lines for other systems.
+On AROS, a file written to a volume's root, such as MOUNTLIST OUT RAM:GURU0, is no longer refused.
