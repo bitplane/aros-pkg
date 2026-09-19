@@ -95,6 +95,30 @@ $PKG SHOW tool CHANNEL ch > o8 2>&1
 has o8 'tool 1.2: A tool that does things' && has o8 'Indented, and'
                                                       ok $? "and as text for a person"
 
+echo "foreign keys"
+# a manifest signed with lines for another system: installed, the lines kept and shown
+signed() {  # signed <channel> <extra lines>: tool 1.0 with those lines, signed with key
+    mkdir -p "$1/objects"
+    { $PKG MANIFEST d0 KIND application; printf '%b' "$2"; } > "$1/m"
+    dg=$(shasum -a 256 "$1/m" | cut -d' ' -f1)
+    mv "$1/m" "$1/objects/$dg.manifest"
+    $PKG SIGN "$1/objects/$dg.manifest" KEY key OUT "$1/objects/$dg.sig" > /dev/null
+    cp p0/objects/*.pkg "$1/objects/"
+    echo "tool 1.0 generic $dg" > "$1/index"
+}
+mkdir -p d0/C; printf 'x\000$VER: tool 1.0 (1.1.2026)\000' > d0/C/Tool
+$PKG PUBLISH d0 CHANNEL p0 KIND application > /dev/null 2>&1
+signed fx 'X-Aminet-Type: util/misc\nCategroy: util/arc\n'
+$PKG INSTALL tool ROOT rx CHANNEL fx MACHINE > o9 2>&1
+[ $? -eq 0 ] && grep -q '^X-Aminet-Type: util/misc$' rx/.pkg/db/tool
+                                                      ok $? "a manifest with keys Pkg does not know installs, the signed lines kept"
+$PKG SHOW tool CHANNEL fx MACHINE > o10 2>&1
+has o10 '^ignored: tool 1.0 X-Aminet-Type$' && has o10 '^ignored: tool 1.0 Categroy$' && has o10 '^bad: 0$'
+                                                      ok $? "SHOW names each ignored key, so a misspelt one shows"
+signed fy '9lives: yes\n'
+$PKG INSTALL tool ROOT ry CHANNEL fy MACHINE > o11 2>&1
+[ $? -eq 12 ] && [ ! -e ry/C/Tool ];                 ok $? "a line whose key is not a word is still refused"
+
 echo
 echo "catalogue: $checks checks, $fails failures"
 [ "$fails" -eq 0 ]

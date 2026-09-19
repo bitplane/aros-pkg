@@ -3160,6 +3160,11 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
         refuse_c(12, "the manifest of %s is refused: %s", what, err);
         goto out;
     }
+    {
+        size_t k;
+        for (k = 0; k < f->m.ignored.n; k++)
+            tr("%s: ignored the key %s, which Pkg does not know", what, f->m.ignored.v[k]);
+    }
     if (strcmp(f->m.name, e->name) != 0 || pkg_version_cmp(f->m.version, e->version) != 0
         || (f->m.payload == NULL) == (f->m.source == NULL)) {
         refuse_c(12, "the manifest of %s disagrees with the channel index about what it is", what);
@@ -4764,6 +4769,19 @@ static int cmd_show(const struct pkg_options *a)
                     rc == 0 && fp->m.source != NULL && a->metadata ? "  (archive not checked)" : "");
             if (rc != 0)
                 say_kind(PKG_LINE_DETAIL, "  %s\n", "%s", r->reason);
+        }
+        if (rc == 0 && fp->m.ignored.n > 0) {
+            /* lines for other systems: kept, signed, not acted on; a typo shows here */
+            char keys[600];
+            size_t k, at = 0;
+            for (k = 0; k < fp->m.ignored.n && at < sizeof keys; k++)
+                at += (size_t)snprintf(keys + at, sizeof keys - at, "%s%s", k ? ", " : "", fp->m.ignored.v[k]);
+            if (machine) {
+                for (k = 0; k < fp->m.ignored.n; k++)
+                    kv("ignored", "%s %s %s", ix.e[i].name, ix.e[i].version, fp->m.ignored.v[k]);
+            } else {
+                say_kind(PKG_LINE_DETAIL, "  %s\n", "ignored, for other systems: %s", keys);
+            }
         }
         fetched_free(fp);
     }

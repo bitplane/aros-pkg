@@ -75,7 +75,19 @@ static void strict_parsing(void)
     ok(parses(head, err, sizeof err), "minimal manifest");
 
     snprintf(buf, sizeof buf, "%sColour: blue\n", head);
-    ok(!parses(buf, err, sizeof err), "unknown key refused");
+    ok(parses(buf, err, sizeof err), "an unknown key is ignored, not refused");
+    {
+        struct pkg_manifest mm;
+        snprintf(buf, sizeof buf, "%sX-Aminet-Type: util/misc\nX-Aminet-Type: util/arc\nColour: blue\n", head);
+        ok(pkg_manifest_parse(buf, strlen(buf), &mm, err, sizeof err) == 0 && mm.ignored.n == 2
+           && strcmp(mm.ignored.v[0], "X-Aminet-Type") == 0 && strcmp(mm.ignored.v[1], "Colour") == 0,
+           "unknown keys may repeat, and each name is kept once");
+        pkg_manifest_free(&mm);
+    }
+    snprintf(buf, sizeof buf, "%s9lives: yes\n", head);
+    ok(!parses(buf, err, sizeof err), "a key that is not a word is still refused");
+    snprintf(buf, sizeof buf, "%sShort: This short description is much longer than forty\n", head);
+    ok(!parses(buf, err, sizeof err), "a known key stays strict");
     snprintf(buf, sizeof buf, "%sName: b\n", head);
     ok(!parses(buf, err, sizeof err), "duplicate key refused");
     ok(!parses("Name: a\nFormat: pkg-manifest 1\n", err, sizeof err), "Format not first refused");

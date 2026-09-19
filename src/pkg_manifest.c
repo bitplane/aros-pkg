@@ -210,6 +210,7 @@ void pkg_manifest_free(struct pkg_manifest *m)
     free(m->archive_sha); free(m->archive_url);
     about_free(&m->about);
     pkg_strs_free(&m->provides);
+    pkg_strs_free(&m->ignored);
     for (i = 0; i < m->nfiles; i++) {
         free(m->files[i].path);
         free(m->files[i].comment);
@@ -956,8 +957,24 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
             }
             free(val);
         } else {
-            seterr(err, errlen, line, "unknown key \"%s\"", key);
-            free(val); goto fail;
+            /* a key for another system: kept in the signed text, never acted on */
+            size_t k;
+            int shape = (key[0] >= 'A' && key[0] <= 'Z') || (key[0] >= 'a' && key[0] <= 'z');
+            for (k = 1; shape && key[k]; k++)
+                shape = (key[k] >= 'A' && key[k] <= 'Z') || (key[k] >= 'a' && key[k] <= 'z')
+                        || (key[k] >= '0' && key[k] <= '9') || key[k] == '-' || key[k] == '_' || key[k] == '.';
+            if (!shape) {
+                seterr(err, errlen, line, "\"%s\" is no key: a key is a letter, then letters, "
+                       "digits, - _ or .", key);
+                free(val); goto fail;
+            }
+            for (k = 0; k < m->ignored.n && strcmp(m->ignored.v[k], key) != 0; k++)
+                ;
+            if (k == m->ignored.n && pkg_strs_add(&m->ignored, key) != 0) {
+                seterr(err, errlen, line, "out of memory");
+                free(val); goto fail;
+            }
+            free(val);
         }
 #undef ONCE
     }

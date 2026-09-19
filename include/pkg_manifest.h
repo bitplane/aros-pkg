@@ -22,8 +22,12 @@
  * ">= <version>", the lowest version that will do. Depends lines are sorted by
  * name, name each package once, and never the package itself.
  *
- * Parsing is strict. An unknown key, a duplicate key, a missing required key,
- * an unsafe path or a malformed digest is a refusal, never a guess.
+ * Parsing is strict for what Pkg knows: a duplicate key, a missing required
+ * key, an unsafe path or a malformed digest is a refusal, never a guess. A
+ * key Pkg does not know is ignored, so that a package can carry lines for
+ * other distribution systems: it stays in the signed text, is never acted
+ * on, and its name is kept in `ignored` so that SHOW can say so. A change
+ * Pkg must understand gets a new Format number, which older Pkg refuses.
  */
 
 #ifndef PKG_MANIFEST_H
@@ -104,6 +108,7 @@ struct pkg_manifest {
     size_t           ncontent;
     size_t           ccap;
     struct pkg_about about;         /* the catalogue fields */
+    struct pkg_strs  ignored;       /* the keys Pkg does not know, each once */
     struct pkg_strs  provides;      /* "Provides: SDL2.library": the libraries and devices
                                        the package ships in Libs/ and Devs/, sorted */
 };
