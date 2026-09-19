@@ -1,11 +1,4 @@
-Catalogue fields: a short line, a description, a category, tags, authors, links, a licence and the changes of each version, signed with the package and shown by SHOW and on the portal.
-
-Output redesigned: tables for LIST, SHOW, STATUS and VERIFY ALL, colour and marks at a terminal, a progress counter on long steps.
-
-VERIFY ALL and REPAIR ALL check and mend a whole system; files already in place are no longer rewritten, so adopting an InstallAROS system and upgrading write only what changed.
-
-Configuration files (CONFIG) keep a person's edit across upgrades.
-
-Packages from someone else's archive can name where it is published (UPSTREAM): installs download it from there.
-
-LOG <file> keeps a copy of the output. PUSH also sends the macOS, Linux and Windows builds of Pkg.
+Published by a new publisher, JKN, with its own key. A machine that installed Pkg 0.3 or 0.4 refuses this upgrade once with 14, a new publisher key; accept it with ACCEPTKEY 43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077 after comparing that key with the one on the portal's Trust page.
+RESOLVE <library> or <program> says which copy of a library AROS will open and why, checking its CPU, resident tag, type and version, and what to do when it is the wrong one.
+Packages list the libraries and devices they ship (Provides), and PUBLISH warns about a library a program opens that no dependency provides.
+Manifest keys Pkg does not know are ignored and named by SHOW instead of refused, so packages can carry lines for other systems.

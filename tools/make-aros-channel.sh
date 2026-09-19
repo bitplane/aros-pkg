@@ -19,6 +19,10 @@
 # the publisher's key, and upgraded with `Pkg UPGRADE pkg`.
 #
 #   PKG_SIGNKEY=<publisher key> sh tools/make-aros-channel.sh <channel>
+#
+# When Pkg changes publisher, the channel's earlier versions name the old key
+# and PUBLISH refuses the new one with 14; ACCEPTKEY=<the new public key>
+# says the change is meant, as PUBLISH's own ACCEPTKEY does.
 
 set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -46,7 +50,7 @@ for b in "$repo_root/build/aros/Pkg" "$repo_root/build/aros-x86_64/Pkg" "$repo_r
         SHORT "Installs and updates AROS software" DESCRIPTION "$repo_root/tools/pkg-about.txt" \
         CATEGORY util/sys TAGS "packages, install, update, signed" AUTHOR "John Knipper" \
         LICENSE MIT DISTRIBUTION open-source HOMEPAGE https://aros-pkg.azurewebsites.net/packages/pkg/pkg \
-        CHANGES "$repo_root/tools/pkg-changes.txt" MACHINE > "$work/out" || {
+        CHANGES "$repo_root/tools/pkg-changes.txt" ${ACCEPTKEY:+ACCEPTKEY "$ACCEPTKEY"} MACHINE > "$work/out" || {
         cat "$work/out" >&2; exit 1; }
     mkdir -p "$ch/Bootstrap/$cpu"
     cp "$b" "$ch/Bootstrap/$cpu/Pkg"
