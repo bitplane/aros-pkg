@@ -99,8 +99,69 @@ the system's `curl`.
 ## The portal
 
 The package portal at `https://aros-pkg.azurewebsites.net` serves channels
-this way, and shows each package on a web page. It holds only descriptions
-and signatures: a package's files are either uploaded with it or, for
-packages from someone else's archive, downloaded from where that archive is
-published. Publishers upload with `PUSH`; see
+this way, over `https` and over plain `http` for machines without TLS, and
+shows each package on a web page: its versions, dependencies, files,
+signer and catalogue. **Downloads** is where a newcomer starts (Pkg for
+every CPU and host), **Statistics** shows what each channel holds, and
+**Documentation** is these guides.
+
+What the portal holds and enforces:
+
+- Descriptions, signatures and the files publishers upload. The archives
+  of packages published from someone else's archive (the AROS nightly) are
+  not on the portal: only their `Archive:` line, and machines download them
+  from where they are published.
+- A push needs a key given by the portal's maintainers, in `PKG_PUSHKEY`,
+  and goes over `https` only (`http` is refused, 403).
+- A package keeps the key of its first version: a push signed by another
+  key is refused (14). A published file never changes (15), and a push
+  never removes anything.
+- Every push is checked by the portal running Pkg itself (`SHOW ... METADATA`)
+  before anything is published.
+
+Publishers upload with `PUSH`; see
 [Publishing](publishing.md#upload-to-the-portal).
+
+## Host your own portal
+
+The portal is in this repository, `portal/`, and anyone can run one: for a
+club, a company, a distribution of your own, or a mirror. It is an ASP.NET
+Core application (.NET 10) with no database; the channel directories are
+its only state, so a channel you already serve from a directory becomes a
+portal channel by being placed under its data directory.
+
+To try it on your machine:
+
+```sh
+git clone https://github.com/jonx/aros-pkg && cd aros-pkg
+make                                   # build/pkg: the portal checks pushes with it
+cd portal/src/Portal && dotnet run     # http://localhost:5000, data in portal/data
+```
+
+Put a channel under `portal/data/<name>` (or push one: see below) and
+`pkg SHOW CHANNEL http://localhost:5000/<name>` reads it like any channel.
+
+To let publishers push, make a key per publisher and put its hash in the
+settings; the key itself goes to the publisher once and is never stored:
+
+```sh
+dotnet Portal.dll key jane mychannel         # prints the key, and the Portal:Keys line
+```
+
+Settings, in `appsettings.json` or as environment variables with `__`
+(`Portal__PublicUrl`):
+
+| Setting | Meaning |
+|---|---|
+| `Portal:DataDir` | where channels, staging and state live |
+| `Portal:PkgPath` | the Pkg binary that checks pushes |
+| `Portal:Keys` | `name:sha256-of-key:channel,channel;...`, one entry per publisher |
+| `Portal:PublicUrl` | the address shown in the commands on the pages |
+| `Portal:Pinned` | packages shown first on the home page, `channel/name` |
+| `Portal:AllowLoopbackHttpPush` | pushes over `http` from `127.0.0.1`, for a local instance |
+
+Deploying: any host that runs .NET 10 and gives the app a writable data
+directory serves it; `portal/tools/deploy-azure.sh` is the script that puts
+the public portal on an Azure Linux web app, to copy or adapt. The push
+protocol, what the portal checks and its tests are in
+[portal/README.md](../portal/README.md).

@@ -8,7 +8,7 @@ and Windows, where you build, publish and test packages.
 
 Pkg is being built to become part of the official AROS distribution, once it
 has stabilised a little more. Until then it lives here, with its
-[portal](portal/README.md), and changes as the work needs.
+portal, and changes as the work needs.
 
 This page is for using Pkg. If you are here to **publish your own
 programs**, read [Publishing packages](docs/publishing.md); to **run your own
@@ -20,19 +20,30 @@ typing for you**, [Pkg with an AI assistant](docs/agents.md).
 
 ## Install Pkg
 
-**On AROS.** Get the drawer that carries Pkg for your machine (from the
-package portal, or any volume or share that holds a Pkg channel) and run its
-install script, naming the drawer:
+**On AROS.** The [downloads page](https://aros-pkg.azurewebsites.net/downloads)
+gives `pkg-<cpu>.zip` for each CPU, a small drawer that is itself a Pkg
+channel: unzip it on your Mac or PC, copy the drawer to the AROS machine (a
+share, a USB stick, an image), and run its install script, naming the drawer
+as the machine sees it:
 
 ```amigados
-Execute Work:Pkg/Install-Pkg Work:Pkg
+Execute Work:pkg-x86_64/Install-Pkg Work:pkg-x86_64
 ```
 
 The script picks the build for your CPU and installs Pkg into `SYS:` as a
 signed package, so later versions arrive with `Pkg UPGRADE pkg`.
 
-**On macOS, Linux and Windows.** Build it from this repository with a C99
-compiler:
+**On macOS, Linux and Windows.** The same page has ready builds; one
+command puts `pkg` in the current directory:
+
+```sh
+curl -fsSLo pkg https://aros-pkg.azurewebsites.net/get/pkg/macos-arm64 && chmod +x pkg
+```
+
+with `macos-x86_64`, `linux-x86_64` or `linux-arm64` in place of
+`macos-arm64`; on Windows, `Invoke-WebRequest
+https://aros-pkg.azurewebsites.net/get/pkg/windows-x86_64 -OutFile pkg.exe`.
+Or build it from this repository with a C99 compiler:
 
 ```sh
 make                    # build/pkg
@@ -152,7 +163,10 @@ Pkg is written in C99, with no dependency beyond the C library (bzip2 is
 included). It builds as a command and as a library, `libpkg`, for programs
 that want to install software themselves. MIT licence.
 
-For contributors: [Developing Pkg](docs/development.md) (build, test, the
-library), [the container](docs/container.md), [AROS defects found while
-building Pkg](docs/aros-defects.md), [how Pkg was established](docs/history.md),
-[GOAL.md](GOAL.md) and [OPEN.md](OPEN.md).
+## For contributors
+
+[Developing Pkg](docs/development.md) (build, test, the library),
+[the portal's source](portal/README.md), [the container](docs/container.md),
+[AROS defects found while building Pkg](docs/aros-defects.md),
+[how Pkg was established](docs/history.md), [GOAL.md](GOAL.md) and
+[OPEN.md](OPEN.md).
