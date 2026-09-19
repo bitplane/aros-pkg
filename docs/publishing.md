@@ -248,8 +248,21 @@ and the channel never carries the archive.
 
 ## Upload to the portal
 
-Publish into a local channel, then send it to the portal. The portal gives
-you an upload key, which goes in `PKG_PUSHKEY`; never on the command line:
+**The portal takes pushes only from publishers its maintainer has
+registered, and for now the only way to be registered is to ask:** see
+<https://aros-pkg.azurewebsites.net/publish>. Send your public key
+(`pkg KEYINFO FILE <your key>`, not secret) and the channel you want; you
+are told when it is done. There is no sign-up form yet.
+
+Once registered, publish into a local channel and send it to the portal,
+signing the push with the key you registered:
+
+```sh
+pkg PUSH CHANNEL mychannel TO https://aros-pkg.azurewebsites.net/mychannel SIGN my.key
+```
+
+Or, if the maintainer gave you an upload key instead, over https with the
+key in `PKG_PUSHKEY`; never on the command line:
 
 ```sh
 export PKG_PUSHKEY="the key the portal gave you"

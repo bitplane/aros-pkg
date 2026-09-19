@@ -7911,11 +7911,16 @@ static int cmd_push(const struct pkg_options *a)
         signed_push = !(has_key && (strncmp(a->to, "https://", 8) == 0 || local));
     }
     if (signed_push) {
-        if (a->sign == NULL || a->sign[0] == '\0')
-            return refuse_n(14, "ask-requester", "no key to sign the push with: give SIGN <keyfile> or set "
-                            "PKG_SIGNKEY to the publisher's key, the one the portal knows them by; or, to an "
-                            "https address, set PKG_PUSHKEY to the key the portal gave. Ask whoever requested "
-                            "this which; never make a key up");
+        if (a->sign == NULL || a->sign[0] == '\0') {
+            /* the portal's own page on becoming a publisher: scheme and host of TO */
+            const char *h = strstr(a->to, "://") + 3, *e = strchr(h, '/');
+            int bl = (int)(e ? (size_t)(e - a->to) : strlen(a->to));
+            return refuse_n(14, "ask-requester", "no key to push with. A portal takes pushes only from "
+                            "publishers its maintainers have registered, and nobody can register themselves "
+                            "yet: ask them, as %.*s/publish explains. Once registered, sign the push with SIGN "
+                            "<keyfile> (or PKG_SIGNKEY), the key you registered, or over https with "
+                            "PKG_PUSHKEY, the key the portal gave you. Never make a key up", bl, a->to);
+        }
         if (load_key(a->sign, &pa.k) != 0)
             return 1;
     } else {
