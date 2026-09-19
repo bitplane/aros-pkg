@@ -1,0 +1,112 @@
+# What the contrib packages say about themselves, where the component says
+# nothing: an Aminet category, a few tags, a Short line (40 characters at
+# most) saying what the program is, and its homepage when it has a known
+# one. A component's own Aminet .readme wins over the Short and Category
+# here (tools/contrib/publish-nightly.sh). Every line of this table is also
+# a finding for the upstream build: the component should carry its own.
+#
+# name | category | tags | short | homepage
+regina | dev/lang | rexx, interpreter, scripting | REXX interpreter | https://regina-rexx.sourceforge.io
+info-zip | util/arc | zip, archive, compression | Zip and UnZip archivers | https://infozip.sourceforge.net
+iperf3 | comm/tcp | network, benchmark | Network bandwidth measurement tool | https://iperf.fr
+sockperf | comm/tcp | network, benchmark, latency | Network latency and throughput tester | https://github.com/Mellanox/sockperf
+xadmaster | util/arc | archive, unpack, library | Archive and disk image unpacking library |
+sdk | dev/misc | sdk, compiler, gcc, headers | AROS development kit: compiler, headers |
+bgui | dev/gui | gui, toolkit | BGUI object-oriented GUI toolkit |
+dopus | util/dir | files, filemanager | Directory Opus 4 file manager |
+blackhole | demo/misc | demo, graphics | Black hole graphics demo |
+dawafire | demo/misc | demo, graphics | Fire effect graphics demo |
+ftunnel | demo/misc | demo, graphics | Texture-mapped tunnel demo |
+firework | demo/misc | demo, graphics | Fireworks graphics demo |
+flamme | demo/misc | demo, graphics | Flame effect graphics demo |
+gl | demo/misc | demo, opengl, 3d | OpenGL demonstration programs |
+galaxy | demo/misc | demo, graphics | Galaxy simulation demo |
+infplane | demo/misc | demo, graphics | Infinite plane graphics demo |
+kitty | demo/misc | demo, graphics | Kitty graphics demo |
+metaballs | demo/misc | demo, graphics | Metaballs graphics demo |
+newvox | demo/misc | demo, graphics, voxel | Voxel landscape demo |
+parallax | demo/misc | demo, graphics | Parallax scrolling demo |
+powerzoom | demo/misc | demo, graphics | Zooming graphics demo |
+rubberstrings | demo/misc | demo, graphics | Rubber strings graphics demo |
+demos | demo/misc | demo, opengl | Launcher for the OpenGL demos |
+tunnel | demo/misc | demo, graphics | Tunnel graphics demo |
+voxel | demo/misc | demo, graphics, voxel | Voxel landscape demo |
+kdp | demo/misc | demo, graphics | Graphics demo |
+amigahunkparser | dev/misc | hunk, executable, debug | Amiga hunk executable parser |
+build | dev/misc | build, tools | Build tools: ilbmtoicon, setrev |
+chocolatecastle | dev/mui | mui, zune, generator | MUI class source generator |
+flexcat | dev/misc | locale, catalog, i18n | Catalog description compiler |
+lua | dev/lang | lua, scripting, interpreter | Lua scripting language | https://www.lua.org
+muibuilder | dev/gui | mui, gui, builder | MUI interface builder |
+minad | dev/misc | developer, tools | Developer tool (MinAD) |
+bin | dev/misc | developer, tools, cli | Developer command-line tools |
+nasm | dev/asm | assembler, x86 | Netwide Assembler for x86 | https://www.nasm.us
+fryingpan | disk/cdrom | cd, dvd, burning | CD and DVD burning program |
+bomber | game/actio | game, action | Action game (Bomber) |
+lbreakout2 | game/actio | game, action, breakout | Breakout-style arcade game | https://lgames.sourceforge.io
+spout | game/actio | game, action | Cave flying arcade game |
+xinvaders3d | game/shoot | game, shooter, 3d | 3D Space Invaders game |
+amichess | game/board | game, chess | Chess game |
+backgammon | game/board | game, backgammon | Backgammon board game |
+lazymines | game/think | game, minesweeper | Minesweeper game |
+muimine | game/think | game, minesweeper, mui | Minesweeper game for MUI |
+newmastermind | game/think | game, mastermind | Mastermind code-breaking game |
+yahzee | game/board | game, dice | Yahtzee dice game |
+soliton | game/board | game, cards, solitaire | Klondike solitaire card game |
+moria3d | game/actio | game, 3d | 3D first-person game |
+inv | game/shoot | game, shooter | Space invaders game |
+kiel | game/misc | game, collection | Game collection (Kiel) |
+cxhextris | game/think | game, tetris | Hexagonal Tetris game |
+madmatrix | game/think | game, puzzle | Matrix puzzle game |
+misc | misc/misc | collection | Miscellaneous programs |
+aminet-collection | misc/misc | collection, aminet | Programs from Aminet |
+fish-collection | misc/misc | collection, fish | Programs from the Fish disks |
+amp2 | mus/play | audio, video, player | AMP2 audio and video player |
+plugin | mus/play | audio, video, plugins | Plugins for the AMP2 player |
+madahi | mus/play | audio, mp3, ahi | MPEG audio player for AHI |
+playcdda | mus/play | audio, cd, player | Audio CD player |
+radium | mus/edit | music, tracker, editor | Music editor | https://users.notam02.no/~kjetism/radium/
+shellplayer | mus/play | audio, player, cli | Music player for the Shell |
+c-ray | gfx/3d | raytracer, 3d | Ray tracer |
+dbwrender | gfx/3d | raytracer, 3d | DBW ray tracing renderer |
+datatypetocsource | dev/misc | images, datatypes, source | Converts images to C source |
+dt2thumb | gfx/conv | thumbnails, images | Makes thumbnails of pictures |
+lunapaint | gfx/edit | paint, graphics | Paint program |
+mysticube | gfx/misc | graphics, 3d | 3D graphics program (MystiCube) |
+mysticview | gfx/show | pictures, viewer | Picture viewer |
+povray | gfx/3d | raytracer, 3d, povray | POV-Ray ray tracer | https://www.povray.org
+wazp3d | gfx/3d | 3d, warp3d, library | Warp3D software implementation |
+xaos | gfx/misc | fractals, graphics | Real-time fractal zoomer | https://xaos-project.github.io
+cdxlplay | gfx/show | cdxl, animation, player | CDXL animation player |
+aaedt | comm/net | network | Network application (AAEDT) |
+aircos | comm/tcp | irc, chat, network | IRC client |
+marranoftp | comm/tcp | ftp, network | FTP client |
+wget | comm/tcp | download, http, ftp | Downloads files over HTTP and FTP | https://www.gnu.org/software/wget/
+arosvncserver | comm/tcp | vnc, remote, network | VNC server for AROS |
+ntpsync | comm/tcp | time, ntp, network | Sets the clock from a time server |
+sanautil | comm/net | sana2, network | SANA-II network device utility |
+rexx | util/rexx | rexx, scripts | REXX scripts |
+scalos | util/wb | desktop, workbench | Scalos desktop replacement |
+scout | util/moni | system, monitor | System monitor and inspector |
+unarc | util/arc | archive, unpack | Unpacks archives of many formats |
+arospdf | text/show | pdf, viewer | PDF viewer |
+text2pdf | text/misc | pdf, text, convert | Converts text files to PDF |
+mcc_bwin | dev/mui | mui, zune, class | BWin MUI window class |
+mcc_mailtext | dev/mui | mui, zune, class | Mailtext MUI text class |
+mcc_popph | dev/mui | mui, zune, class | Popph MUI popup class |
+mcc_thebar | dev/mui | mui, zune, class, toolbar | TheBar MUI toolbar class |
+mcc_toolbar | dev/mui | mui, zune, class, toolbar | Toolbar MUI class |
+mcc_urltext | dev/mui | mui, zune, class | Urltext MUI link class |
+fonts-truetype | text/font | fonts, truetype | TrueType fonts (DejaVu) |
+sdl | dev/lib | sdl, multimedia, library | SDL 1.2 multimedia library | https://www.libsdl.org
+sdl2 | dev/lib | sdl, multimedia, library | SDL 2 multimedia library | https://www.libsdl.org
+sdl3 | dev/lib | sdl, multimedia, library | SDL 3 multimedia library | https://www.libsdl.org
+gtlayout | dev/gui | gadtools, layout, library | GadTools layout library |
+guigfx | dev/lib | graphics, pictures, library | Picture processing library |
+lcms2 | dev/lib | colour, icc, library | Little CMS colour management | https://www.littlecms.com
+openal | dev/lib | audio, 3d, library | OpenAL 3D audio library | https://www.openal.org
+pixman | dev/lib | graphics, pixels, library | Pixel manipulation library | https://www.pixman.org
+ptplay | dev/lib | audio, protracker, library | ProTracker module player library |
+render | dev/lib | graphics, colour, library | Image rendering library |
+xprzmodem | comm/misc | zmodem, transfer, protocol | ZModem file transfer protocol |
+curl | comm/tcp | download, http, url | Transfers data with URLs | https://curl.se

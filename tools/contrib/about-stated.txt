@@ -1,0 +1,25 @@
+# What a component states about itself, and where: the file in the nightly
+# archive each value is taken from. Descriptions are passages of that file,
+# in about/<name>.txt. tools/contrib/about.py merges these with the Aminet
+# readmes and licence files it reads, and with about.txt for what is missing.
+#
+# name | field | value | source
+wget | description | about/wget.txt | Extras/Networking/Apps/WGet/README
+scalos | description | about/scalos.txt | Extras/Scalos/readme.txt
+scalos | homepage | http://scalos.noname.fr/ | Extras/Scalos/readme.txt
+scalos | repository | https://sourceforge.net/projects/scalos/ | Extras/Scalos/readme.txt
+arosvncserver | description | about/arosvncserver.txt | Extras/Networking/Utils/AROSVNCServer/Read.Me
+arosvncserver | author | Yannick Erb | Extras/Networking/Utils/AROSVNCServer/Read.Me
+mcc_thebar | description | about/mcc_thebar.txt | Extras/Zune/MCC_TheBar/README.md
+mcc_thebar | author | Alfonso Ranieri and TheBar Open Source Team | Extras/Zune/MCC_TheBar/Doc/MCC_TheBar.readme
+mcc_thebar | repository | https://github.com/amiga-mui/thebar | Extras/Zune/MCC_TheBar/README.md
+muibuilder | description | about/muibuilder.txt | Extras/Developer/MUIBuilder/ReadMe
+muibuilder | repository | http://sourceforge.net/projects/muibuilder/ | Extras/Developer/MUIBuilder/ReadMe
+c-ray | description | about/c-ray.txt | Extras/MultiMedia/Gfx/C-Ray/README.md
+c-ray | author | Valtteri Koskivuori | Extras/MultiMedia/Gfx/C-Ray/LICENSE
+c-ray | repository | https://github.com/vkoskiv/c-ray | Extras/MultiMedia/Gfx/C-Ray/README.md
+dt2thumb | description | about/dt2thumb.txt | Extras/MultiMedia/Gfx/Dt2Thumb/readme.txt
+dt2thumb | author | Yannick Erb | Extras/MultiMedia/Gfx/Dt2Thumb/readme.txt
+dt2thumb | homepage | http://www.dusabledanslherbe.eu/AROSPage/ | Extras/MultiMedia/Gfx/Dt2Thumb/readme.txt
+dbwrender | author | David B. Wecker | Extras/MultiMedia/Gfx/DBWRender/README.txt
+cxhextris | author | David Markley | Extras/Games/Puzzle/CXHextris/README

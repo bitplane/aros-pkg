@@ -1,0 +1,1 @@
+This little tool creates thumbnail icons for any image format recognised by the datatype system.

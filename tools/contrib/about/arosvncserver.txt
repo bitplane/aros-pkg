@@ -1,0 +1,3 @@
+AROS VNC server is based on libvncserver and uses some parts of gemsvnc (framebuffer changes detection) and AmiVNC (keyboard and mouse inputs).
+
+It can be launched directly from its icon or from the shell.

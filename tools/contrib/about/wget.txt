@@ -1,0 +1,3 @@
+GNU Wget is a free utility for non-interactive download of files from the Web. It supports HTTP, HTTPS, and FTP protocols, as well as retrieval through HTTP proxies.
+
+It can follow links in HTML pages and create local versions of remote web sites, fully recreating the directory structure of the original site.

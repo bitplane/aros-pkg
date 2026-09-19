@@ -1909,8 +1909,26 @@ static int aminet_readme(const char *path, struct pkg_about *a)
         }
         i = e + 1;
     }
-    if (body > 0 && body < len && a->description.n == 0)
+    if (body > 0 && body < len && a->description.n == 0) {
+        /* the text, less the readme's own heading over it: "DESCRIPTION",
+         * "Description" and its line of "=" */
+        size_t k = 0, i2;
         text_lines(buf, len, body, &a->description);
+        while (k < a->description.n) {
+            const char *l = a->description.v[k];
+            int rule = l[0] != '\0';
+            for (i2 = 0; l[i2] && rule; i2++) rule = l[i2] == '=' || l[i2] == '-' || l[i2] == '*';
+            if (!(ascii_casecmp(l, "description") == 0 || ascii_casecmp(l, "description:") == 0
+                  || rule || (l[0] == '\0' && k == 0)))
+                break;
+            k++;
+        }
+        if (k > 0) {
+            for (i2 = 0; i2 < k; i2++) free(a->description.v[i2]);
+            memmove(a->description.v, a->description.v + k, (a->description.n - k) * sizeof *a->description.v);
+            a->description.n -= k;
+        }
+    }
     free(buf);
     return 0;
 }

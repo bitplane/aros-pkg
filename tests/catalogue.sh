@@ -26,7 +26,7 @@ printf 'png' > d/Docs/shot.png
 printf 'Tool does things.\n\n\n\tIndented, and    \nkept in one paragraph.\n' > desc.txt
 printf 'First version.\n' > changes.txt
 # an Aminet readme, in Latin-1 as many are
-printf 'Short:        Does things well\nAuthor:       Jane Roe, Joe Bloggs\nType:         util/misc\nVersion:      1.0\nArchitecture: m68k-amigaos\n\nThe readme text, caf\351.\n' > tool.readme
+printf 'Short:        Does things well\nAuthor:       Jane Roe, Joe Bloggs\nType:         util/misc\nVersion:      1.0\nArchitecture: m68k-amigaos\n\nDescription\n===========\nThe readme text, caf\351.\n' > tool.readme
 
 echo "keywords"
 $PKG PUBLISH d CHANNEL ch KIND application SHORT "A tool that does things" DESCRIPTION desc.txt \
@@ -62,8 +62,9 @@ echo "readme"
 $PKG PUBLISH d CHANNEL ch2 KIND application README tool.readme MACHINE > o4 2>&1
 f=$(awk '{print $4}' ch2/index); cp "ch2/objects/$f.manifest" m4
 [ $? -eq 0 ] && has m4 '^Short: Does things well$' && has m4 '^Category: util/misc$' \
-  && has m4 '^Author: Joe Bloggs$' && grep -q "^Description: The readme text, caf$(printf '\303\251').$" m4
-                                                      ok $? "an Aminet readme gives Short, Author, Type and its text, Latin-1 made UTF-8"
+  && has m4 '^Author: Joe Bloggs$' && grep -q "^Description: The readme text, caf$(printf '\303\251').$" m4 \
+  && [ "$(grep -c '^Description: ' m4)" = 1 ]
+                                                      ok $? "an Aminet readme gives Short, Author, Type and its text without its heading, Latin-1 made UTF-8"
 $PKG PUBLISH d CHANNEL ch3 KIND application README tool.readme SHORT "Mine" > /dev/null 2>&1
 f=$(awk '{print $4}' ch3/index)
 grep -q '^Short: Mine$' "ch3/objects/$f.manifest";   ok $? "a keyword wins over the readme"

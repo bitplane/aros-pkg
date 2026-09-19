@@ -11,7 +11,8 @@
 #
 #   PKG_SIGNKEY=<key> sh tools/contrib/publish-nightly.sh <channel> <archive> <top dir> <table> <build> [<url>]
 #
-# The archive must already be in <channel>/archives/. With <url>, where the
+# The archive must already be in <channel>/archives/. With ABOUT=<dir>, the
+# output of tools/contrib/about.py, each package gets its catalogue fields. With <url>, where the
 # archive is published (the nightly's SourceForge download), each manifest
 # records it with the archive's size and SHA-256: installs download it from
 # there, and PUSH leaves the archive off the portal.
@@ -27,8 +28,13 @@ start=$(date +%s)
 published=0 unchanged=0 refused=0 files=0 bytes=0
 # a table edited by hand: CRLF, trailing spaces and blank lines are fine
 tr -d '\r' < "$table" | sed 's/[[:space:]]*$//' | grep -v '^#' | grep . | while read -r pname kind paths; do
+    # the catalogue fields of tools/contrib/about.py, when ABOUT names its output
+    set --
+    if [ -n "${ABOUT:-}" ] && [ -f "$ABOUT/$pname.args" ]; then
+        while IFS= read -r w; do set -- "$@" "$w"; done < "$ABOUT/$pname.args"
+    fi
     out=$("$pkg" PUBLISH "$ch/archives/$name!/$top" FILES "$paths" CHANNEL "$ch" NAME "$pname" \
-          KIND "$kind" BUILD "$build" ${url:+UPSTREAM "$url"} MACHINE 2>&1)
+          KIND "$kind" BUILD "$build" ${url:+UPSTREAM "$url"} "$@" MACHINE 2>&1)
     rc=$?
     result=$(printf '%s\n' "$out" | awk -F': ' '$1=="result"{print $2}')
     version=$(printf '%s\n' "$out" | awk -F': ' '$1=="version"{print $2; exit}')

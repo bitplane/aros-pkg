@@ -1,0 +1,1 @@
+Scalos is a desktop environment for AmigaOS3/4, MorphOS and AROS. It is an Open Source effort which is hosted at Sourceforge.

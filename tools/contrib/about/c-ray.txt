@@ -1,0 +1,1 @@
+C-ray is a research oriented, hackable, offline CPU rendering engine built for learning. The source code is intended to be readable wherever possible.
