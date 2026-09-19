@@ -147,8 +147,10 @@ qemu-system-x86_64 -m 1024 -cdrom "$work/test.iso" -boot d -display none -no-reb
     -nic user,model=pcnet \
     -serial file:"$work/com1.log" -serial file:"$work/com2.log" > "$work/qemu.log" 2>&1 &
 qemu_pid=$!
+# 40 minutes: the emulated card moves a few hundred KB/s, and the steps
+# fetch Pkg itself from the portal twice, which TLS made ten times larger.
 w=0
-while [ "$w" -lt 900 ] && ! LC_ALL=C grep -a -q 'PKGTEST-DONE' "$work/com2.log" 2>/dev/null; do
+while [ "$w" -lt 2400 ] && ! LC_ALL=C grep -a -q 'PKGTEST-DONE' "$work/com2.log" 2>/dev/null; do
     sleep 5; w=$((w + 5))
 done
 kill "$qemu_pid" 2>/dev/null; qemu_pid=
