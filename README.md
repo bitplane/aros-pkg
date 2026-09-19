@@ -6,6 +6,10 @@ update you did not ask for never happens: Pkg refuses and tells you why. The
 same program runs on AROS, where it manages your system, and on macOS, Linux
 and Windows, where you build, publish and test packages.
 
+Pkg is being built to become part of the official AROS distribution, once it
+has stabilised a little more. Until then it lives here, with its
+[portal](portal/README.md), and changes as the work needs.
+
 This page is for using Pkg. If you are here to **publish your own
 programs**, read [Publishing packages](docs/publishing.md); to **run your own
 channel**, [Channels](docs/channels.md); to **ship builds for several
