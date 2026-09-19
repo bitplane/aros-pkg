@@ -8,10 +8,13 @@
 # as long as the test does.
 #
 #   ca.pem        the authority, which the test gives Pkg in PKG_CAFILE
-#   good.pem      127.0.0.1, signed by ca.pem: the one that must work
-#   other.pem     127.0.0.1, signed by an authority Pkg is not given
+#   good.pem      the address, signed by ca.pem: the one that must work
+#   other.pem     the address, signed by an authority Pkg is not given
 #   wrongname.pem signed by ca.pem, but made out to another name
-#   expired.pem   127.0.0.1, signed by ca.pem, out of date since last year
+#   expired.pem   the address, signed by ca.pem, out of date since last year
+#
+# The address is 127.0.0.1 unless one is given: a machine in an emulator
+# sees the host at another one.
 #   good.pfx      good.pem again, for a server that wants PKCS#12 (Kestrel);
 #                 its password is "pkg"
 #
@@ -21,7 +24,8 @@
 # in days.
 
 set -eu
-dir=${1:?usage: tls-certs.sh <dir>}
+dir=${1:?usage: tls-certs.sh <dir> [address]}
+addr=${2:-127.0.0.1}
 ssl=${OPENSSL:-}
 if [ -z "$ssl" ]; then
     for c in openssl /opt/homebrew/opt/openssl@3/bin/openssl /opt/homebrew/opt/openssl/bin/openssl \
@@ -56,10 +60,10 @@ leaf() {                                        # leaf <stem> <ca stem> <SAN> <d
 authority ca "Pkg test authority"
 authority other-ca "Another authority"
 
-leaf good      ca       "IP:127.0.0.1"                  -days 2
-leaf other     other-ca "IP:127.0.0.1"                  -days 2
+leaf good      ca       "IP:$addr"                      -days 2
+leaf other     other-ca "IP:$addr"                      -days 2
 leaf wrongname ca       "DNS:not-this-machine.invalid"  -days 2
-leaf expired   ca       "IP:127.0.0.1" \
+leaf expired   ca       "IP:$addr" \
     -not_before "${past_from}0101000000Z" -not_after "${past_to}0101000000Z"
 
 "$ssl" pkcs12 -export -out good.pfx -inkey good.key -in good.crt -passout pass:pkg 2> /dev/null
