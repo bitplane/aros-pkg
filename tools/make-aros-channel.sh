@@ -41,7 +41,12 @@ for b in "$repo_root/build/aros/Pkg" "$repo_root/build/aros-x86_64/Pkg" "$repo_r
     mkdir -p "$work/d/C"
     cp "$b" "$work/d/C/Pkg"
     cpu=$("$pkg" MANIFEST "$work/d" KIND application | awk '/^Architecture: /{print $2}')
-    "$pkg" PUBLISH "$work/d" CHANNEL "$ch" KIND application MACHINE > "$work/out" || {
+    # what the portal and SHOW say about Pkg; later versions keep all but CHANGES
+    "$pkg" PUBLISH "$work/d" CHANNEL "$ch" KIND application \
+        SHORT "Installs and updates AROS software" DESCRIPTION "$repo_root/tools/pkg-about.txt" \
+        CATEGORY util/sys TAGS "packages, install, update, signed" AUTHOR "John Knipper" \
+        LICENSE MIT DISTRIBUTION open-source HOMEPAGE https://aros-pkg.azurewebsites.net/packages/pkg/pkg \
+        CHANGES "$repo_root/tools/pkg-changes.txt" MACHINE > "$work/out" || {
         cat "$work/out" >&2; exit 1; }
     mkdir -p "$ch/Bootstrap/$cpu"
     cp "$b" "$ch/Bootstrap/$cpu/Pkg"
@@ -49,6 +54,23 @@ for b in "$repo_root/build/aros/Pkg" "$repo_root/build/aros-x86_64/Pkg" "$repo_r
     found=$((found + 1))
 done
 [ "$found" -gt 0 ] || { echo "make-aros-channel: no AROS build of Pkg; run tools/build-aros.sh or tools/build-aros-x86_64.sh" >&2; exit 69; }
+# The host builds, for the portal's download page: whichever `make build/pkg-macos
+# build/pkg-linux-x86_64 build/pkg-linux-aarch64 build/pkg.exe` left.
+host() {  # host <platform> <file name> <source>
+    [ -f "$3" ] || return 0
+    mkdir -p "$ch/Bootstrap/$1"
+    cp "$3" "$ch/Bootstrap/$1/$2"
+    echo "make-aros-channel: host build $1"
+}
+if [ -f "$repo_root/build/pkg-macos" ] && command -v lipo > /dev/null; then
+    for a in arm64 x86_64; do
+        lipo "$repo_root/build/pkg-macos" -thin $a -output "$work/pkg-macos-$a" 2>/dev/null \
+            && host "macos-$a" pkg "$work/pkg-macos-$a"
+    done
+fi
+host linux-x86_64 pkg "$repo_root/build/pkg-linux-x86_64"
+host linux-arm64 pkg "$repo_root/build/pkg-linux-aarch64"
+host windows-x86_64 pkg.exe "$repo_root/build/pkg.exe"
 
 {
     echo '.KEY CHANNEL/A,ROOT'

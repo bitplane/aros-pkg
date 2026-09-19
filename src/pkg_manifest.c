@@ -19,6 +19,170 @@ static char *dupstr(const char *s)
     return p;
 }
 
+/* ---- the catalogue fields ---------------------------------------------- */
+
+const char *const pkg_categories[] = {
+    "biz", "comm", "demo", "dev", "disk", "docs", "driver", "game", "gfx", "hard",
+    "misc", "mods", "mus", "pix", "text", "util", NULL
+};
+
+const char *const pkg_distributions[] = {
+    "open-source", "freeware", "shareware", "public-domain", "commercial", "demo", "other", NULL
+};
+
+int pkg_strs_add(struct pkg_strs *l, const char *s)
+{
+    char **g = (char **)realloc(l->v, (l->n + 1) * sizeof *g);
+    if (g == NULL) return -1;
+    l->v = g;
+    if ((l->v[l->n] = dupstr(s)) == NULL) return -1;
+    l->n++;
+    return 0;
+}
+
+void pkg_strs_free(struct pkg_strs *l)
+{
+    size_t i;
+    for (i = 0; i < l->n; i++) free(l->v[i]);
+    free(l->v);
+    l->v = NULL;
+    l->n = 0;
+}
+
+static void about_free(struct pkg_about *a)
+{
+    free(a->short_desc); free(a->category); free(a->homepage); free(a->repository);
+    free(a->license); free(a->distribution); free(a->icon);
+    pkg_strs_free(&a->description); pkg_strs_free(&a->tags); pkg_strs_free(&a->authors);
+    pkg_strs_free(&a->changes); pkg_strs_free(&a->screenshots);
+}
+
+/* Characters of UTF-8 text, or -1 when it is not UTF-8. */
+static long utf8_chars(const char *s)
+{
+    long n = 0;
+    const unsigned char *p = (const unsigned char *)s;
+    while (*p) {
+        int k = *p < 0x80 ? 0 : (*p & 0xE0) == 0xC0 ? 1 : (*p & 0xF0) == 0xE0 ? 2
+              : (*p & 0xF8) == 0xF0 ? 3 : -1;
+        if (k < 0) return -1;
+        p++;
+        while (k-- > 0) {
+            if ((*p & 0xC0) != 0x80) return -1;
+            p++;
+        }
+        n++;
+    }
+    return n;
+}
+
+const char *pkg_check_about_text(const char *field, const char *s, size_t max_chars)
+{
+    static char why[160];
+    const unsigned char *p = (const unsigned char *)s;
+    long n = utf8_chars(s);
+    for (; *p; p++)
+        if (*p < 0x20 || *p == 0x7F) {
+            snprintf(why, sizeof why, "%s holds a control character", field);
+            return why;
+        }
+    if (n < 0) {
+        snprintf(why, sizeof why, "%s is not UTF-8 text", field);
+        return why;
+    }
+    if (s[0] == ' ' || (s[0] && s[strlen(s) - 1] == ' ')) {
+        snprintf(why, sizeof why, "%s starts or ends with a space", field);
+        return why;
+    }
+    if ((size_t)n > max_chars) {
+        snprintf(why, sizeof why, "%s is %ld characters long; it takes %lu at most", field, n,
+                 (unsigned long)max_chars);
+        return why;
+    }
+    return NULL;
+}
+
+const char *pkg_check_category(const char *s)
+{
+    static char why[300];
+    const char *slash = strchr(s, '/');
+    size_t tl = slash ? (size_t)(slash - s) : strlen(s), i, k;
+    for (i = 0; pkg_categories[i]; i++)
+        if (strlen(pkg_categories[i]) == tl && strncmp(pkg_categories[i], s, tl) == 0)
+            break;
+    if (slash == NULL || pkg_categories[i] == NULL) {
+        size_t at = 0;
+        at += (size_t)snprintf(why, sizeof why, "Category is an Aminet type and its sub-directory, "
+                               "such as util/arc or game/think; the types are");
+        for (k = 0; pkg_categories[k] && at < sizeof why; k++)
+            at += (size_t)snprintf(why + at, sizeof why - at, " %s", pkg_categories[k]);
+        return why;
+    }
+    for (k = 1; slash[k]; k++)
+        if (!((slash[k] >= 'a' && slash[k] <= 'z') || (slash[k] >= '0' && slash[k] <= '9')))
+            break;
+    if (k == 1 || slash[k] != '\0' || k > 9)
+        return "the sub-directory of Category is 1 to 8 lowercase letters or digits, such as util/arc";
+    return NULL;
+}
+
+const char *pkg_check_tag(const char *s)
+{
+    size_t i, n = strlen(s);
+    if (n == 0 || n > 24)
+        return "a tag is 1 to 24 characters";
+    for (i = 0; i < n; i++)
+        if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9')
+              || s[i] == '+' || s[i] == '.' || s[i] == '-'))
+            return "a tag is lowercase letters, digits, + . or -, such as rexx or 3d";
+    return NULL;
+}
+
+const char *pkg_check_url(const char *field, const char *s)
+{
+    static char why[120];
+    const unsigned char *p = (const unsigned char *)s;
+    if (strncmp(s, "https://", 8) != 0 && strncmp(s, "http://", 7) != 0) {
+        snprintf(why, sizeof why, "%s is an http:// or https:// address", field);
+        return why;
+    }
+    for (; *p; p++)
+        if (*p <= ' ' || *p == 0x7F) {
+            snprintf(why, sizeof why, "%s holds a space or a control character; write a space as %%20", field);
+            return why;
+        }
+    if (strlen(s) > 500) {
+        snprintf(why, sizeof why, "%s is longer than 500 characters", field);
+        return why;
+    }
+    return NULL;
+}
+
+const char *pkg_check_license(const char *s)
+{
+    size_t i, n = strlen(s);
+    if (n == 0 || n > 100)
+        return "License is an SPDX expression of 1 to 100 characters, such as MIT or GPL-2.0-or-later";
+    for (i = 0; i < n; i++)
+        if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9')
+              || s[i] == '.' || s[i] == '-' || s[i] == '+' || s[i] == ' ' || s[i] == '(' || s[i] == ')'
+              || s[i] == ':'))
+            return "License is an SPDX expression, such as MIT, GPL-2.0-or-later or (MIT OR Apache-2.0)";
+    if (s[0] == ' ' || s[n - 1] == ' ')
+        return "License starts or ends with a space";
+    return NULL;
+}
+
+const char *pkg_check_distribution(const char *s)
+{
+    size_t i;
+    for (i = 0; pkg_distributions[i]; i++)
+        if (strcmp(pkg_distributions[i], s) == 0)
+            return NULL;
+    return "Distribution is one of open-source, freeware, shareware, public-domain, commercial, "
+           "demo or other";
+}
+
 void pkg_manifest_init(struct pkg_manifest *m)
 {
     memset(m, 0, sizeof *m);
@@ -30,6 +194,7 @@ void pkg_manifest_free(struct pkg_manifest *m)
     free(m->name); free(m->version); free(m->architecture);
     free(m->kind); free(m->payload); free(m->source);
     free(m->archive_sha); free(m->archive_url);
+    about_free(&m->about);
     for (i = 0; i < m->nfiles; i++) {
         free(m->files[i].path);
         free(m->files[i].comment);
@@ -394,6 +559,25 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
         else
             sb_printf(&b, "Depends: %s\n", m->deps[i].name);
     }
+    {
+        const struct pkg_about *a = &m->about;
+        if (a->short_desc) sb_printf(&b, "Short: %s\n", a->short_desc);
+        for (i = 0; i < a->description.n; i++) sb_printf(&b, "Description: %s\n", a->description.v[i]);
+        if (a->category) sb_printf(&b, "Category: %s\n", a->category);
+        if (a->tags.n) {
+            sb_printf(&b, "Tags: ");
+            for (i = 0; i < a->tags.n; i++) sb_printf(&b, "%s%s", i ? ", " : "", a->tags.v[i]);
+            sb_printf(&b, "\n");
+        }
+        for (i = 0; i < a->authors.n; i++) sb_printf(&b, "Author: %s\n", a->authors.v[i]);
+        if (a->homepage) sb_printf(&b, "Homepage: %s\n", a->homepage);
+        if (a->repository) sb_printf(&b, "Repository: %s\n", a->repository);
+        if (a->license) sb_printf(&b, "License: %s\n", a->license);
+        if (a->distribution) sb_printf(&b, "Distribution: %s\n", a->distribution);
+        for (i = 0; i < a->changes.n; i++) sb_printf(&b, "Changes: %s\n", a->changes.v[i]);
+        if (a->icon) sb_printf(&b, "Icon: %s\n", a->icon);
+        for (i = 0; i < a->screenshots.n; i++) sb_printf(&b, "Screenshot: %s\n", a->screenshots.v[i]);
+    }
     if (m->payload)
         sb_printf(&b, "Payload: %s\n", m->payload);
     if (m->source)
@@ -578,6 +762,59 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
                 free(val); goto fail;
             }
             m->source = val;
+        } else if (strcmp(key, "Short") == 0 || strcmp(key, "Category") == 0
+                   || strcmp(key, "Homepage") == 0 || strcmp(key, "Repository") == 0
+                   || strcmp(key, "License") == 0 || strcmp(key, "Distribution") == 0
+                   || strcmp(key, "Icon") == 0) {
+            /* the catalogue fields that appear once */
+            struct pkg_about *a = &m->about;
+            char **slot = key[0] == 'S' ? &a->short_desc : key[0] == 'C' ? &a->category
+                        : key[0] == 'H' ? &a->homepage : key[0] == 'R' ? &a->repository
+                        : key[0] == 'L' ? &a->license : key[0] == 'D' ? &a->distribution : &a->icon;
+            why = key[0] == 'S' ? (val[0] ? pkg_check_about_text("Short", val, 40) : "Short is empty")
+                : key[0] == 'C' ? pkg_check_category(val)
+                : key[0] == 'H' ? pkg_check_url("Homepage", val)
+                : key[0] == 'R' ? pkg_check_url("Repository", val)
+                : key[0] == 'L' ? pkg_check_license(val)
+                : key[0] == 'D' ? pkg_check_distribution(val)
+                : pkg_check_path(val);
+            if (*slot != NULL) why = "appears twice";
+            if (why != NULL) {
+                seterr(err, errlen, line, "%s: %s", key, why);
+                free(val); goto fail;
+            }
+            *slot = val;
+        } else if (strcmp(key, "Description") == 0 || strcmp(key, "Changes") == 0
+                   || strcmp(key, "Author") == 0 || strcmp(key, "Screenshot") == 0) {
+            /* the ones that repeat; an empty Description or Changes is a paragraph break */
+            struct pkg_about *a = &m->about;
+            struct pkg_strs *l = key[0] == 'D' ? &a->description : key[0] == 'C' ? &a->changes
+                               : key[0] == 'A' ? &a->authors : &a->screenshots;
+            why = key[0] == 'S' ? pkg_check_path(val)
+                : key[0] == 'A' ? (val[0] ? pkg_check_about_text("Author", val, 80) : "Author is empty")
+                : pkg_check_about_text(key, val, 1000);
+            if (why == NULL && l->n >= 400) why = "appears more than 400 times";
+            if (why != NULL || pkg_strs_add(l, val) != 0) {
+                seterr(err, errlen, line, "%s: %s", key, why ? why : "out of memory");
+                free(val); goto fail;
+            }
+            free(val);
+        } else if (strcmp(key, "Tags") == 0) {
+            char *t = val, *next;
+            for (; t != NULL; t = next) {
+                size_t k;
+                next = strstr(t, ", ");
+                if (next) { *next = '\0'; next += 2; }
+                why = pkg_check_tag(t);
+                for (k = 0; why == NULL && k < m->about.tags.n; k++)
+                    if (strcmp(m->about.tags.v[k], t) == 0) why = "a tag appears twice";
+                if (why == NULL && m->about.tags.n >= 16) why = "more than 16 tags";
+                if (why != NULL || pkg_strs_add(&m->about.tags, t) != 0) {
+                    seterr(err, errlen, line, "Tags: %s", why ? why : "out of memory");
+                    free(val); goto fail;
+                }
+            }
+            free(val);
         } else if (strcmp(key, "Archive") == 0) {
             /* "<sha256> <size> <url>": where the Source archive is published */
             char *s1 = strchr(val, ' '), *s2 = s1 ? strchr(s1 + 1, ' ') : NULL, *endnum;
@@ -705,6 +942,22 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
     if (m->architecture == NULL) { seterr(err, errlen, line, "Architecture is missing"); goto fail; }
     if (m->kind == NULL)    { seterr(err, errlen, line, "Kind is missing"); goto fail; }
     if ((why = pkg_check_deps(m)) != NULL) { seterr(err, errlen, line, "%s", why); goto fail; }
+    {
+        /* Icon and Screenshot name files of the package, or of its image */
+        const char *pics[401];
+        size_t np = 0, k, f;
+        if (m->about.icon) pics[np++] = m->about.icon;
+        for (k = 0; k < m->about.screenshots.n; k++) pics[np++] = m->about.screenshots.v[k];
+        for (k = 0; k < np; k++) {
+            int found = 0;
+            for (f = 0; f < m->nfiles && !found; f++) found = strcmp(m->files[f].path, pics[k]) == 0;
+            for (f = 0; f < m->ncontent && !found; f++) found = strcmp(m->content[f].path, pics[k]) == 0;
+            if (!found) {
+                seterr(err, errlen, line, "Icon or Screenshot names \"%s\", which is no file of the package", pics[k]);
+                goto fail;
+            }
+        }
+    }
     if (m->archive_sha != NULL && m->source == NULL) {
         seterr(err, errlen, line, "Archive says where a Source archive is published, and there is no Source");
         goto fail;

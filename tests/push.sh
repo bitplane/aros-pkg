@@ -73,6 +73,16 @@ $PKG PUSH CHANNEL local TO "$U" MACHINE > o4b 2>&1
 [ $? -eq 0 ] && has o4b '^published: up ' && ! grep -q 'archives/up.tar' log && [ ! -e portal/pkg/archives/up.tar ]
                                                       ok $? "PUSH publishes the package and leaves its upstream archive out"
 
+echo "bootstrap"
+mkdir -p local/Bootstrap/x86_64 local/Bootstrap/macos-arm64 local/Bootstrap/windows-x86_64 local/Bootstrap/bad
+printf 'aros' > local/Bootstrap/x86_64/Pkg; printf 'mac' > local/Bootstrap/macos-arm64/pkg
+printf 'win' > local/Bootstrap/windows-x86_64/pkg.exe; printf 'no' > local/Bootstrap/bad/other
+: > log
+$PKG PUSH CHANNEL local TO "$U" MACHINE > o4c 2>&1
+[ $? -eq 0 ] && grep -q 'files/Bootstrap/x86_64/Pkg' log && grep -q 'files/Bootstrap/macos-arm64/pkg' log \
+  && grep -q 'files/Bootstrap/windows-x86_64/pkg.exe' log && ! grep -q 'Bootstrap/bad' log
+                                                      ok $? "PUSH sends the AROS and the host builds of Pkg, and nothing else under Bootstrap"
+
 echo "refusals"
 PKG_PUSHKEY=wrong $PKG PUSH CHANNEL local TO "$U" MACHINE > o5 2>&1
 [ $? -eq 14 ] && has o5 'refused the key';            ok $? "a wrong key is refused with 14"

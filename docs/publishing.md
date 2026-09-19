@@ -95,6 +95,55 @@ mytool   1.1      application  x86_64  ok      9f4314e9f88233c4
 A version, once published, never changes: publishing different files under
 the same version is refused. Raise the version in `$VER:`.
 
+## Describe your package
+
+What people read about your package, on the portal and in `SHOW`, comes
+from fields you publish with it, signed like the rest:
+
+```console
+$ printf 'MyTool renames files by pattern.\n\nIt runs from the Shell or from an icon.\n' > about.txt
+$ printf 'First release.\n' > changes.txt
+$ pkg MANIFEST MyTool KIND application SHORT "Renames files by pattern" DESCRIPTION about.txt CATEGORY util/misc TAGS "files, rename" AUTHOR "Jane Roe" LICENSE MIT DISTRIBUTION open-source HOMEPAGE https://example.org/mytool CHANGES changes.txt
+Format: pkg-manifest 1
+Name: mytool
+Version: 1.0
+Architecture: x86_64
+Kind: application
+Short: Renames files by pattern
+Description: MyTool renames files by pattern.
+Description: 
+Description: It runs from the Shell or from an icon.
+Category: util/misc
+Tags: files, rename
+Author: Jane Roe
+Homepage: https://example.org/mytool
+License: MIT
+Distribution: open-source
+Changes: First release.
+Payload: bf9bc6edcb45a4a786709554952e6988649c6e6cc405595d86f54e3d1d8c87d4
+File: c93731985b65bf43460090b575902f0a6eca3ad030914fb0e58c0700569b2d85 94 C/MyTool
+Protect: 0x00000002 C/MyTool
+```
+
+| Keyword | Field | Rules |
+|---|---|---|
+| `SHORT` | one line on cards and lists | at most 40 characters |
+| `DESCRIPTION <file>` | the text of the package page | a text file; an empty line starts a paragraph |
+| `CATEGORY` | where it is listed | an Aminet type and its sub-directory: `util/misc`, `game/think`, `dev/lang` |
+| `TAGS` | words people search for | comma-separated, lowercase, 16 at most |
+| `AUTHOR` | who wrote the program | comma-separated; the key that signs is the packager |
+| `HOMEPAGE`, `REPOSITORY` | links | `http://` or `https://` |
+| `LICENSE` | the licence of the source | an SPDX expression: `MIT`, `GPL-2.0-or-later` |
+| `DISTRIBUTION` | the terms | `open-source`, `freeware`, `shareware`, `public-domain`, `commercial`, `demo` or `other` |
+| `CHANGES <file>` | what this version changes | a text file |
+| `ICON`, `SCREENSHOT` | pictures | paths of files in the package |
+
+A new version keeps every field of the last one except `CHANGES`, which
+belongs to one version; give a keyword again to change a field, or `none`
+to drop it. If your program comes with an Aminet `.readme`, `README
+<file>` takes its `Short:`, `Author:`, `Type:` and text for the fields you
+do not give.
+
 ## Dependencies
 
 ```console

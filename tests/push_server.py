@@ -17,7 +17,7 @@ LOG = open(sys.argv[4], "a") if len(sys.argv) > 4 else None
 KEY = "testkey"
 STAGE = os.path.join(ROOT, "_staging")
 IMMUTABLE = re.compile(r"^(objects/[0-9a-f]{64}\.(manifest|sig|pkg|withdrawn|withdrawn\.sig)|archives/[^/]+)$")
-MUTABLE = re.compile(r"^(Bootstrap/[^/]+/Pkg|Install-Pkg|ReadMe)$")
+MUTABLE = re.compile(r"^(Bootstrap/[a-z0-9_-]+/(Pkg|pkg|pkg\.exe)|Install-Pkg|ReadMe)$")
 fail_part = int(os.environ.get("PKG_TEST_FAIL_PART", "0"))
 parts_seen = [0]
 

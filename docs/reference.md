@@ -68,6 +68,19 @@ prints a summary.
 | `FILES` | `"path, path"`: the paths of the drawer or archive that make up the package | `PUBLISH` |
 | `BUILD` | dotted numbers, such as the date of a nightly, added as `+build` | `PUBLISH` |
 | `UPSTREAM` | the `http` or `https` address an archive is published at | `PUBLISH` from an archive |
+| `SHORT` | one line, at most 40 characters | `PUBLISH`, `MANIFEST` |
+| `DESCRIPTION` | a text file: the package's description | `PUBLISH`, `MANIFEST` |
+| `CATEGORY` | an Aminet type and sub-directory: `util/misc` | `PUBLISH`, `MANIFEST` |
+| `TAGS` | `"word, word"`, lowercase, 16 at most | `PUBLISH`, `MANIFEST` |
+| `AUTHOR` | `"name, name"`: who wrote the program | `PUBLISH`, `MANIFEST` |
+| `HOMEPAGE` | an `http` or `https` address | `PUBLISH`, `MANIFEST` |
+| `REPOSITORY` | an `http` or `https` address: the source | `PUBLISH`, `MANIFEST` |
+| `LICENSE` | an SPDX expression: `MIT`, `GPL-2.0-or-later` | `PUBLISH`, `MANIFEST` |
+| `DISTRIBUTION` | `open-source`, `freeware`, `shareware`, `public-domain`, `commercial`, `demo` or `other` | `PUBLISH`, `MANIFEST` |
+| `CHANGES` | a text file: what this version changes | `PUBLISH`, `MANIFEST` |
+| `ICON` | a path of the package: its icon | `PUBLISH`, `MANIFEST` |
+| `SCREENSHOT` | `"path, path"` of the package | `PUBLISH`, `MANIFEST` |
+| `README` | an Aminet `.readme`: fills `Short`, `Author`, `Type` and the text | `PUBLISH`, `MANIFEST` |
 | `ARCHIVE` | the name of an archive in the channel | `SHOW` |
 | `SIGN` | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW` |
 | `ACCEPTKEY` | a public key in full, 64 hexadecimal digits | `INSTALL`, `UPGRADE`, `PUBLISH` |
@@ -191,6 +204,8 @@ Every answer has a `result:` line: `installed`, `upgraded`, `downgraded`,
 | `restored:`, `set-aside:` | `REPAIR`: a file put back; a changed one kept as `.pkgold` |
 | `adopted:`, `unchanged-files:` | files already in place, left as they are |
 | `config-kept:`, `config-new:` | an edited configuration file kept; the new one set beside it |
+| `short:`, `category:`, `tag:`, `author:`, `homepage:`, `repository:`, `license:`, `distribution:`, `description:`, `changes:` | `SHOW <name>`: the catalogue fields of the newest version, one line per value |
+| `kind-from:`, `depends-from:`, `config-from:`, `about-from:` | `PUBLISH`: the fields taken from the version published before |
 
 ## The ARexx port
 

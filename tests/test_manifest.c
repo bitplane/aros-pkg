@@ -166,6 +166,74 @@ static void depends(void)
     ok(pkg_parse_dep("zlib >= x", n, sizeof n, v, sizeof v) != NULL, "a bad minimum version refused");
 }
 
+static void catalogue(void)
+{
+    struct pkg_manifest m;
+    char *out; size_t len; char err[200];
+    const char *head = "Format: pkg-manifest 1\nName: tool\nVersion: 1\nArchitecture: generic\nKind: application\n";
+    const char *file = "Payload: 0000000000000000000000000000000000000000000000000000000000000000\n"
+                       "File: 1111111111111111111111111111111111111111111111111111111111111111 3 Docs/shot.png\n";
+    const char *about =
+        "Short: A tool that does things\n"
+        "Description: Tool does things.\n"
+        "Description: \n"
+        "Description: Second paragraph.\n"
+        "Category: util/misc\n"
+        "Tags: rexx, cli\n"
+        "Author: Jane Roe\n"
+        "Author: Joe Bloggs\n"
+        "Homepage: https://example.org/tool\n"
+        "Repository: https://example.org/tool.git\n"
+        "License: GPL-2.0-or-later\n"
+        "Distribution: open-source\n"
+        "Changes: First version.\n"
+        "Icon: Docs/shot.png\n"
+        "Screenshot: Docs/shot.png\n";
+    char text[2400];
+    static const struct { const char *line, *why; } bad[] = {
+        { "Short: This short description is much longer than forty characters\n", "a Short over 40 characters" },
+        { "Short: a\nShort: b\n", "Short twice" },
+        { "Short:  leading space\n", "a leading space" },
+        { "Short: tab\there\n", "a control character" },
+        { "Category: games/action\n", "an unknown Aminet type" },
+        { "Category: util\n", "a Category with no sub-directory" },
+        { "Category: util/Misc\n", "an upper-case sub-directory" },
+        { "Tags: Rexx\n", "an upper-case tag" },
+        { "Tags: rexx, rexx\n", "a tag twice" },
+        { "Tags: a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q\n", "17 tags" },
+        { "Homepage: ftp://example.org\n", "a Homepage that is not http" },
+        { "Homepage: https://exa mple.org\n", "a space in a URL" },
+        { "License: MIT; rm\n", "a License that is no SPDX expression" },
+        { "Distribution: free\n", "an unknown Distribution" },
+        { "Icon: Docs/none.png\n", "an Icon that is no file of the package" },
+        { "Screenshot: ../x.png\n", "a Screenshot outside the package" },
+        { "Author: \n", "an empty Author" },
+    };
+    size_t i;
+
+    printf("catalogue\n");
+    snprintf(text, sizeof text, "%s%s%s", head, about, file);
+    ok(parses(text, err, sizeof err), "every catalogue field parses");
+    ok(pkg_manifest_parse(text, strlen(text), &m, err, sizeof err) == 0
+       && m.about.description.n == 3 && m.about.description.v[1][0] == '\0' && m.about.tags.n == 2
+       && m.about.authors.n == 2 && strcmp(m.about.category, "util/misc") == 0,
+       "and reads as written: a paragraph break, two tags, two authors");
+    ok(pkg_manifest_emit(&m, &out, &len) == 0 && len == strlen(text) && memcmp(out, text, len) == 0,
+       "and is written back byte for byte, in the canonical order");
+    free(out);
+    pkg_manifest_free(&m);
+    snprintf(text, sizeof text, "%sTags: rexx\nTags: cli\n%s", head, file);
+    ok(pkg_manifest_parse(text, strlen(text), &m, err, sizeof err) == 0 && m.about.tags.n == 2,
+       "Tags lines add up");
+    pkg_manifest_free(&m);
+    for (i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        char what[120];
+        snprintf(text, sizeof text, "%s%s%s", head, bad[i].line, file);
+        snprintf(what, sizeof what, "%s refused", bad[i].why);
+        ok(!parses(text, err, sizeof err), what);
+    }
+}
+
 int main(void)
 {
     round_trip();
@@ -173,6 +241,7 @@ int main(void)
     strict_parsing();
     versions();
     depends();
+    catalogue();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

@@ -46,6 +46,44 @@ struct pkg_dep {
     char *min;                      /* NULL: any version */
 };
 
+/* A list of strings, for the catalogue fields that repeat. */
+struct pkg_strs {
+    char  **v;
+    size_t  n;
+};
+
+/* What a catalogue shows about a package: all optional, all signed, so a
+ * change is a new version. Description and Changes are one line each,
+ * joined in order; an empty line is a paragraph break. */
+struct pkg_about {
+    char           *short_desc;     /* "Short:", at most 40 characters */
+    struct pkg_strs description;    /* "Description:" */
+    char           *category;       /* "Category: type/sub", Aminet's types */
+    struct pkg_strs tags;           /* "Tags: a, b": lowercase words */
+    struct pkg_strs authors;        /* "Author:", one each; not the packager */
+    char           *homepage;       /* "Homepage:", http or https */
+    char           *repository;     /* "Repository:", http or https */
+    char           *license;        /* "License:", an SPDX expression */
+    char           *distribution;   /* "Distribution:", one of pkg_distributions */
+    struct pkg_strs changes;        /* "Changes:", what this version changes */
+    char           *icon;           /* "Icon:", a path of the package */
+    struct pkg_strs screenshots;    /* "Screenshot:", paths of the package */
+};
+
+extern const char *const pkg_categories[];     /* Aminet's top-level types, NULL-ended */
+extern const char *const pkg_distributions[];  /* NULL-ended */
+
+/* Checks for the publish side, the same the parser applies: NULL if fine,
+ * else why. */
+const char *pkg_check_about_text(const char *field, const char *s, size_t max_chars);
+const char *pkg_check_category(const char *s);
+const char *pkg_check_tag(const char *s);
+const char *pkg_check_url(const char *field, const char *s);
+const char *pkg_check_license(const char *s);
+const char *pkg_check_distribution(const char *s);
+int pkg_strs_add(struct pkg_strs *l, const char *s);
+void pkg_strs_free(struct pkg_strs *l);
+
 struct pkg_manifest {
     char            *name;
     char            *version;
@@ -65,6 +103,7 @@ struct pkg_manifest {
     struct pkg_file *content;       /* an image: the files inside it, "Content:" */
     size_t           ncontent;
     size_t           ccap;
+    struct pkg_about about;         /* the catalogue fields */
 };
 
 void pkg_manifest_init(struct pkg_manifest *m);

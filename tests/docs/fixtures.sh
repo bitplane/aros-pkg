@@ -35,7 +35,7 @@ prog() {  # prog <drawer> <file> <name> <version>
 }
 
 prog "$d/hellolib" Libs/hello.library hello.library 1.0
-"$PKG" PUBLISH "$d/hellolib" CHANNEL "$out/channel" NAME hellolib VERSION 1.0 KIND library > /dev/null
+"$PKG" PUBLISH "$d/hellolib" CHANNEL "$out/channel" NAME hellolib VERSION 1.0 KIND library > /dev/null 2>&1
 for v in 1.0 1.1; do
     prog "$d/hw$v" C/HelloWorld helloworld $v
     mkdir -p "$d/hw$v/S"
@@ -43,16 +43,16 @@ for v in 1.0 1.1; do
 done
 printf 'Greeting=Hello\nColour=Blue\n' > "$d/hw1.1/S/HelloWorld.prefs"
 "$PKG" PUBLISH "$d/hw1.0" CHANNEL "$out/channel" KIND application DEPENDS hellolib \
-    CONFIG S/HelloWorld.prefs > /dev/null
-"$PKG" PUBLISH "$d/hw1.1" CHANNEL "$out/channel" > /dev/null
+    CONFIG S/HelloWorld.prefs > /dev/null 2>&1
+"$PKG" PUBLISH "$d/hw1.1" CHANNEL "$out/channel" > /dev/null 2>&1
 prog "$d/notes" Notes notes 1.0
 printf 'Notes needs nothing else\n' > "$d/notes/ReadMe"
-"$PKG" PUBLISH "$d/notes" CHANNEL "$out/channel" KIND image > /dev/null
+"$PKG" PUBLISH "$d/notes" CHANNEL "$out/channel" KIND image > /dev/null 2>&1
 
 mkdir -p "$d/lua/Extras/Developer/Lua"
 printf 'lua\n' > "$d/lua/Extras/Developer/Lua/Lua"
 "$PKG" PUBLISH "$d/lua" CHANNEL "$out/portal/contrib-nightly" NAME lua BUILD 20260918 \
-    ARCH x86_64 KIND application > /dev/null
+    ARCH x86_64 KIND application > /dev/null 2>&1
 
 elf "$out/drawers/MyTool" C/MyTool mytool 1.0
 elf "$out/drawers/MyTool-1.1" C/MyTool mytool 1.1

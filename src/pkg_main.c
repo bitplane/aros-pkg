@@ -28,7 +28,7 @@
 
 /* The AmigaDOS version cookie: `Version C:Pkg` reads it, and publishing Pkg
  * with Pkg takes its name and version from it. */
-const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (18.9.2026)";
+const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (19.9.2026)";
 
 #ifdef __AROS__
 static const int on_aros = 1;
@@ -149,7 +149,20 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "ARCHIVE",   offsetof(struct pkg_options, archive) },
         { "TO",        offsetof(struct pkg_options, to) },
         { "CONFIG",    offsetof(struct pkg_options, config) },
-        { "UPSTREAM",  offsetof(struct pkg_options, upstream) }
+        { "UPSTREAM",  offsetof(struct pkg_options, upstream) },
+        { "SHORT",     offsetof(struct pkg_options, short_desc) },
+        { "DESCRIPTION", offsetof(struct pkg_options, description) },
+        { "CATEGORY",  offsetof(struct pkg_options, category) },
+        { "TAGS",      offsetof(struct pkg_options, tags) },
+        { "AUTHOR",    offsetof(struct pkg_options, author) },
+        { "HOMEPAGE",  offsetof(struct pkg_options, homepage) },
+        { "REPOSITORY", offsetof(struct pkg_options, repository) },
+        { "LICENSE",   offsetof(struct pkg_options, license) },
+        { "DISTRIBUTION", offsetof(struct pkg_options, distribution) },
+        { "CHANGES",   offsetof(struct pkg_options, changes) },
+        { "ICON",      offsetof(struct pkg_options, icon) },
+        { "SCREENSHOT", offsetof(struct pkg_options, screenshot) },
+        { "README",    offsetof(struct pkg_options, readme) }
 };
 
 static int takes_value(const char *w)

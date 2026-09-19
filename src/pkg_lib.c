@@ -1469,6 +1469,7 @@ struct built {
     char           kind_from[160];  /* KIND taken from this published version */
     char           deps_from[160];  /* DEPENDS too */
     char           config_from[160]; /* CONFIG too */
+    char           about_from[160]; /* the catalogue fields too */
     size_t         nconfig;         /* configuration files */
     unsigned       skipped;
     char         **left_out;
@@ -1717,6 +1718,251 @@ static int mark_config(struct pkg_manifest *m, const char *list, int strict)
 }
 
 static int file_digest(const char *path, char hex[PKG_SHA256_HEXLEN + 1], unsigned long long *size);
+static int last_published(const char *name, const char *arch, struct pkg_manifest *em);
+
+/* ---- the catalogue fields at publish ------------------------------------ */
+
+static int valid_utf8(const unsigned char *p, size_t n)
+{
+    size_t i = 0;
+    while (i < n) {
+        int k = p[i] < 0x80 ? 0 : (p[i] & 0xE0) == 0xC0 ? 1 : (p[i] & 0xF0) == 0xE0 ? 2
+              : (p[i] & 0xF8) == 0xF0 ? 3 : -1;
+        if (k < 0 || i + (size_t)k >= n + (k ? 0 : 1)) return 0;
+        for (i++; k > 0; k--, i++)
+            if (i >= n || (p[i] & 0xC0) != 0x80) return 0;
+    }
+    return 1;
+}
+
+/* The lines of a text a person wrote, as the manifest carries them: UTF-8
+ * (Latin-1, which Amiga text often is, converted), tabs as spaces, no
+ * trailing space, one empty line at most between paragraphs, none at
+ * either end. From `start` on, when the text has a header before it. */
+static int text_lines(const unsigned char *buf, size_t len, size_t start, struct pkg_strs *out)
+{
+    char line[1024];
+    size_t i = start, o = 0;
+    int latin = !valid_utf8(buf, len), blank = 0;
+    for (; i <= len; i++) {
+        unsigned c = i < len ? buf[i] : '\n';
+        if (c == '\r') continue;
+        if (c == '\n') {
+            while (o > 0 && line[o - 1] == ' ') o--;
+            line[o] = '\0';
+            if (o == 0) {
+                blank = out->n > 0;
+            } else {
+                if (blank && pkg_strs_add(out, "") != 0) return -1;
+                blank = 0;
+                if (pkg_strs_add(out, line) != 0) return -1;
+            }
+            o = 0;
+            continue;
+        }
+        if (c == '\t') c = ' ';
+        if (c < 0x20 || c == 0x7F) continue;
+        if (o == 0 && c == ' ') continue;          /* no leading space either */
+        if (latin && c >= 0x80) {
+            if (o + 2 < sizeof line) { line[o++] = (char)(0xC0 | (c >> 6)); line[o++] = (char)(0x80 | (c & 0x3F)); }
+        } else if (o + 1 < sizeof line) {
+            line[o++] = (char)c;
+        }
+    }
+    return 0;
+}
+
+static int text_file(const char *path, struct pkg_strs *out, const char *kw)
+{
+    unsigned char *buf;
+    size_t len;
+    if (pkg_fs_read(path, &buf, &len) != 0)
+        return refuse_c(11, "%s names %s, which cannot be read", kw, path);
+    if (text_lines(buf, len, 0, out) != 0) { free(buf); return refuse("out of memory"); }
+    free(buf);
+    return 0;
+}
+
+/* "a, b, c": each item trimmed, empty ones dropped. */
+static int list_items(const char *list, struct pkg_strs *out)
+{
+    const char *p = list;
+    while (*p) {
+        char item[512];
+        size_t n = strcspn(p, ",");
+        size_t a = 0, b = n;
+        while (a < b && p[a] == ' ') a++;
+        while (b > a && p[b - 1] == ' ') b--;
+        if (b - a >= sizeof item) return refuse_c(20, "a list item is longer than %u characters", (unsigned)sizeof item - 1);
+        if (b > a) {
+            memcpy(item, p + a, b - a);
+            item[b - a] = '\0';
+            if (pkg_strs_add(out, item) != 0) return refuse("out of memory");
+        }
+        p += n;
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+static int strs_copy(struct pkg_strs *dst, const struct pkg_strs *src)
+{
+    size_t i;
+    for (i = 0; i < src->n; i++)
+        if (pkg_strs_add(dst, src->v[i]) != 0) return -1;
+    return 0;
+}
+
+/* An Aminet .readme: "Short:", "Author:", "Type:" and the others in the
+ * header, then after the first empty line the text. */
+static int aminet_readme(const char *path, struct pkg_about *a)
+{
+    unsigned char *buf;
+    size_t len, i = 0, body = 0;
+    if (pkg_fs_read(path, &buf, &len) != 0)
+        return refuse_c(11, "README names %s, which cannot be read", path);
+    while (i < len) {
+        size_t e = i, k;
+        char key[16], val[512];
+        while (e < len && buf[e] != '\n') e++;
+        if (e == i || (e == i + 1 && buf[i] == '\r')) { body = e + 1; break; }
+        for (k = i; k < e && buf[k] != ':' && k - i < sizeof key - 1; k++) key[k - i] = (char)buf[k];
+        key[k - i] = '\0';
+        if (k < e && buf[k] == ':') {
+            struct pkg_strs one = { NULL, 0 };
+            size_t vs = k + 1, ve = e;
+            while (vs < ve && (buf[vs] == ' ' || buf[vs] == '\t')) vs++;
+            if (ve - vs >= sizeof val) ve = vs + sizeof val - 1;
+            if (text_lines(buf + vs, ve - vs, 0, &one) == 0 && one.n > 0) {
+                snprintf(val, sizeof val, "%s", one.v[0]);
+                if (ascii_casecmp(key, "Short") == 0 && a->short_desc == NULL)
+                    a->short_desc = pkg_strdup(val);
+                else if (ascii_casecmp(key, "Author") == 0 && a->authors.n == 0)
+                    list_items(val, &a->authors);
+                else if (ascii_casecmp(key, "Type") == 0 && a->category == NULL) {
+                    char *sp = strchr(val, ' ');
+                    if (sp) *sp = '\0';        /* "util/arc  (more)" */
+                    if (pkg_check_category(val) == NULL) a->category = pkg_strdup(val);
+                }
+            }
+            pkg_strs_free(&one);
+        }
+        i = e + 1;
+    }
+    if (body > 0 && body < len && a->description.n == 0)
+        text_lines(buf, len, body, &a->description);
+    free(buf);
+    return 0;
+}
+
+static int set_once(char **slot, const char *v)
+{
+    free(*slot);
+    *slot = NULL;
+    if (v == NULL || ascii_casecmp(v, "none") == 0)
+        return 0;
+    return (*slot = pkg_strdup(v)) == NULL ? -1 : 0;
+}
+
+/* The catalogue fields of the version being published: the keywords, then
+ * the Aminet readme, then the last version published. */
+static int compose_about(const struct pkg_options *a, const char *name, const char *arch,
+                         struct pkg_about *out, char *from, size_t fl)
+{
+    struct pkg_manifest em;
+    struct pkg_about rd;
+    const char *why = NULL;
+    size_t i;
+
+    memset(out, 0, sizeof *out);
+    memset(&rd, 0, sizeof rd);
+    from[0] = '\0';
+    tr("catalogue fields: name %s, arch %s, channel index %s", name ? name : "-", arch ? arch : "-", inherit_ix ? "read" : "none");
+    if (name != NULL && last_published(name, arch, &em)) {
+        struct pkg_about *p = &em.about;
+        int any = p->short_desc || p->description.n || p->category || p->tags.n || p->authors.n
+                  || p->homepage || p->repository || p->license || p->distribution
+                  || p->icon || p->screenshots.n;
+        if (set_once(&out->short_desc, p->short_desc) || strs_copy(&out->description, &p->description)
+            || set_once(&out->category, p->category) || strs_copy(&out->tags, &p->tags)
+            || strs_copy(&out->authors, &p->authors) || set_once(&out->homepage, p->homepage)
+            || set_once(&out->repository, p->repository) || set_once(&out->license, p->license)
+            || set_once(&out->distribution, p->distribution) || set_once(&out->icon, p->icon)
+            || strs_copy(&out->screenshots, &p->screenshots)) {
+            pkg_manifest_free(&em);
+            return refuse("out of memory");
+        }
+        if (any) snprintf(from, fl, "%s %s", em.name, em.version);
+        pkg_manifest_free(&em);
+    }
+    if (a->readme != NULL) {
+        if (aminet_readme(a->readme, &rd) != 0) return 1;
+        if (rd.short_desc) set_once(&out->short_desc, rd.short_desc);
+        if (rd.category) set_once(&out->category, rd.category);
+        if (rd.authors.n) { pkg_strs_free(&out->authors); strs_copy(&out->authors, &rd.authors); }
+        if (rd.description.n) { pkg_strs_free(&out->description); strs_copy(&out->description, &rd.description); }
+        free(rd.short_desc); free(rd.category);
+        pkg_strs_free(&rd.authors); pkg_strs_free(&rd.description);
+        from[0] = '\0';
+    }
+    if ((a->short_desc && set_once(&out->short_desc, a->short_desc))
+        || (a->category && set_once(&out->category, a->category))
+        || (a->homepage && set_once(&out->homepage, a->homepage))
+        || (a->repository && set_once(&out->repository, a->repository))
+        || (a->license && set_once(&out->license, a->license))
+        || (a->distribution && set_once(&out->distribution, a->distribution))
+        || (a->icon && set_once(&out->icon, a->icon)))
+        return refuse("out of memory");
+    if (a->description) {
+        pkg_strs_free(&out->description);
+        if (ascii_casecmp(a->description, "none") != 0 && text_file(a->description, &out->description, "DESCRIPTION") != 0)
+            return 1;
+    }
+    if (a->changes && text_file(a->changes, &out->changes, "CHANGES") != 0)
+        return 1;
+    if (a->tags) {
+        struct pkg_strs t = { NULL, 0 };
+        pkg_strs_free(&out->tags);
+        if (ascii_casecmp(a->tags, "none") != 0) {
+            if (list_items(a->tags, &t) != 0) return 1;
+            for (i = 0; i < t.n; i++) {
+                char *c;
+                for (c = t.v[i]; *c; c++) if (*c >= 'A' && *c <= 'Z') *c = (char)(*c + 32);
+                if (pkg_strs_add(&out->tags, t.v[i]) != 0) { pkg_strs_free(&t); return refuse("out of memory"); }
+            }
+            pkg_strs_free(&t);
+        }
+    }
+    if (a->author) {
+        pkg_strs_free(&out->authors);
+        if (ascii_casecmp(a->author, "none") != 0 && list_items(a->author, &out->authors) != 0) return 1;
+    }
+    if (a->screenshot) {
+        pkg_strs_free(&out->screenshots);
+        if (ascii_casecmp(a->screenshot, "none") != 0 && list_items(a->screenshot, &out->screenshots) != 0) return 1;
+    }
+    /* the rules the manifest parser applies, said here with the keyword */
+    if (out->short_desc && (why = pkg_check_about_text("SHORT", out->short_desc, 40)) != NULL) return refuse_c(20, "%s", why);
+    if (out->category && (why = pkg_check_category(out->category)) != NULL) return refuse_c(20, "CATEGORY: %s", why);
+    if (out->homepage && (why = pkg_check_url("HOMEPAGE", out->homepage)) != NULL) return refuse_c(20, "%s", why);
+    if (out->repository && (why = pkg_check_url("REPOSITORY", out->repository)) != NULL) return refuse_c(20, "%s", why);
+    if (out->license && (why = pkg_check_license(out->license)) != NULL) return refuse_c(20, "LICENSE: %s", why);
+    if (out->distribution && (why = pkg_check_distribution(out->distribution)) != NULL) return refuse_c(20, "DISTRIBUTION: %s", why);
+    if (out->tags.n > 16) return refuse_c(20, "TAGS holds %lu tags; 16 at most", (unsigned long)out->tags.n);
+    for (i = 0; i < out->tags.n; i++) {
+        size_t k;
+        if ((why = pkg_check_tag(out->tags.v[i])) != NULL) return refuse_c(20, "TAGS: \"%s\": %s", out->tags.v[i], why);
+        for (k = 0; k < i; k++)
+            if (strcmp(out->tags.v[k], out->tags.v[i]) == 0) return refuse_c(20, "TAGS names \"%s\" twice", out->tags.v[i]);
+    }
+    for (i = 0; i < out->authors.n; i++)
+        if ((why = pkg_check_about_text("AUTHOR", out->authors.v[i], 80)) != NULL) return refuse_c(20, "%s", why);
+    for (i = 0; i < out->description.n; i++)
+        if ((why = pkg_check_about_text("a DESCRIPTION line", out->description.v[i], 1000)) != NULL) return refuse_c(20, "%s", why);
+    for (i = 0; i < out->changes.n; i++)
+        if ((why = pkg_check_about_text("a CHANGES line", out->changes.v[i], 1000)) != NULL) return refuse_c(20, "%s", why);
+    return 0;
+}
 
 /* An archive's SHA-256 and size, kept in <archive>.sha256 beside it
  * ("sha256 <hex> <size> <mtime>") so that a hundred packages published from
@@ -2062,6 +2308,26 @@ static int build(const struct pkg_options *a, struct built *out)
     }
     for (i = 0; i < out->m.nfiles; i++)
         out->nconfig += out->m.files[i].config ? 1 : 0;
+    if (compose_about(a, name, arch, &out->m.about, out->about_from, sizeof out->about_from) != 0) {
+        pkg_writer_free(w);
+        return 1;
+    }
+    {
+        /* ICON and SCREENSHOT name files of the package, or of its image */
+        const struct pkg_about *ab = &out->m.about;
+        size_t k, f, np = (ab->icon ? 1 : 0) + ab->screenshots.n;
+        for (k = 0; k < np; k++) {
+            const char *pic = (ab->icon && k == 0) ? ab->icon : ab->screenshots.v[k - (ab->icon ? 1 : 0)];
+            int found = 0;
+            for (f = 0; f < out->m.nfiles && !found; f++) found = strcmp(out->m.files[f].path, pic) == 0;
+            for (f = 0; f < out->m.ncontent && !found; f++) found = strcmp(out->m.content[f].path, pic) == 0;
+            if (!found) {
+                pkg_writer_free(w);
+                return refuse_c(20, "%s names \"%s\", which is no file of this package; give the "
+                                "path as the package installs it", (ab->icon && k == 0) ? "ICON" : "SCREENSHOT", pic);
+            }
+        }
+    }
     if (pkg_writer_finish(w, &out->pkg, &out->pkg_len) != PKG_OK) {
         pkg_writer_free(w);
         return refuse_c(17, "cannot assemble the container");
@@ -2264,17 +2530,20 @@ static char *archive_path(const char *channel, const char *name)
 
 /* The kind and dependencies of the highest version of a package published in
  * the channel, for the CPU given when it has one there. */
-static int inherited(const char *name, const char *arch, char *kind, size_t kl,
-                     char *deps, size_t dl, char *from, size_t fl, char *conf, size_t cl)
+/* The manifest of the highest version of a package published in the
+ * channel PUBLISH writes to, for the CPU given when it has one there. 1 and
+ * `em` filled, or 0. */
+static int last_published(const char *name, const char *arch, struct pkg_manifest *em)
 {
     const struct entry *best = NULL;
-    size_t o, d, at = 0;
+    size_t o;
     int pass;
     char *mp, err[200];
     unsigned char *buf;
     size_t len;
-    struct pkg_manifest em;
 
+    if (inherit_ix == NULL)
+        return 0;
     for (pass = 0; pass < 2 && best == NULL; pass++)
         for (o = 0; o < inherit_ix->n; o++) {
             const struct entry *e = &inherit_ix->e[o];
@@ -2288,8 +2557,19 @@ static int inherited(const char *name, const char *arch, char *kind, size_t kl,
     mp = object_path(inherit_channel, best->digest, "manifest");
     if (mp == NULL || pkg_fs_read(mp, &buf, &len) != 0) { free(mp); return 0; }
     free(mp);
-    if (pkg_manifest_parse((const char *)buf, len, &em, err, sizeof err) != 0) { free(buf); return 0; }
+    if (pkg_manifest_parse((const char *)buf, len, em, err, sizeof err) != 0) { free(buf); return 0; }
     free(buf);
+    return 1;
+}
+
+static int inherited(const char *name, const char *arch, char *kind, size_t kl,
+                     char *deps, size_t dl, char *from, size_t fl, char *conf, size_t cl)
+{
+    size_t d, at = 0;
+    struct pkg_manifest em;
+
+    if (!last_published(name, arch, &em))
+        return 0;
     snprintf(kind, kl, "%s", em.kind);
     deps[0] = '\0';
     for (d = 0; d < em.ndeps && at < dl; d++)
@@ -4094,6 +4374,70 @@ static int ac_data(const struct pkg_archive_entry *e, const unsigned char *buf, 
     return 0;
 }
 
+/* SHOW <name>: the catalogue fields of its newest version, as a person
+ * reads them on the portal, and as records for a program. */
+static void show_about(const char *channel, const struct index *ix, const char *name)
+{
+    const struct entry *best = NULL;
+    struct pkg_manifest m;
+    const struct pkg_about *ab;
+    unsigned char *buf;
+    size_t len, o;
+    char *mp, err[200];
+
+    for (o = 0; o < ix->n; o++)
+        if (strcmp(ix->e[o].name, name) == 0
+            && (best == NULL || pkg_version_cmp(ix->e[o].version, best->version) > 0))
+            best = &ix->e[o];
+    if (best == NULL || (mp = object_path(channel, best->digest, "manifest")) == NULL)
+        return;
+    if (pkg_fs_read(mp, &buf, &len) != 0) { free(mp); return; }
+    free(mp);
+    if (pkg_manifest_parse((const char *)buf, len, &m, err, sizeof err) != 0) { free(buf); return; }
+    free(buf);
+    ab = &m.about;
+    if (machine) {
+        size_t i;
+        if (ab->short_desc) kv("short", "%s", ab->short_desc);
+        if (ab->category) kv("category", "%s", ab->category);
+        for (i = 0; i < ab->tags.n; i++) kv("tag", "%s", ab->tags.v[i]);
+        for (i = 0; i < ab->authors.n; i++) kv("author", "%s", ab->authors.v[i]);
+        if (ab->homepage) kv("homepage", "%s", ab->homepage);
+        if (ab->repository) kv("repository", "%s", ab->repository);
+        if (ab->license) kv("license", "%s", ab->license);
+        if (ab->distribution) kv("distribution", "%s", ab->distribution);
+        for (i = 0; i < ab->description.n; i++) kv("description", "%s", ab->description.v[i]);
+        for (i = 0; i < ab->changes.n; i++) kv("changes", "%s", ab->changes.v[i]);
+    } else {
+        size_t i;
+        char line[1100];
+        size_t at;
+        if (ab->short_desc) say_kind(PKG_LINE_DETAIL, "  %s\n", "%s %s: %s", m.name, m.version, ab->short_desc);
+        if (ab->category) say_kind(PKG_LINE_DETAIL, "  %s\n", "category   %s", ab->category);
+        if (ab->tags.n) {
+            for (i = 0, at = 0; i < ab->tags.n && at < sizeof line; i++)
+                at += (size_t)snprintf(line + at, sizeof line - at, "%s%s", i ? ", " : "", ab->tags.v[i]);
+            say_kind(PKG_LINE_DETAIL, "  %s\n", "tags       %s", line);
+        }
+        if (ab->authors.n) {
+            for (i = 0, at = 0; i < ab->authors.n && at < sizeof line; i++)
+                at += (size_t)snprintf(line + at, sizeof line - at, "%s%s", i ? ", " : "", ab->authors.v[i]);
+            say_kind(PKG_LINE_DETAIL, "  %s\n", "author     %s", line);
+        }
+        if (ab->license) say_kind(PKG_LINE_DETAIL, "  %s\n", "license    %s%s%s", ab->license,
+                                  ab->distribution ? ", " : "", ab->distribution ? ab->distribution : "");
+        if (ab->homepage) say_kind(PKG_LINE_DETAIL, "  %s\n", "homepage   %s", ab->homepage);
+        if (ab->repository) say_kind(PKG_LINE_DETAIL, "  %s\n", "repository %s", ab->repository);
+        if (ab->description.n) say_kind(PKG_LINE_DETAIL, "%s\n", "%s", "");
+        for (i = 0; i < ab->description.n; i++)
+            say_kind(PKG_LINE_DETAIL, "  %s\n", "%s", ab->description.v[i]);
+        if (ab->changes.n) say_kind(PKG_LINE_DETAIL, "  %s\n", "changes in %s:", m.version);
+        for (i = 0; i < ab->changes.n; i++)
+            say_kind(PKG_LINE_DETAIL, "    %s\n", "%s", ab->changes.v[i]);
+    }
+    pkg_manifest_free(&m);
+}
+
 static int cmd_show(const struct pkg_options *a)
 {
     struct index ix;
@@ -4335,6 +4679,8 @@ static int cmd_show(const struct pkg_options *a)
                     ix.e[i].name, claim, ix.e[i].version, others);
         }
     }
+    if (a->target != NULL && shown > 0)
+        show_about(a->channel, &ix, a->target);
     kv("count", "%lu", (unsigned long)shown);
     kv("bad", "%lu", (unsigned long)bad);
     if (!machine && shown == 0)
@@ -4789,6 +5135,7 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
         if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
         if (b.config_from[0]) kv("config-from", "%s", b.config_from);
+        if (b.about_from[0]) kv("about-from", "%s", b.about_from);
         if (b.m.archive_url) kv("upstream", "%s", b.m.archive_url);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
         if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
@@ -4870,6 +5217,7 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
         if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
         if (b.config_from[0]) kv("config-from", "%s", b.config_from);
+        if (b.about_from[0]) kv("about-from", "%s", b.about_from);
         if (b.m.archive_url) kv("upstream", "%s", b.m.archive_url);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
     } else if (b.ver_from[0] || b.name_from[0]) {
@@ -6299,7 +6647,12 @@ static int options_clean(const struct pkg_options *o)
         { "OUT", o->out }, { "ACCEPTKEY", o->acceptkey }, { "UNIT", o->unit },
         { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build },
         { "ARCHIVE", o->archive }, { "TO", o->to }, { "PKG_PUSHKEY", o->pushkey },
-        { "CONFIG", o->config }, { "UPSTREAM", o->upstream }
+        { "CONFIG", o->config }, { "UPSTREAM", o->upstream },
+        { "SHORT", o->short_desc }, { "DESCRIPTION", o->description }, { "CATEGORY", o->category },
+        { "TAGS", o->tags }, { "AUTHOR", o->author }, { "HOMEPAGE", o->homepage },
+        { "REPOSITORY", o->repository }, { "LICENSE", o->license },
+        { "DISTRIBUTION", o->distribution }, { "CHANGES", o->changes }, { "ICON", o->icon },
+        { "SCREENSHOT", o->screenshot }, { "README", o->readme }
     };
     size_t i, j;
     for (i = 0; i < sizeof f / sizeof f[0]; i++)
@@ -6391,8 +6744,19 @@ static int push_path_ok(const char *rel)
         return 1;
     if (strncmp(rel, "archives/", 9) == 0)
         return !(n > 7 && strcmp(rel + n - 7, ".pkgidx") == 0) && !(n > 7 && strcmp(rel + n - 7, ".sha256") == 0);
-    if (strncmp(rel, "Bootstrap/", 10) == 0)
-        return n > 4 && strcmp(rel + n - 4, "/Pkg") == 0;
+    if (strncmp(rel, "Bootstrap/", 10) == 0) {
+        /* Bootstrap/<cpu>/Pkg for AROS, Bootstrap/<platform>/pkg or pkg.exe for a host */
+        const char *plat = rel + 10, *slash = strchr(plat, '/');
+        size_t k;
+        if (slash == NULL || slash == plat || strchr(slash + 1, '/') != NULL)
+            return 0;
+        for (k = 0; plat + k < slash; k++)
+            if (!((plat[k] >= 'a' && plat[k] <= 'z') || (plat[k] >= '0' && plat[k] <= '9')
+                  || plat[k] == '-' || plat[k] == '_'))
+                return 0;
+        return strcmp(slash + 1, "Pkg") == 0 || strcmp(slash + 1, "pkg") == 0
+               || strcmp(slash + 1, "pkg.exe") == 0;
+    }
     return strcmp(rel, "Install-Pkg") == 0 || strcmp(rel, "ReadMe") == 0;
 }
 

@@ -62,7 +62,7 @@
 #define PKG_H
 
 #define PKG_API_VERSION 1   /* stays 1 until the first official release */
-#define PKG_VERSION_STRING "0.3"   /* the tool's own version, as in its $VER */
+#define PKG_VERSION_STRING "0.4"   /* the tool's own version, as in its $VER */
 
 enum {
     PKG_RC_OK         = 0,
@@ -162,6 +162,15 @@ struct pkg_options {
     const char *build;      /* publish: the build the files come from, such as a nightly's
                                date; the version becomes <version or $VER or 0>+<build>, and
                                a build whose files equal the last version's is not published */
+    /* publish, manifest: the catalogue fields (see pkg_manifest.h, struct
+     * pkg_about). Each is taken from the last version published when not
+     * given, except changes; "none" drops the inherited value. description
+     * and changes name text files; tags, author and screenshot are
+     * comma-separated lists; readme names an Aminet .readme, whose Short,
+     * Author, Type and text fill what the keywords leave out. */
+    const char *short_desc, *description, *category, *tags, *author, *homepage;
+    const char *repository, *license, *distribution, *changes, *icon, *screenshot;
+    const char *readme;
     const char *upstream;   /* publish from an archive: the http(s) URL the archive is
                                downloaded from, recorded with its SHA-256 and size in the
                                signed manifest; installs download it from there, and PUSH

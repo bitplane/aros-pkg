@@ -1,0 +1,11 @@
+Catalogue fields: a short line, a description, a category, tags, authors, links, a licence and the changes of each version, signed with the package and shown by SHOW and on the portal.
+
+Output redesigned: tables for LIST, SHOW, STATUS and VERIFY ALL, colour and marks at a terminal, a progress counter on long steps.
+
+VERIFY ALL and REPAIR ALL check and mend a whole system; files already in place are no longer rewritten, so adopting an InstallAROS system and upgrading write only what changed.
+
+Configuration files (CONFIG) keep a person's edit across upgrades.
+
+Packages from someone else's archive can name where it is published (UPSTREAM): installs download it from there.
+
+LOG <file> keeps a copy of the output. PUSH also sends the macOS, Linux and Windows builds of Pkg.
