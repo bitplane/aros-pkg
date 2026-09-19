@@ -65,7 +65,7 @@ h2 { font-size: 1.15rem; margin: 2rem 0 0.6rem; }
 main { padding-top: 16px; padding-bottom: 48px; min-height: 70vh; }
 .hero { padding: 24px 0 8px; }
 .lead { font-size: 1.1rem; color: var(--muted); margin: 0; }
-.welcome { max-width: 72ch; font-size: 1.05rem; }
+.welcome { font-size: 1.05rem; }
 .welcome p { margin: 0 0 0.6em; }
 .crumbs { margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; }
 
@@ -119,7 +119,7 @@ dl.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 ul.plain { list-style: none; padding: 0; margin: 0; }
-.prose { max-width: 70ch; }
+
 .prose p { margin: 0 0 0.8em; }
 ul.changes { margin: 0; padding-left: 1.2em; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -146,7 +146,7 @@ a.button:hover { text-decoration: none; filter: brightness(1.1); }
 .bar { display: block; height: 8px; border-radius: 4px; background: var(--brand); opacity: 0.8; }
 .docs { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 32px; align-items: start; }
 .toc { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 0.92rem; }
-.docs .prose { max-width: 72ch; }
+
 .toc a.on { font-weight: 650; color: var(--fg); }
 .prose a[data-unpublished] { color: inherit; }
 .toc a.sub { font-size: 0.85rem; padding-left: 10px; color: var(--muted); }
