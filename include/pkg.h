@@ -171,6 +171,7 @@ struct pkg_options {
     const char *short_desc, *description, *category, *tags, *author, *homepage;
     const char *repository, *license, *distribution, *changes, *icon, *screenshot;
     const char *readme;
+    const char *from;       /* resolve: the program's directory, and the current one */
     const char *upstream;   /* publish from an archive: the http(s) URL the archive is
                                downloaded from, recorded with its SHA-256 and size in the
                                signed manifest; installs download it from there, and PUSH
@@ -328,6 +329,7 @@ int pkg_rollback (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_list     (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_verify   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_repair   (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_resolve  (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_remove   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o);

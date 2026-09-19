@@ -173,6 +173,20 @@ const char *pkg_check_license(const char *s)
     return NULL;
 }
 
+const char *pkg_check_libname(const char *s)
+{
+    size_t i, n = strlen(s);
+    if (n < 9 || n > 64)
+        return "a library or device name is name.library or name.device, 64 characters at most";
+    for (i = 0; i < n; i++)
+        if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= '0' && s[i] <= '9')
+              || s[i] == '_' || s[i] == '.' || s[i] == '-' || s[i] == '+'))
+            return "a library or device name is letters, digits and _ . - +";
+    if (!(n > 8 && strcmp(s + n - 8, ".library") == 0) && !(n > 7 && strcmp(s + n - 7, ".device") == 0))
+        return "a library or device name ends in .library or .device";
+    return NULL;
+}
+
 const char *pkg_check_distribution(const char *s)
 {
     size_t i;
@@ -195,6 +209,7 @@ void pkg_manifest_free(struct pkg_manifest *m)
     free(m->kind); free(m->payload); free(m->source);
     free(m->archive_sha); free(m->archive_url);
     about_free(&m->about);
+    pkg_strs_free(&m->provides);
     for (i = 0; i < m->nfiles; i++) {
         free(m->files[i].path);
         free(m->files[i].comment);
@@ -559,6 +574,8 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
         else
             sb_printf(&b, "Depends: %s\n", m->deps[i].name);
     }
+    for (i = 0; i < m->provides.n; i++)
+        sb_printf(&b, "Provides: %s\n", m->provides.v[i]);
     {
         const struct pkg_about *a = &m->about;
         if (a->short_desc) sb_printf(&b, "Short: %s\n", a->short_desc);
@@ -796,6 +813,15 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
             if (why == NULL && l->n >= 400) why = "appears more than 400 times";
             if (why != NULL || pkg_strs_add(l, val) != 0) {
                 seterr(err, errlen, line, "%s: %s", key, why ? why : "out of memory");
+                free(val); goto fail;
+            }
+            free(val);
+        } else if (strcmp(key, "Provides") == 0) {
+            why = pkg_check_libname(val);
+            if (why == NULL && m->provides.n > 0 && strcmp(m->provides.v[m->provides.n - 1], val) >= 0)
+                why = "Provides lines must be sorted, each name once";
+            if (why != NULL || pkg_strs_add(&m->provides, val) != 0) {
+                seterr(err, errlen, line, "Provides: %s", why ? why : "out of memory");
                 free(val); goto fail;
             }
             free(val);

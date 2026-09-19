@@ -28,6 +28,8 @@
 #endif
 #ifdef __AROS__
 #include <proto/dos.h>
+#include <proto/exec.h>
+#include <exec/execbase.h>
 #include <dos/dos.h>
 #endif
 
@@ -130,6 +132,48 @@ static int mkparents(const char *path)
 }
 
 static int write_atomic_mode(const char *path, const void *buf, size_t len, int mode);
+
+#ifdef __AROS__
+int pkg_fs_loaded(const char *name, int device, unsigned *version, unsigned *revision,
+                  unsigned *opencnt)
+{
+    struct Library *lib;
+    int found = 0;
+    Forbid();
+    lib = (struct Library *)FindName(device ? &SysBase->DeviceList : &SysBase->LibList, (CONST_STRPTR)name);
+    if (lib != NULL) {
+        *version = lib->lib_Version;
+        *revision = lib->lib_Revision;
+        *opencnt = lib->lib_OpenCnt;
+        found = 1;
+    }
+    Permit();
+    return found;
+}
+
+int pkg_fs_fullpath(const char *path, char *out, size_t ol)
+{
+    BPTR l = Lock((CONST_STRPTR)path, SHARED_LOCK);
+    int ok;
+    if (l == BNULL) return 0;
+    ok = NameFromLock(l, (STRPTR)out, (LONG)ol) != 0;
+    UnLock(l);
+    return ok;
+}
+#else
+int pkg_fs_loaded(const char *name, int device, unsigned *version, unsigned *revision,
+                  unsigned *opencnt)
+{
+    (void)name; (void)device; (void)version; (void)revision; (void)opencnt;
+    return -1;
+}
+
+int pkg_fs_fullpath(const char *path, char *out, size_t ol)
+{
+    (void)path; (void)out; (void)ol;
+    return 0;
+}
+#endif
 
 int pkg_fs_interactive(void)
 {

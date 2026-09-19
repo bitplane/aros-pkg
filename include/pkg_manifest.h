@@ -104,7 +104,12 @@ struct pkg_manifest {
     size_t           ncontent;
     size_t           ccap;
     struct pkg_about about;         /* the catalogue fields */
+    struct pkg_strs  provides;      /* "Provides: SDL2.library": the libraries and devices
+                                       the package ships in Libs/ and Devs/, sorted */
 };
+
+/* "SDL2.library", "serial.device": NULL if the name can be a Provides line. */
+const char *pkg_check_libname(const char *s);
 
 void pkg_manifest_init(struct pkg_manifest *m);
 void pkg_manifest_free(struct pkg_manifest *m);

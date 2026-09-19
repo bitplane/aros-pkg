@@ -270,6 +270,19 @@ out:
     return rc;
 }
 
+int pkg_fs_loaded(const char *name, int device, unsigned *version, unsigned *revision,
+                  unsigned *opencnt)
+{
+    (void)name; (void)device; (void)version; (void)revision; (void)opencnt;
+    return -1;
+}
+
+int pkg_fs_fullpath(const char *path, char *out, size_t ol)
+{
+    (void)path; (void)out; (void)ol;
+    return 0;
+}
+
 int pkg_fs_interactive(void)
 {
     return _isatty(_fileno(stdout));

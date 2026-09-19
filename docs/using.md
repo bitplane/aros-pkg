@@ -22,6 +22,7 @@ hellolib    1.0      library      generic  ok      5ff18d3fe14e383e
 helloworld  1.0      application  generic  ok      5ff18d3fe14e383e
 helloworld  1.1      application  generic  ok      5ff18d3fe14e383e
 notes       1.0      image        generic  ok      5ff18d3fe14e383e
+sdl2        2.30     library      aarch64  ok      5ff18d3fe14e383e
 ```
 
 Each line is a package version: its name, version, kind, the CPU it is built
@@ -232,6 +233,27 @@ Mount DEVS:DOSDrivers/NOTES
 NOTES:Notes
 ```
 
+## When a program opens the wrong library
+
+A program that does not start often opens an old or missing library. See
+which copy AROS gives it, and why, with `RESOLVE`:
+
+```console
+$ pkg INSTALL sdl2 ROOT aros CHANNEL channel
+installed sdl2 2.30 into aros: 1 file, payload e6f50f1bd01d, signed by 5ff18d3fe14e383e
+$ pkg RESOLVE SDL2.library ROOT aros FROM Game
+Where                File                       Version  Package             Verdict
+PROGDIR:             Game/SDL2.library          -        -                   no file
+PROGDIR:libs/        Game/libs/SDL2.library     2.0      not from a package  taken, and hides the newer aros/Libs/SDL2.library 2.30
+LIBS: (SYS:Libs)     aros/Libs/SDL2.library     2.30     sdl2 2.30           not reached: found earlier
+LIBS: (SYS:Classes)  aros/Classes/SDL2.library  -        -                   no file
+  PROGDIR:libs/: remove Game/libs/SDL2.library: aros/Libs/SDL2.library 2.30 is newer and would then be taken
+SDL2.library resolves to Game/libs/SDL2.library 2.0
+```
+
+[Libraries](libraries.md) explains the order AROS searches in, and what
+each verdict means.
+
 ## When Pkg refuses
 
 A refusal says what happened, and the line after it what to do. The exit
@@ -266,7 +288,8 @@ answer is then `key: value` lines, the same on every system.
 $ pkg LIST ROOT aros MACHINE
 result: listed
 package: notes 1.0 image 1 explicit
-count: 1
+package: sdl2 2.30 library 1 explicit
+count: 2
 ```
 
 The [reference](reference.md) lists every line a command can answer. To

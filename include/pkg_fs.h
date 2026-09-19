@@ -20,6 +20,14 @@ int  pkg_fs_write_atomic(const char *path, const void *buf, size_t len);
 int  pkg_fs_write_new(const char *path, const void *buf, size_t len);
 /* Non-zero when standard output is a terminal a person watches. */
 int  pkg_fs_interactive(void);
+/* Whether a library (or, with `device`, a device) of that name is in memory
+ * now: 1 with its version, revision and open count, 0 not loaded, -1 when
+ * this system cannot tell (any host but AROS). */
+int  pkg_fs_loaded(const char *name, int device, unsigned *version, unsigned *revision,
+                   unsigned *opencnt);
+/* On AROS, the full path a name reaches (an assign such as LIBS: resolved);
+ * elsewhere, or when it does not exist, 0. */
+int  pkg_fs_fullpath(const char *path, char *out, size_t ol);
 int  pkg_fs_mkdirs(const char *dir);
 int  pkg_fs_exists(const char *path);          /* 1 if anything is there */
 int  pkg_fs_is_dir(const char *path);

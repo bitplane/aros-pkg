@@ -176,14 +176,15 @@ void pkg_err(const char *fmt, ...)
     va_list ap;
     binary_once();
     va_start(ap, fmt);
-    if (capturing) cap_vadd(&cap_err, fmt, ap); else vfprintf(stderr, fmt, ap);
+    /* what stdout holds goes first, so that both read in order where they meet */
+    if (capturing) cap_vadd(&cap_err, fmt, ap); else { fflush(stdout); vfprintf(stderr, fmt, ap); }
     va_end(ap);
 }
 
 void pkg_verr(const char *fmt, va_list ap)
 {
     binary_once();
-    if (capturing) cap_vadd(&cap_err, fmt, ap); else vfprintf(stderr, fmt, ap);
+    if (capturing) cap_vadd(&cap_err, fmt, ap); else { fflush(stdout); vfprintf(stderr, fmt, ap); }
 }
 
 void pkg_outraw(const char *buf, size_t len)

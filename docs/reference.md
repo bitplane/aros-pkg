@@ -32,6 +32,7 @@ prints a summary.
 | `REMOVE ORPHANS` | `REMOVE ORPHANS ROOT <root>` | Removes the packages installed only as dependencies that nothing needs any more. |
 | `MOUNTLIST` | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
 | `SHOW` | `SHOW [<name>] CHANNEL <channel> [ROOT <root>] [METADATA] [ARCHIVE <archive>]` | Lists and checks what a channel offers; with `ROOT`, marks what is installed. |
+| `RESOLVE` | `RESOLVE <library>\|<program> [VERSION v] [ROOT <root>] [FROM <dir>] [CHANNEL <channel>] [ARCH cpu]` | Shows which copy of a library AROS would give a program, walking the places the loader looks, with a verdict and a next step for each; a program instead of a library checks every library it names. Exits 0, 11 when found nowhere, 18 when the copy taken is too old or unusable. See [Libraries](libraries.md). |
 
 ### Publishing
 
@@ -81,6 +82,7 @@ prints a summary.
 | `ICON` | a path of the package: its icon | `PUBLISH`, `MANIFEST` |
 | `SCREENSHOT` | `"path, path"` of the package | `PUBLISH`, `MANIFEST` |
 | `README` | an Aminet `.readme`: fills `Short`, `Author`, `Type` and the text | `PUBLISH`, `MANIFEST` |
+| `FROM` | the program's directory, for its current directory and `PROGDIR:` | `RESOLVE` |
 | `ARCHIVE` | the name of an archive in the channel | `SHOW` |
 | `SIGN` | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW` |
 | `ACCEPTKEY` | a public key in full, 64 hexadecimal digits | `INSTALL`, `UPGRADE`, `PUBLISH` |
@@ -92,6 +94,12 @@ prints a summary.
 | `HANDLER` | the file system handler the image is mounted with | `MOUNTLIST` |
 | `TRACE` | a file, or `-` for the error output | any verb |
 | `LOG` | a file | any verb |
+
+PUBLISH also writes one line no keyword gives: `Provides: <name>.library`
+(or `.device`) for each library or device the package ships in `Libs/` or
+`Devs/`. A program's package that depends on it then counts as providing
+that library, and `RESOLVE ... CHANNEL` names the package that provides a
+missing one.
 
 ## Switches
 
@@ -120,6 +128,7 @@ progress counter; AROS has no `tee`.
 | `PKG_PROGRESS` | `1`: show the progress counter even when the output is not a terminal |
 | `PKG_COLOR` | `always` or `never`: colour and marks whatever the output is. Without it, a terminal gets them and a pipe, a file or the ARexx port gets plain text. `NO_COLOR` and `TERM=dumb` turn them off too |
 | `COLUMNS` | the width long lines are wrapped at on a terminal, 80 when unset |
+| `PKG_LIBS_PATH` | `RESOLVE` on a host: the directories of `LIBS:`, separated by `:`; else `ROOT/Libs` and `ROOT/Classes` |
 | `PKG_CACHE` | where downloaded channel files are kept; else `$XDG_CACHE_HOME/pkg`, `~/.cache/pkg`, `%LOCALAPPDATA%\pkg-cache` on Windows, `T:pkg-cache` on AROS |
 
 On AROS, set them with `SetEnv`.
@@ -205,6 +214,9 @@ Every answer has a `result:` line: `installed`, `upgraded`, `downgraded`,
 | `adopted:`, `unchanged-files:` | files already in place, left as they are |
 | `config-kept:`, `config-new:` | an edited configuration file kept; the new one set beside it |
 | `short:`, `category:`, `tag:`, `author:`, `homepage:`, `repository:`, `license:`, `distribution:`, `description:`, `changes:` | `SHOW <name>`: the catalogue fields of the newest version, one line per value |
+| `candidate:` | `RESOLVE`: one place the loader looks: path, exists, version, package, chosen; with `verdict:` and `next-step:` lines naming the path |
+| `winner:`, `satisfies:`, `loaded:` | `RESOLVE`: the copy taken (`memory` for a loaded one), whether it meets `VERSION`, a copy in memory on AROS |
+| `program:`, `library:` | `RESOLVE <program>`: the program, then each library it names, where it is taken from and the verdict |
 | `kind-from:`, `depends-from:`, `config-from:`, `about-from:` | `PUBLISH`: the fields taken from the version published before |
 
 ## The ARexx port

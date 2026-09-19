@@ -167,6 +167,12 @@ them into the same channel. Installing your package installs them first;
 removing it leaves them as orphans for `REMOVE ORPHANS`. `DEPENDS none`
 publishes a version that needs nothing, when the last one did.
 
+Libraries work the same way. A package that ships `Libs/SDL2.library` gets
+a `Provides: SDL2.library` line, and a program that opens a library no
+dependency provides gets a warning when you publish it, naming the library.
+[Libraries](libraries.md) explains why a shared library is a package of its
+own.
+
 ## Files people edit
 
 If your package carries files people change, such as preferences or a

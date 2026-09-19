@@ -109,6 +109,8 @@ test:
 	@PKG=./build/pkg sh tests/push.sh
 	@echo "== hostile"
 	@PKG=./build/pkg sh tests/hostile.sh
+	@echo "== resolve"
+	@PKG=./build/pkg sh tests/resolve.sh
 	@echo "== catalogue"
 	@PKG=./build/pkg sh tests/catalogue.sh
 	@echo "== docs-examples"

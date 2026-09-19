@@ -29,10 +29,11 @@ channel/objects:
 26e291fd5946c38dd9e50b6031ce726092032889bcb649d52b1af6cfe2d88f3c.manifest
 26e291fd5946c38dd9e50b6031ce726092032889bcb649d52b1af6cfe2d88f3c.sig
 $ cat channel/index
-hellolib 1.0 generic 26e291fd5946c38dd9e50b6031ce726092032889bcb649d52b1af6cfe2d88f3c
+hellolib 1.0 generic 81b11e885ecfedf6db7a9c576fa4a9e9ce6f0995cde713215cd714be07b22e7e
 helloworld 1.0 generic bf939246395d4a7673ec349d5942960e76a5c805360f1503ffd6d03aa1e4dfff
 helloworld 1.1 generic ec120097005e1766f6d10b012f1788d177e059bf6d255f6e511456079443393b
 notes 1.0 generic 74f7af32c6e37a1e836aaebc088e705239e2dca2764ece28cfdbb8cce013cf12
+sdl2 2.30 aarch64 07a2f17b1001fdf631e75e8b562f3a621da1f678cb8f6c3737f5cd383a0c9243
 ```
 
 - `index`: one line per published version and CPU: name, version, CPU, and
@@ -62,8 +63,9 @@ hellolib    1.0      library      generic  ok      5ff18d3fe14e383e
 helloworld  1.0      application  generic  ok      5ff18d3fe14e383e
 helloworld  1.1      application  generic  ok      5ff18d3fe14e383e
 notes       1.0      image        generic  ok      5ff18d3fe14e383e
+sdl2        2.30     library      aarch64  ok      5ff18d3fe14e383e
 $ pkg SHOW CHANNEL channel MACHINE | tail -2
-count: 4
+count: 5
 bad: 0
 ```
 

@@ -101,6 +101,8 @@ AROS every refusal is at least 10, so `If ERROR` catches all of them.
 - [Publishing packages](docs/publishing.md): keys, making a package,
   versions, dependencies, configuration files, withdrawing, uploading to
   the portal.
+- [Libraries](docs/libraries.md): how AROS finds a library, what that means
+  for packages, and RESOLVE, which shows why a program gets the copy it gets.
 - [Channels](docs/channels.md): what a channel holds, serving one over
   HTTP, the portal.
 - [Reference](docs/reference.md): every verb, keyword and environment

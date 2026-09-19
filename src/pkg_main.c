@@ -162,7 +162,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "CHANGES",   offsetof(struct pkg_options, changes) },
         { "ICON",      offsetof(struct pkg_options, icon) },
         { "SCREENSHOT", offsetof(struct pkg_options, screenshot) },
-        { "README",    offsetof(struct pkg_options, readme) }
+        { "README",    offsetof(struct pkg_options, readme) },
+        { "FROM",      offsetof(struct pkg_options, from) }
 };
 
 static int takes_value(const char *w)
@@ -397,6 +398,7 @@ static int run_verb(int argc, char **argv)
         { "LIST",      "list",      pkg_list },
         { "VERIFY",    "verify",    pkg_verify },
         { "REPAIR",    "repair",    pkg_repair },
+        { "RESOLVE",   "resolve",   pkg_resolve },
         { "REMOVE",    "remove",    pkg_remove },
         { "IMAGE",     "image",     pkg_image },
         { "MOUNTLIST", "mountlist", pkg_mountlist },

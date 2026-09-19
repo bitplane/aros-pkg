@@ -64,3 +64,23 @@ mkdir -p "$d/arc/Top/Extras/Tool" "$d/arc/Top/Extras/Other"
 elf "$d/arc/Top/Extras/Tool" Tool tool 2.1
 prog "$d/arc/Top/Extras/Other" Other other 1.0
 (cd "$d/arc" && COPYFILE_DISABLE=1 tar -cjf "$out/drawers/nightly.tar.bz2" Top)
+
+# a game and a library, for docs/libraries.md: sdl2 2.30 in the channel, and an
+# older private copy in the game's own libs/. Stand-ins as far as the loader's
+# checks go: an aarch64 ELF header, $VER, a resident tag of type library.
+python3 - "$d/sdl2/Libs" "$out/drawers/Game" <<'PY'
+import os, struct, sys
+def lib(path, ver, rev):
+    h = bytearray(64); h[0:4] = b"\x7fELF"; h[4] = 2; h[5] = 1; struct.pack_into("<H", h, 18, 183)
+    body = bytearray(b"\0$VER: SDL2.library %d.%d (19.9.2026)\0" % (ver, rev))
+    while (len(h) + len(body)) % 8: body.append(0)
+    rt = bytearray(48); rt[0:2] = b"\xfc\x4a"; rt[24] = 0x80; rt[25] = ver; rt[26] = 9
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "wb").write(bytes(h) + bytes(body) + bytes(rt))
+lib(os.path.join(sys.argv[1], "SDL2.library"), 2, 30)
+lib(os.path.join(sys.argv[2], "libs", "SDL2.library"), 2, 0)
+h = bytearray(64); h[0:4] = b"\x7fELF"; h[4] = 2; h[5] = 1; h[18] = 183
+open(os.path.join(sys.argv[2], "Game"), "wb").write(bytes(h) + b"\0SDL2.library\0dos.library\0$VER: game 1.0 (19.9.2026)\0")
+PY
+"$PKG" PUBLISH "$d/sdl2" CHANNEL "$out/channel" NAME sdl2 VERSION 2.30 KIND library \
+    SHORT "Simple DirectMedia Layer" > /dev/null 2>&1
