@@ -78,11 +78,12 @@ public class ChannelTests
         var m = Manifest.Parse(
             "Name: regina\nShort: REXX interpreter\nDescription: One\nDescription: line.\nDescription:\n" +
             "Description: Two.\nTags: rexx, ARexx, rexx\nCategory: dev/lang\nLicense: LGPL-2.1-or-later\n" +
-            "Homepage: javascript:alert(1)\nRepository: https://example.org/r\nChanges: a\nChanges: b\n");
+            "Author: A\nAuthor: B\nHomepage: javascript:alert(1)\nRepository: https://example.org/r\nChanges: a\nChanges: b\n");
         Assert.Equal("REXX interpreter", m.Short);
         Assert.Equal(["One line.", "Two."], m.Paragraphs());
         Assert.Equal(["rexx", "arexx"], m.Tags);
         Assert.Equal(["a", "b"], m.Changes);
+        Assert.Equal(["A", "B"], m.Authors);
         // Only http(s) becomes a link, whatever a manifest says.
         Assert.Null(Site.SafeUrl(m.Homepage));
         Assert.Equal("https://example.org/r", Site.SafeUrl(m.Repository));

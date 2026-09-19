@@ -27,7 +27,7 @@ public sealed class Manifest
     public List<string> Description { get; } = [];
     public string? Category { get; private set; }
     public List<string> Tags { get; } = [];
-    public string? Author { get; private set; }
+    public List<string> Authors { get; } = [];
     public string? Homepage { get; private set; }
     public string? Repository { get; private set; }
     public string? License { get; private set; }
@@ -94,7 +94,7 @@ public sealed class Manifest
                     m.Tags.AddRange(val.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                         .Select(t => t.ToLowerInvariant()).Where(t => !m.Tags.Contains(t)));
                     break;
-                case "Author": m.Author = val.Trim(); break;
+                case "Author": m.Authors.Add(val.Trim()); break;
                 case "Homepage": m.Homepage = val.Trim(); break;
                 case "Repository": m.Repository = val.Trim(); break;
                 case "License": m.License = val.Trim(); break;

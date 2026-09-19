@@ -19,7 +19,7 @@
              : p.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 1
              : Has(p.Name) ? 2
              : Has(m.Short) || m.Tags.Any(Has) || Has(m.Category) ? 3
-             : m.Description.Any(Has) || Has(m.Author) ? 4
+             : m.Description.Any(Has) || m.Authors.Any(Has) ? 4
              : m.Files.Any(f => Has(f.Path)) ? 5 : 9;
     }
     var hits = all.Select(p => (P: p, R: Rank(p)))

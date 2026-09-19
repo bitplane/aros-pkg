@@ -77,6 +77,27 @@ else if (!isLatest)
         }
     </ul>
 }
+@{
+    // The changelog is each version's own Changes, newest first, one entry per version.
+    var earlier = p.Versions.Where(x => PkgVersion.Order.Compare(x.Version, v.Version) < 0 && x.Manifest.Changes.Count > 0)
+        .DistinctBy(x => x.Version).ToList();
+}
+@if (earlier.Count > 0)
+{
+    <details class="files">
+        <summary><h2>Earlier changes <span class="muted">@earlier.Count</span></h2></summary>
+        @foreach (var x in earlier)
+        {
+            <h3 class="small">@x.Version <span class="muted">· @Site.Date(x.Published)</span></h3>
+            <ul class="changes">
+                @foreach (var c in x.Manifest.Changes)
+                {
+                    <li>@c</li>
+                }
+            </ul>
+        }
+    </details>
+}
 
 <div class="grid">
 <section>
@@ -88,9 +109,9 @@ else if (!isLatest)
                 <span class="muted"> · @Site.BuildLabel(b)</span>
             }
         </dd>
-        @if (m.Author is not null)
+        @if (m.Authors.Count > 0)
         {
-            <dt>Author</dt><dd>@m.Author</dd>
+            <dt>Author@(m.Authors.Count == 1 ? "" : "s")</dt><dd>@string.Join(", ", m.Authors)</dd>
         }
         <dt>Kind</dt><dd>@Site.KindLabel(m.Kind)</dd>
         @if (m.Category is not null)
@@ -113,7 +134,7 @@ else if (!isLatest)
             <dd>@(m.License ?? "not stated")
                 @if (m.Distribution is not null)
                 {
-                    <div class="muted small">Distribution: @m.Distribution</div>
+                    <div class="muted small">@Site.DistributionLabel(m.Distribution)</div>
                 }
             </dd>
         }

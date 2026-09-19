@@ -53,6 +53,18 @@ public static class Site
         url is not null && Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == "https" || u.Scheme == "http")
             ? u.ToString() : null;
 
+    /// The distribution terms of [PKG24], in words.
+    public static string DistributionLabel(string terms) => terms switch
+    {
+        "open-source" => "open source",
+        "freeware" => "freeware: free to use, source not included",
+        "shareware" => "shareware: try it, then pay the author",
+        "public-domain" => "public domain",
+        "commercial" => "commercial",
+        "demo" => "a demo version",
+        _ => terms,
+    };
+
     public static string Short(string? hex, int n = 16) => hex is null ? "" : hex.Length > n ? hex[..n] : hex;
 
     public static string ArchiveStatus(ChannelInfo ch, string archive) =>
