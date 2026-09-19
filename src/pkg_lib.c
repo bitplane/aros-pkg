@@ -5177,8 +5177,8 @@ static int cmd_list(const struct pkg_options *a)
                          "files", files, "reason", dep ? "dependency" : "explicit", NULL);
             }
             else
-                tbl_row("%s\t%s\t%s\t%lu files%s", m.name, m.version, m.kind,
-                        (unsigned long)m.nfiles, dep ? ", a dependency" : "");
+                tbl_row("%s\t%s\t%s\t%lu file%s%s", m.name, m.version, m.kind,
+                        (unsigned long)m.nfiles, m.nfiles == 1 ? "" : "s", dep ? ", a dependency" : "");
             pkg_manifest_free(&m);
         }
         free(names[i]);

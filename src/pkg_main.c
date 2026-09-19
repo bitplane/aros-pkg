@@ -334,7 +334,7 @@ static void usage_line(const char *fmt, ...)
 static int usage(void)
 {
     int e = usage_is_error;
-    const char *b = pkg_style_sgr(e, "1"), *d = pkg_style_sgr(e, "2"), *r = pkg_style_sgr(e, "");
+    const char *b = pkg_style_sgr(e, "1"), *d = pkg_style_sgr(e, "2"), *r = pkg_style_sgr(e, "0");
     size_t i;
     usage_line("%s%s%s  the AROS package tool\n", b, pkg_version_cookie + 6, r);
     usage_line("%susage:%s pkg VERB [<name>] KEYWORD <value> ...   keywords in any order, any case\n",

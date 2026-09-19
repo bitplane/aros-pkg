@@ -280,9 +280,14 @@ has "$work/all.log" '==STEP disk' && ! has "$work/all.log" '==DISK-BOOT-FAILED==
 has "$O/list" 'aros-base';                            ok $? "the booted system lists its packages"
 [ "$(rc verify1)" = 0 ] && has "$O/verify1" 'all intact'
                                                       ok $? "VERIFY ALL finds the booted system intact"
-has "$O/verify2" '^  missing  C/Dir (aros-base)' && has "$O/verify2" '^  changed  Utilities/Clock (aros-tools)' \
-  && has "$O/verify2" '^  edited   S/Shell-Startup (aros-base' && [ "$(rc verify2)" != 0 ]
-                                                      ok $? "after the accidents VERIFY ALL names each file with its package"
+# Each package is a row of the table, its files under it: the file line
+# follows its package's row before any other package's row.
+under() { awk -v pkg="$2" -v line="$3" 'index($0, pkg " ") == 1 { in_pkg = 1; next }
+    /^[^ ]/ { in_pkg = 0 } in_pkg && index($0, line) == 1 { found = 1 } END { exit !found }' "$1"; }
+under "$O/verify2" aros-base '  missing  C/Dir' && under "$O/verify2" aros-tools '  changed  Utilities/Clock' \
+  && under "$O/verify2" aros-base '  edited   S/Shell-Startup' && has "$O/verify2" 'missing' \
+  && has "$O/verify2" 'packages damaged' && [ "$(rc verify2)" != 0 ]
+                                                      ok $? "after the accidents VERIFY ALL lists each file under its package"
 [ "$(rc repair)" = 0 ] && has "$O/repair" '^  restored C/Dir' && has "$O/repair" '^  aside    Utilities/Clock -> '
                                                       ok $? "REPAIR ALL puts both back from the channel, keeping the overwritten bytes"
 [ "$(rc verify3)" = 0 ] && has "$O/verify3" 'all intact'

@@ -94,7 +94,7 @@ void pkg_style_init(int out_interactive, int err_interactive, int on_aros)
         if (force_off) on = 0;
         if (force_on) on = 1;
         caps[i].bold = on;
-        caps[i].colour = on && !aros;
+        caps[i].colour = on;      /* on AROS: pens, translated in sgr() */
         caps[i].utf8 = on && !aros && locale_utf8();
         caps[i].width = columns();
     }
@@ -122,9 +122,21 @@ static const char *sgr(int is_error, const char *code)
     struct pkg_style_caps *c = &caps[is_error ? 1 : 0];
     if (!c->bold)
         return "";
-    /* Colours only where they mean what they say. */
-    if (!c->colour && code[0] == '3' && code[1] != '\0')
+    if (aros) {
+        /* The Amiga console: its colour numbers select the screen's pens,
+         * and only pens 0 to 3 differ on the standard palette (grey, black,
+         * white, light blue); faint does nothing, bold, italic and inverse
+         * do. Checked on hosted AROS, 2026-09-19. So: light blue for what is
+         * secondary, bold light blue for marks and good news, inverse video
+         * for bad news, italic for what asks a look. */
+        if (strcmp(code, "2") == 0) code = "33";
+        else if (strcmp(code, "32") == 0 || strcmp(code, "36") == 0) code = "1;33";
+        else if (strcmp(code, "31") == 0) code = "7";
+        else if (strcmp(code, "33") == 0) code = "3";
+    } else if (!c->colour && code[0] == '3' && code[1] != '\0') {
+        /* Colours only where they mean what they say. */
         return "";
+    }
     snprintf(b, sizeof ring[0], ESC "%sm", code);
     return b;
 }
@@ -137,18 +149,21 @@ const char *pkg_style_sgr(int is_error, const char *code)
 #define BOLD   "1"
 #define DIM    "2"
 #define ITALIC "3"
-#define RESET  ""
+#define RESET  "0"
 #define RED    "31"
 #define GREEN  "32"
 #define YELLOW "33"
 #define CYAN   "36"
 
-/* The mark before a line, or "" when the stream is plain. */
+/* The mark before a line, or "" when the stream is plain. The AROS console
+ * is Latin-1, where a thin '+' hardly shows; a guillemet does. */
 static const char *mark(int is_error, const char *utf, const char *ascii)
 {
     struct pkg_style_caps *c = &caps[is_error ? 1 : 0];
     if (!c->bold)
         return "";
+    if (aros && strcmp(ascii, "+ ") == 0)
+        return "\xBB ";
     return c->utf8 ? utf : ascii;
 }
 
@@ -457,7 +472,7 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
             wrapped(&styled, &plain, e, "  hint: ", "        ", "", text);
         } else {
             struct buf p2 = { NULL, 0, 0 };
-            wrapped(&styled, &p2, e, first, rest, sgr(e, DIM), text);
+            wrapped(&styled, &p2, e, first, rest, sgr(e, aros ? ITALIC : DIM), text);
             bfree(&p2);
             wrapped(&p2, &plain, e, "  hint: ", "        ", "", text);
             bfree(&p2);
