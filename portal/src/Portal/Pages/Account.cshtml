@@ -44,6 +44,10 @@
 }
 <p class="lead">Signed in as <strong>@me.Value.Login</strong> on GitHub.</p>
 <form method="post" action="/signout"><button class="linklike" type="submit">Sign out</button></form>
+@if (Options.Value.Admins.Split(';', ',').Any(x => string.Equals(x.Trim(), me.Value.Login, StringComparison.OrdinalIgnoreCase)))
+{
+    <p class="notice">You are a maintainer of this portal: your own keys are in its settings, and there is nothing to register here. <a href="/admin">Maintainers' page</a></p>
+}
 
 @if (mine is { Suspended: true })
 {
@@ -77,11 +81,11 @@ pkg PUSH CHANNEL @mine.Channels[0] TO @site/@mine.Channels[0] SIGN my.key</code>
 
 <h2>@(mine is null ? "Register" : "Add a channel, or change what is registered")</h2>
 <form method="post" class="form">
-    <label>Publisher name, as people will see it
+    <label><span>Publisher name, as people will see it</span>
         <input name="PublisherName" maxlength="60" required value="@(mine?.Name ?? me.Value.Login)" /></label>
-    <label>Your public key: what <code>pkg KEYINFO FILE my.key</code> prints (64 hexadecimal digits; never the key file)
+    <label><span>Your public key: what <code>pkg KEYINFO FILE my.key</code> prints, 64 hexadecimal digits. Never the key file.</span>
         <input name="PublicKey" maxlength="64" minlength="64" pattern="[0-9a-fA-F]{64}" required value="@(mine?.Key ?? "")" spellcheck="false" autocomplete="off" /></label>
-    <label>Channel: lowercase letters, digits and <code>-</code>
+    <label><span>Channel: lowercase letters, digits and <code>-</code>, such as <code>@(me.Value.Login.ToLowerInvariant())-tools</code></span>
         <input name="Channel" maxlength="40" pattern="[a-z0-9][a-z0-9-]*" required value="@(mine?.Channels.FirstOrDefault() ?? "")" spellcheck="false" /></label>
     <button class="button" type="submit">@(mine is null ? "Register" : "Save")</button>
 </form>
