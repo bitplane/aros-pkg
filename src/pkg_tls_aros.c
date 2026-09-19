@@ -112,6 +112,7 @@ static void verify_words(long v, const char *host, char *err, size_t errlen)
                  "probably wrong, and it believes the date is %s", host, now);
         break;
     case X509_V_ERR_HOSTNAME_MISMATCH:
+    case X509_V_ERR_IP_ADDRESS_MISMATCH:        /* an address written as numbers */
         snprintf(err, errlen, "the certificate %s sends is made out to another name: name the channel with "
                  "the address the certificate carries", host);
         break;

@@ -2,26 +2,31 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 John Knipper
 #
-# Pkg reads channels over http on hosted AROS (Macaros), where
-# bsdsocket.library forwards to the Mac's own sockets: from a channel this
-# script serves, from the portal by name, and https refused with the reason.
-# tests/native-network.sh is the same on native x86_64 AROS with AROSTCP.
+# Pkg reads channels over http and https on hosted AROS (Macaros), where
+# bsdsocket.library forwards to the Mac's own sockets: from channels this
+# script serves, and from the portal by name. The https part checks the
+# certificate as well as the transfer: a server this Pkg has no authority
+# for, one made out to another name and one out of date are each refused
+# with their own reason. tests/native-network.sh is the same on native
+# x86_64 AROS with AROSTCP.
 #
-# Needs: make; tools/build-aros.sh; hosted AROS with bsdsocket.library
-# (make workbench-libs-bsdsocket-unix in the AROS build; make bsdsock-dylib and
-# aros-ctl deploy in Macaros). PORTAL= empty skips the portal part.
+# Needs: make; tools/build-aros.sh; python3; an openssl that takes -not_after;
+# hosted AROS with bsdsocket.library (make workbench-libs-bsdsocket-unix in
+# the AROS build; make bsdsock-dylib and aros-ctl deploy in Macaros).
+# PORTAL= empty skips the portal part.
 
 set -u
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 control="${MACAROS_ROOT:-$repo_root/../Macaros}/graft/aros-ctl"
 host_pkg="$repo_root/build/pkg"
-portal=${PORTAL-http://aros-pkg.azurewebsites.net/pkg}
+portal=${PORTAL-https://aros-pkg.azurewebsites.net/pkg}
 work=$(mktemp -d "${TMPDIR:-/tmp}/pkg-arosnet.XXXXXX")
 share="$work/share"
-aros_started=0; srv_pid=
+aros_started=0; srv_pid=; tls_pids=
 cleanup() {
     [ "$aros_started" = 0 ] || "$control" stop > /dev/null 2>&1 || true
     [ -z "$srv_pid" ] || kill "$srv_pid" 2>/dev/null
+    for p in $tls_pids; do kill "$p" 2>/dev/null; done
     [ "${KEEP:-0}" = 1 ] && { echo "kept $work" >&2; return; }
     rm -rf "$work"
 }
@@ -44,9 +49,32 @@ cp "$repo_root/build/aros/Pkg" "$work/drawer/C/NetHello"
 PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/drawer" CHANNEL "$work/www/ch" NAME nethello VERSION 1.0 \
     KIND application > /dev/null 2>&1
 ok $? "the host publishes nethello 1.0"
-port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
+port=$(free_port)
 python3 -m http.server --bind 127.0.0.1 --directory "$work/www" "$port" > "$work/srv.log" 2>&1 &
 srv_pid=$!
+
+# The same channel over https, four times: once with a certificate Pkg can
+# check, and three times with one it must refuse.
+sh "$repo_root/tests/tls-certs.sh" "$work/tls" > /dev/null || exit 69
+mkdir -p "$share/tls"
+cp "$work/tls/ca.pem" "$share/tls/ca.pem"
+tls_ports=
+for name in good other wrongname expired; do
+    p=$(free_port)
+    python3 "$repo_root/tests/https_server.py" "$work/tls/$name.pem" "$work/www" "$p" > "$work/$name.log" 2>&1 &
+    tls_pids="$tls_pids $!"
+    tls_ports="$tls_ports $p"
+done
+# shellcheck disable=SC2086 -- four ports, in the order of the loop above.
+set -- $tls_ports
+good_port=$1; other_port=$2; wrongname_port=$3; expired_port=$4
+w=0
+while [ "$w" -lt 50 ]; do
+    [ "$(cat "$work"/good.log "$work"/other.log "$work"/wrongname.log "$work"/expired.log 2>/dev/null | grep -c '^listening ')" = 4 ] && break
+    sleep 1; w=$((w + 1))
+done
+[ "$w" -lt 50 ] || { echo "aros-network: the https servers did not start" >&2; exit 69; }
 
 P='MacRW:bin/Pkg'
 script="FailAt 99
@@ -58,15 +86,30 @@ C:Echo \"\$RC\" >MacRW:out/n02.rc
 $P VERIFY nethello ROOT RAM:sys MACHINE >MacRW:out/n03.o
 C:Echo \"\$RC\" >MacRW:out/n03.rc
 $P SHOW CHANNEL http://127.0.0.1:$port/nowhere >MacRW:out/n04.o
-C:Echo \"\$RC\" >MacRW:out/n04.rc"
+C:Echo \"\$RC\" >MacRW:out/n04.rc
+C:SetEnv PKG_CAFILE MacRW:tls/ca.pem
+C:MakeDir RAM:sys2
+$P SHOW CHANNEL https://127.0.0.1:$good_port/ch >MacRW:out/n05.o
+C:Echo \"\$RC\" >MacRW:out/n05.rc
+$P INSTALL nethello ROOT RAM:sys2 CHANNEL https://127.0.0.1:$good_port/ch >MacRW:out/n06.o
+C:Echo \"\$RC\" >MacRW:out/n06.rc
+$P VERIFY nethello ROOT RAM:sys2 MACHINE >MacRW:out/n07.o
+C:Echo \"\$RC\" >MacRW:out/n07.rc
+$P SHOW CHANNEL https://127.0.0.1:$other_port/ch >MacRW:out/n08.o
+C:Echo \"\$RC\" >MacRW:out/n08.rc
+$P SHOW CHANNEL https://127.0.0.1:$wrongname_port/ch >MacRW:out/n09.o
+C:Echo \"\$RC\" >MacRW:out/n09.rc
+$P SHOW CHANNEL https://127.0.0.1:$expired_port/ch >MacRW:out/n0a.o
+C:Echo \"\$RC\" >MacRW:out/n0a.rc
+C:UnSetEnv PKG_CAFILE"
 [ -z "$portal" ] || script="$script
-$P SHOW CHANNEL $portal >MacRW:out/n10.o
+$P SHOW CHANNEL http://${portal#https://} >MacRW:out/n10.o
 C:Echo \"\$RC\" >MacRW:out/n10.rc
-$P INSTALL pkg ROOT RAM:sys CHANNEL $portal >MacRW:out/n11.o
+$P INSTALL pkg ROOT RAM:sys CHANNEL http://${portal#https://} >MacRW:out/n11.o
 C:Echo \"\$RC\" >MacRW:out/n11.rc
 RAM:sys/C/Pkg VERIFY pkg ROOT RAM:sys MACHINE >MacRW:out/n12.o
 C:Echo \"\$RC\" >MacRW:out/n12.rc
-$P SHOW CHANNEL https://${portal#http://} >MacRW:out/n13.o
+$P SHOW CHANNEL $portal >MacRW:out/n13.o
 C:Echo \"\$RC\" >MacRW:out/n13.rc"
 script="$script
 C:Echo done >MacRW:done"
@@ -92,14 +135,26 @@ grep -q "GET /ch/objects/.*\.pkg" "$work/srv.log";     ok $? "the host's server 
 exits n03 0 "VERIFY of what came over the network"
 has "$O/n03.o" '^result: intact$';                     ok $? "intact against its signed manifest"
 exits n04 11 "a web address with no channel is refused as not found"
+exits n05 0 "SHOW reads the same channel over https"
+has "$O/n05.o" '^nethello  *1.0 .* ok ';              ok $? "and checks its entry: ok"
+exits n06 0 "INSTALL over https"
+exits n07 0 "VERIFY of what came over TLS"
+has "$O/n07.o" '^result: intact$';                    ok $? "intact against its signed manifest"
+[ "$(code n08)" != 0 ];                               ok $? "a certificate from an authority Pkg was not given is refused (\$RC $(code n08))"
+has "$O/n08.o" 'authority this Pkg does not know';    ok $? "and says the authority is unknown, and what PKG_CAFILE is for"
+[ "$(code n09)" != 0 ];                               ok $? "a certificate made out to another name is refused (\$RC $(code n09))"
+has "$O/n09.o" 'made out to another name';            ok $? "and says the name is wrong"
+[ "$(code n0a)" != 0 ];                               ok $? "a certificate out of date is refused (\$RC $(code n0a))"
+has "$O/n0a.o" 'certificate that expired';            ok $? "and says it expired"
+has "$O/n0a.o" 'clock is wrong';                      ok $? "and that the clock may be the reason, with the date the machine believes"
 if [ -n "$portal" ]; then
-    exits n10 0 "SHOW reads the portal's channel by name"
+    exits n10 0 "SHOW reads the portal's channel over http"
     has "$O/n10.o" '^pkg  *[0-9.]*  *application  *aarch64  *ok ';  ok $? "its aarch64 entry checks: ok"
     exits n11 0 "INSTALL pkg from the portal"
     exits n12 0 "the installed Pkg runs and verifies itself"
     has "$O/n12.o" '^result: intact$';                 ok $? "intact"
-    exits n13 17 "https is refused on AROS"
-    has "$O/n13.o" 'AROS has no TLS';                  ok $? "with the reason, and what to use instead"
+    exits n13 0 "SHOW reads the portal over https, with the authorities built in"
+    has "$O/n13.o" '^pkg  *[0-9.]*  *application  *aarch64  *ok ';  ok $? "and every entry checks: ok"
 fi
 
 echo
