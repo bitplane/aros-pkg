@@ -212,14 +212,15 @@ int pkg_fs_write_private(const char *path, const void *buf, size_t len)
 }
 
 #ifdef __AROS__
-/* AROS has no random source: no /dev/urandom, no kernel pool. A signing key
- * needs 256 bits nobody can guess, and the clock, the task's address and free
- * memory are all guessable. What is not is when a person presses keys: each
- * moment is read from the CPU's cycle counter (nanoseconds, where a person is
- * exact to milliseconds) and from the system clock, and hashed with what was
- * typed. A key press is credited 4 bits with a cycle counter, 2 with only the
- * clock, and none when it repeats the last one, as a held key does; typing
- * goes on until 256 bits are credited. PGP on the Amiga made keys this way. */
+/* The fallback for an AROS without entropy.resource, which getentropy reads.
+ * A signing key needs 256 bits nobody can guess, and the clock, the task's
+ * address and free memory are all guessable. What is not is when a person
+ * presses keys: each moment is read from the CPU's cycle counter
+ * (nanoseconds, where a person is exact to milliseconds) and from the system
+ * clock, and hashed with what was typed. A key press is credited 4 bits with
+ * a cycle counter, 2 with only the clock, and none when it repeats the last
+ * one, as a held key does; typing goes on until 256 bits are credited. PGP
+ * on the Amiga made keys this way. */
 #include <devices/timer.h>
 #include <proto/timer.h>
 #include "pkg_sha512.h"
@@ -263,7 +264,7 @@ int pkg_fs_random_typed(void *buf, size_t len)
     TimerBase = tr->tr_node.io_Device;
 
     pkg_sha512_init(&pool);
-    FPuts(out, (CONST_STRPTR)"AROS has no random source, so the key is made from the moments you press keys.\n"
+    FPuts(out, (CONST_STRPTR)"This AROS has no random source, so the key is made from the moments you press keys.\n"
                              "Type anything, at random, until the count reaches 0. What you type is not kept.\n");
     Flush(out);
     SetMode(in, 1);
@@ -315,6 +316,20 @@ void (*pkg_fs_on_transfer)(long long done, long long total);
 
 int pkg_fs_random(void *buf, size_t len)
 {
+#ifdef __AROS__
+    /* AROS gathers entropy in entropy.resource, and posixc hands it out
+     * through getentropy, which takes 256 bytes at a time. An AROS older
+     * than that has neither, and the caller falls back to typed keys. */
+    unsigned char *p = (unsigned char *)buf;
+    while (len > 0) {
+        size_t k = len > 256 ? 256 : len;
+        if (getentropy(p, k) != 0)
+            return -1;
+        p += k;
+        len -= k;
+    }
+    return 0;
+#else
     FILE *f = fopen("/dev/urandom", "rb");
     size_t got;
     if (f == NULL)
@@ -322,6 +337,7 @@ int pkg_fs_random(void *buf, size_t len)
     got = fread(buf, 1, len, f);
     fclose(f);
     return got == len ? 0 : -1;
+#endif
 }
 
 /* A temporary name beside `path`, short whatever the file's name: FFS takes
@@ -345,7 +361,7 @@ static int open_tmp_beside(const char *path, char *tmp, size_t tl, int mode)
         unsigned long v;
         if (pkg_fs_random(r, sizeof r) == 0)
             v = (unsigned long)r[0] << 24 | (unsigned long)r[1] << 16 | (unsigned long)r[2] << 8 | r[3];
-        else    /* no /dev/urandom: the process and a counter */
+        else    /* no random source: the process and a counter */
             v = ((unsigned long)getpid() * 2654435761ul + ++counter * 40503ul + (unsigned long)time(NULL))
                 & 0xFFFFFFFFul;
         snprintf(tmp, tl, "%.*s.pkg%08lx", dl, path, v);
@@ -677,7 +693,7 @@ int pkg_fs_replace_if_same(const char *path, const struct pkg_fs_id *before,
         for (tries = 0; tries < 8 && fd < 0; tries++) {
             unsigned char r[4];
             if (pkg_fs_random(r, sizeof r) != 0) {
-                /* no random source (AROS): a name only has to be unused */
+                /* no random source: a name only has to be unused */
                 static unsigned long counter;
                 unsigned long v = (unsigned long)getpid() * 2654435761ul + ++counter * 40503ul + (unsigned long)time(NULL);
                 r[0] = (unsigned char)(v >> 24); r[1] = (unsigned char)(v >> 16); r[2] = (unsigned char)(v >> 8); r[3] = (unsigned char)v;
@@ -747,10 +763,11 @@ void pkg_fs_unlock_dir(void *lock)
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include "pkg_tls.h"
 
 struct Library *SocketBase;
 
-static int net_open(const char *host, const char *port, char *err, size_t errlen)
+static int net_open(const char *host, const char *port, int tls, char *err, size_t errlen)
 {
     struct sockaddr_in sa;
     struct hostent *he;
@@ -782,34 +799,28 @@ static int net_open(const char *host, const char *port, char *err, size_t errlen
         CloseLibrary(SocketBase); SocketBase = NULL;
         return -1;
     }
+    if (tls && pkg_tls_open(s, host, err, errlen) != 0) {
+        CloseSocket(s);
+        CloseLibrary(SocketBase); SocketBase = NULL;
+        return -1;
+    }
     return s;
 }
-static ssize_t net_read(int s, void *buf, size_t n) { return (ssize_t)recv(s, buf, (LONG)n, 0); }
-static ssize_t net_write(int s, const void *buf, size_t n) { return (ssize_t)send(s, (APTR)buf, (LONG)n, 0); }
+static ssize_t net_read(int s, void *buf, size_t n)
+{
+    return pkg_tls_active() ? pkg_tls_read(buf, n) : (ssize_t)recv(s, buf, (LONG)n, 0);
+}
+static ssize_t net_write(int s, const void *buf, size_t n)
+{
+    return pkg_tls_active() ? pkg_tls_write(buf, n) : (ssize_t)send(s, (APTR)buf, (LONG)n, 0);
+}
 static void net_close(int s)
 {
     if (SocketBase == NULL) return;
+    pkg_tls_close();
     CloseSocket(s);
     CloseLibrary(SocketBase);
     SocketBase = NULL;
-}
-
-static int send_https(const char *method, const char *url, const char *body_file,
-                      const char *header_file, const char *out_file, int *code,
-                      char *err, size_t errlen)
-{
-    (void)method; (void)body_file; (void)header_file; (void)out_file; (void)code;
-    snprintf(err, errlen, "%s is https, and AROS has no TLS: PUSH to the http:// address, where each "
-             "request is signed with the publisher's key instead of carrying the portal's", url);
-    return -1;
-}
-
-static int get_https(const char *url, const char *tmp, char *err, size_t errlen)
-{
-    (void)tmp;
-    snprintf(err, errlen, "%s is https, and AROS has no TLS: name the channel with http://. Nothing is lost: "
-             "Pkg checks every signature and every file itself, whatever the connection", url);
-    return -1;
 }
 
 /* Downloads are kept on the system volume so that a reboot does not fetch
@@ -949,10 +960,11 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
 }
 
 /* The socket under the HTTP client: a name and a port in, a stream out. */
-static int net_open(const char *host, const char *port, char *err, size_t errlen)
+static int net_open(const char *host, const char *port, int tls, char *err, size_t errlen)
 {
     struct addrinfo hints, *ai = NULL, *a;
     int s = -1;
+    (void)tls;                                  /* https here is curl's, never this socket's */
     memset(&hints, 0, sizeof hints);
     hints.ai_socktype = SOCK_STREAM;
     if (getaddrinfo(host, port, &hints, &ai) != 0) {
@@ -982,7 +994,7 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
                  const char *header_file, const char *out_file, int *code,
                  char *err, size_t errlen)
 {
-    char host[256], port[8] = "80", head[8192], buf[65536];
+    char host[256], port[8], head[8192], buf[65536];
     const char *p, *slash, *colon, *path;
     unsigned char *hdrs = NULL;
     size_t hl, hlen = 0, hdrlen = 0;
@@ -990,12 +1002,15 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     char *body;
     FILE *bf = NULL, *of = NULL;
     ssize_t n;
-    int s, rc = -1;
+    int s, rc = -1, tls = strncmp(url, "https://", 8) == 0;
 
-    if (strncmp(url, "https://", 8) == 0)
+#if !defined(__AROS__)
+    if (tls)                                    /* the host systems hand https to curl */
         return send_https(method, url, body_file, header_file, out_file, code, err, errlen);
-    if (strncmp(url, "http://", 7) != 0) { snprintf(err, errlen, "cannot send to %s: only http:// and https://", url); return -1; }
-    p = url + 7; slash = strchr(p, '/'); path = slash ? slash : "/";
+#endif
+    if (!tls && strncmp(url, "http://", 7) != 0) { snprintf(err, errlen, "cannot send to %s: only http:// and https://", url); return -1; }
+    snprintf(port, sizeof port, "%s", tls ? "443" : "80");
+    p = url + (tls ? 8 : 7); slash = strchr(p, '/'); path = slash ? slash : "/";
     hl = slash ? (size_t)(slash - p) : strlen(p);
     colon = memchr(p, ':', hl);
     if (hl == 0 || hl >= sizeof host) { snprintf(err, errlen, "no host in %s", url); return -1; }
@@ -1003,7 +1018,7 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     snprintf(host, sizeof host, "%.*s", (int)hl, p);
     if (stat(body_file, &sb) != 0 || (bf = fopen(body_file, "rb")) == NULL) { snprintf(err, errlen, "cannot read %s", body_file); return -1; }
     if (header_file != NULL) pkg_fs_read(header_file, &hdrs, &hdrlen);
-    s = net_open(host, port, err, errlen);
+    s = net_open(host, port, tls, err, errlen);
     if (s < 0) { fclose(bf); free(hdrs); return -1; }
     {
         /* header_file holds "Name: value\n" lines; the wire wants \r\n */
@@ -1066,10 +1081,10 @@ done:
     return rc;
 }
 
-static int http_get_once(const char *url, int fd, char *location, size_t ll, char *err, size_t errlen)
+static int http_get_once(const char *url, int tls, int fd, char *location, size_t ll, char *err, size_t errlen)
 {
-    char host[256], port[8] = "80", req[2300], head[8192];
-    const char *p = url + 7, *slash = strchr(p, '/'), *colon;
+    char host[256], port[8], req[2300], head[8192];
+    const char *p = url + (tls ? 8 : 7), *slash = strchr(p, '/'), *colon;
     const char *path = slash ? slash : "/";
     size_t hl = slash ? (size_t)(slash - p) : strlen(p), hlen = 0;
     int s = -1, code = 0, chunked = 0;
@@ -1078,13 +1093,14 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
     ssize_t n;
 
     colon = memchr(p, ':', hl);
+    snprintf(port, sizeof port, "%s", tls ? "443" : "80");
     if (hl == 0 || hl >= sizeof host) { snprintf(err, errlen, "no host in %s", url); return -1; }
     if (colon) {
         snprintf(port, sizeof port, "%.*s", (int)(hl - (size_t)(colon - p) - 1), colon + 1);
         hl = (size_t)(colon - p);
     }
     snprintf(host, sizeof host, "%.*s", (int)hl, p);
-    s = net_open(host, port, err, errlen);
+    s = net_open(host, port, tls, err, errlen);
     if (s < 0) return -1;
     snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " PKG_USER_AGENT "\r\nConnection: close\r\n\r\n",
              path, host);
@@ -1194,17 +1210,20 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
 {
     size_t dl = strlen(dest);
     char *tmp = (char *)malloc(dl + 8), cur[2100], loc[2100];
-    int hops, rc = -1, fd;
+    int hops, rc = -1, fd, tls;
 
     if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
     snprintf(tmp, dl + 8, "%s.part", dest);
     snprintf(cur, sizeof cur, "%s", url);
     for (hops = 0; hops < 6; hops++) {
-        if (strncmp(cur, "https://", 8) == 0) {
+        tls = strncmp(cur, "https://", 8) == 0;
+#if !defined(__AROS__)
+        if (tls) {                              /* the host systems hand https to curl */
             rc = get_https(cur, tmp, err, errlen);
             break;
         }
-        if (strncmp(cur, "http://", 7) != 0) {
+#endif
+        if (!tls && strncmp(cur, "http://", 7) != 0) {
             snprintf(err, errlen, "cannot fetch %s: only http:// and https:// are read", cur);
             rc = -1;
             break;
@@ -1212,7 +1231,7 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
         fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd < 0) { snprintf(err, errlen, "cannot write %s: %s", tmp, strerror(errno)); rc = -1; break; }
         loc[0] = '\0';
-        rc = http_get_once(cur, fd, loc, sizeof loc, err, errlen);
+        rc = http_get_once(cur, tls, fd, loc, sizeof loc, err, errlen);
         close(fd);
         if (rc != 3) break;
         if (loc[0] == '\0') { snprintf(err, errlen, "a redirect with no Location"); rc = -1; break; }
