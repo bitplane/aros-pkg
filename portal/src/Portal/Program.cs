@@ -252,7 +252,7 @@ admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog())
 // Who may push is decided by people, and a refusal says where to ask them.
 string SiteOf(HttpContext http) => opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";
 string Ask(HttpContext http) => opts.GitHub.On
-    ? $"A publisher registers their signing key at {SiteOf(http)}/account (sign in with GitHub), or asks the maintainers: {SiteOf(http)}/publishers says how"
+    ? $"A publisher registers their signing key at {SiteOf(http)}/account, signed in with GitHub: {SiteOf(http)}/publishers says how"
     : $"Publishers are registered by this portal's maintainers, and nobody can register themselves yet: {SiteOf(http)}/publishers says how to ask";
 
 var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpointFilter(async (ctx, next) =>

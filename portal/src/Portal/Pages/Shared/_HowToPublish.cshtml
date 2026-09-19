@@ -1,62 +1,83 @@
 @using Microsoft.Extensions.Options
+@using System.Security.Claims
 @inject IOptions<PortalOptions> Options
+@inject Portal.Accounts.Registry Registry
 @{
     var pol = Options.Value.Policy;
     var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Context.Request.Scheme}://{Context.Request.Host}";
-    var plain = "http://" + site[(site.IndexOf("://", StringComparison.Ordinal) + 3)..];
     var contact = pol.Contact.Trim();
 }
 <section id="publish">
 <h2>Publish on this portal</h2>
 @if (Options.Value.GitHub.On)
 {
-    <p class="lead">Sign in with GitHub, tell the portal which signing key is yours and which channel you publish to, and you can push.</p>
-    <p><a class="button" href="/account">Register as a publisher</a></p>
-    <p class="muted">A new publisher publishes by link, into channels of their own, unlisted until the maintainer lists them. What follows is the same by hand, for who has no GitHub account.</p>
+    var signedIn = User.Identity?.IsAuthenticated == true;
+    var mine = signedIn && long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? Registry.ByAccount(id) : null;
+    if (mine is not null)
+    {
+        <p class="lead">You publish here as <strong>@mine.Name</strong>, signed in as @mine.Login@(mine.Suspended ? ": this account is suspended" : "").</p>
+        <table class="list">
+            <tbody>
+                <tr><th>Signing key</th><td><a href="/publishers/@mine.Key"><code>@mine.Key[..16]</code></a></td></tr>
+                <tr><th>Channels</th><td>@(mine.Channels.Contains("*") ? "every channel" : string.Join(", ", mine.Channels))</td></tr>
+                <tr><th>Your push carries</th><td>@(mine.Files ? "your files" : "signed descriptions; your files stay at an https address, such as a GitHub release")</td></tr>
+            </tbody>
+        </table>
+        <p><a class="button" href="/account">Your publisher account</a></p>
+    }
+    else if (signedIn)
+    {
+        <p class="lead">You are signed in as @User.FindFirstValue(ClaimTypes.Name), and not a publisher yet: tell the portal which signing key is yours and which channel you publish to.</p>
+        <p><a class="button" href="/account">Finish registering</a></p>
+    }
+    else
+    {
+        <p class="lead">Sign in with GitHub, tell the portal which signing key is yours and which channel you publish to, and you can push.</p>
+        <p><a class="button" href="/account">Register as a publisher</a></p>
+        <p class="muted">A new publisher publishes by link, into channels of their own, unlisted until the maintainer lists them. The portal keeps your GitHub account's number and login, nothing else.</p>
+    }
+    <h3>What you need</h3>
+    <ol>
+        <li><strong>A signing key</strong>, made once with <code>pkg KEYGEN FILE my.key</code>. The file stays with you; the portal only ever sees its public half, which <code>pkg KEYINFO FILE my.key</code> prints.</li>
+        <li><strong>A channel name</strong>, such as <code>mytools</code>: lowercase letters, digits and <code>-</code>.</li>
+        <li><strong>Your release archive at an https address</strong>, such as a GitHub release: you publish from it and name its address with <code>UPSTREAM</code>.</li>
+    </ol>
 }
-@if (!Options.Value.GitHub.On)
+else
 {
     <p class="lead">To publish here, ask the portal's maintainer to register you: for now that is the only way, and there is no sign-up form yet.</p>
-}
-else
-{
-    <h3>Without a GitHub account</h3>
-    <p>Ask the portal's maintainer to register you by hand.</p>
-}
+    <h3>How to ask</h3>
+    @if (contact.Length > 0)
+    {
+        <p>Write to the maintainer: <strong>@contact</strong>.</p>
+    }
+    else
+    {
+        <p>Write to the maintainer, through <a href="https://github.com/jonx" rel="noopener">github.com/jonx</a> or the place where you heard of this portal.</p>
+    }
+    <p>Send three things. None of them is secret.</p>
+    <ol>
+        <li><strong>Your public key.</strong> Make your signing key once with <code>pkg KEYGEN FILE my.key</code>, then send what this prints:
+            <div class="cmd"><code>pkg KEYINFO FILE my.key</code><button class="copy" data-copy="pkg KEYINFO FILE my.key">Copy</button></div>
+            Never send <code>my.key</code> itself: it stays with you, and every version you publish is signed with it.</li>
+        <li><strong>Your publisher name</strong>, as people will see it on the portal.</li>
+        <li><strong>The channel or channels</strong> you want to publish to, such as <code>raspberry-pi</code>: lowercase letters, digits and <code>-</code>.</li>
+    </ol>
 
-<h3>How to ask</h3>
-@if (contact.Length > 0)
-{
-    <p>Write to the maintainer: <strong>@contact</strong>.</p>
-}
-else
-{
-    <p>Write to the maintainer, through <a href="https://github.com/jonx" rel="noopener">github.com/jonx</a> or the place where you heard of this portal.</p>
-}
-<p>Send three things. None of them is secret.</p>
-<ol>
-    <li><strong>Your public key.</strong> Make your signing key once with <code>pkg KEYGEN FILE my.key</code>, then send what this prints:
-        <div class="cmd"><code>pkg KEYINFO FILE my.key</code><button class="copy" data-copy="pkg KEYINFO FILE my.key">Copy</button></div>
-        Never send <code>my.key</code> itself: it stays with you, and every version you publish is signed with it.</li>
-    <li><strong>Your publisher name</strong>, as people will see it on the portal.</li>
-    <li><strong>The channel or channels</strong> you want to publish to, such as <code>raspberry-pi</code>: lowercase letters, digits and <code>-</code>.</li>
-</ol>
-
-<h3>What the maintainer decides</h3>
-<ul>
-    <li><strong>By link</strong>, the default: your push carries the signed descriptions, and your files stay where you publish them, at an <code>https</code> address such as a GitHub release. You publish from that archive and name its address with <code>UPSTREAM</code>.</li>
-    <li><strong>With files</strong>: the portal stores what you upload.</li>
-</ul>
-@if (pol.Note.Trim().Length > 0)
-{
-    <p class="muted">@pol.Note</p>
+    <h3>What the maintainer decides</h3>
+    <ul>
+        <li><strong>By link</strong>, the default: your push carries the signed descriptions, and your files stay where you publish them, at an <code>https</code> address such as a GitHub release. You publish from that archive and name its address with <code>UPSTREAM</code>.</li>
+        <li><strong>With files</strong>: the portal stores what you upload.</li>
+    </ul>
+    @if (pol.Note.Trim().Length > 0)
+    {
+        <p class="muted">@pol.Note</p>
+    }
 }
 
 <h3>Then, to publish</h3>
 <p>Publish into a channel on your machine, and push it, signed with your key:</p>
 <div class="cmd lines"><code>pkg PUBLISH MyTool CHANNEL mychannel KIND application SIGN my.key
 pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key</code><button class="copy" data-copy="pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key">Copy</button></div>
-<p>From AROS, which has no TLS, push to the <code>http://</code> address; the push is signed, so nothing secret travels:</p>
-<div class="cmd"><code>Pkg PUSH CHANNEL Work:mychannel TO @plain/mychannel SIGN Work:keys/my.key</code><button class="copy" data-copy="Pkg PUSH CHANNEL Work:mychannel TO @plain/mychannel SIGN Work:keys/my.key">Copy</button></div>
 <p>The guides say the rest: <a href="/docs/publishing">Publishing packages</a>, <a href="/docs/publishing-on-aros">Publishing from an AROS machine, from zero</a>, and this portal's rules on <a href="/trust">Trust</a>.</p>
 </section>
