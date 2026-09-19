@@ -12,6 +12,8 @@
 #   other.pem     127.0.0.1, signed by an authority Pkg is not given
 #   wrongname.pem signed by ca.pem, but made out to another name
 #   expired.pem   127.0.0.1, signed by ca.pem, out of date since last year
+#   good.pfx      good.pem again, for a server that wants PKCS#12 (Kestrel);
+#                 its password is "pkg"
 #
 # Each <name>.pem holds the certificate and its key, as python3's ssl wants.
 # OPENSSL= names the openssl to use; it must be one that takes -not_after
@@ -59,5 +61,7 @@ leaf other     other-ca "IP:127.0.0.1"                  -days 2
 leaf wrongname ca       "DNS:not-this-machine.invalid"  -days 2
 leaf expired   ca       "IP:127.0.0.1" \
     -not_before "${past_from}0101000000Z" -not_after "${past_to}0101000000Z"
+
+"$ssl" pkcs12 -export -out good.pfx -inkey good.key -in good.crt -passout pass:pkg 2> /dev/null
 
 echo "$dir/ca.pem"

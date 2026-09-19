@@ -9,8 +9,9 @@ commit checked with Pkg itself), over plain HTTP on this machine.
 
 Serves <root>/<channel>/... for reading. Key: "testkey", for every
 channel. PKG_TEST_FAIL_PART=<n> makes the n-th part received fail once, to
-test resuming."""
-import hashlib, http.server, os, re, shutil, subprocess, sys, tempfile
+test resuming. PKG_TEST_TLS_CERT=<pem> serves https instead, with that
+certificate and its key, which is how the AROS tests push with TLS."""
+import hashlib, http.server, os, re, shutil, ssl, subprocess, sys, tempfile
 
 ROOT, PKG, PORTFILE = sys.argv[1], sys.argv[2], sys.argv[3]
 LOG = open(sys.argv[4], "a") if len(sys.argv) > 4 else None
@@ -177,5 +178,10 @@ class H(http.server.SimpleHTTPRequestHandler):
 os.makedirs(STAGE, exist_ok=True)
 http.server.ThreadingHTTPServer.allow_reuse_address = True
 s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+cert = os.environ.get("PKG_TEST_TLS_CERT")
+if cert:
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert)
+    s.socket = context.wrap_socket(s.socket, server_side=True)
 open(PORTFILE, "w").write(str(s.server_address[1]))
 s.serve_forever()
