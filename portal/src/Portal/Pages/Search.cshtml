@@ -1,68 +1,40 @@
 @page "/search"
 @using Portal.Channels
 @inject Catalogue Catalogue
+@inject Search Search
 @{
-    string q = Request.Query["q"].ToString().Trim();
-    string kind = Request.Query["kind"].ToString();
-    string arch = Request.Query["arch"].ToString();
-    string tag = Request.Query["tag"].ToString().ToLowerInvariant();
-    string category = Request.Query["category"].ToString();
+    var s = SearchQuery.From(Request.Query);
+    var hits = Search.Run(s);
     var all = Catalogue.Channels().SelectMany(c => c.Packages.Values).ToList();
-    bool Has(string? text) => text is not null && text.Contains(q, StringComparison.OrdinalIgnoreCase);
-    // How well a package answers the query: its name, then what it says about
-    // itself, then the files it holds. 9: no match.
-    int Rank(PackageInfo p)
-    {
-        if (q.Length == 0) return 2;
-        var m = p.Latest.Manifest;
-        return p.Name.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0
-             : p.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 1
-             : Has(p.Name) ? 2
-             : m.Provides.Any(l => l.Equals(q, StringComparison.OrdinalIgnoreCase)) ? 1
-             : Has(m.Short) || m.Tags.Any(Has) || Has(m.Category) || m.Provides.Any(Has) ? 3
-             : m.Description.Any(Has) || m.Authors.Any(Has) ? 4
-             : m.Files.Any(f => Has(f.Path)) ? 5 : 9;
-    }
-    var hits = all.Select(p => (P: p, R: Rank(p)))
-        .Where(x => x.R < 9
-            && (kind.Length == 0 || x.P.Kind == kind)
-            && (arch.Length == 0 || x.P.Archs.Contains(arch))
-            && (tag.Length == 0 || x.P.Latest.Manifest.Tags.Contains(tag))
-            && (category.Length == 0 || (x.P.Latest.Manifest.Category ?? "").StartsWith(category, StringComparison.OrdinalIgnoreCase)))
-        .OrderBy(x => Catalogue.IsPinned(x.P) ? 0 : 1).ThenBy(x => x.R)
-        .ThenBy(x => x.P.Name, StringComparer.OrdinalIgnoreCase)
-        .Select(x => x.P).ToList();
-    var what = q.Length > 0 ? $"“{q}”" : tag.Length > 0 ? $"tagged {tag}" : category.Length > 0 ? $"in {category}" : null;
+    var what = s.Q.Length > 0 ? $"“{s.Q}”" : s.Tag.Length > 0 ? $"tagged {s.Tag}" : s.Category.Length > 0 ? $"in {s.Category}" : null;
     ViewData["Title"] = what is null ? "All packages" : $"Search: {what}";
+    var channels = Catalogue.ChannelNames().ToList();
     var categories = all.Select(p => p.Latest.Manifest.Category).OfType<string>().Distinct().Order().ToList();
     var kinds = all.Select(p => p.Kind).Distinct().Order().ToList();
     var archs = all.SelectMany(p => p.Archs).Distinct().Order().ToList();
 }
-<h1>@(what is null ? "All packages" : $"Packages {(q.Length > 0 ? "matching " : "")}{what}")</h1>
+<h1>@(what is null ? "All packages" : $"Packages {(s.Q.Length > 0 ? "matching " : "")}{what}")</h1>
 <form class="filters" method="get" action="/search">
-    <input type="hidden" name="q" value="@q" />
-    @if (tag.Length > 0)
+    <input type="hidden" name="q" value="@s.Q" />
+    @if (s.Tag.Length > 0)
     {
-        <input type="hidden" name="tag" value="@tag" />
+        <input type="hidden" name="tag" value="@s.Tag" />
     }
-    @if (categories.Count > 0)
-    {
-        <label>Category
-            <select name="category" data-autosubmit>
-                <option value="">any</option>
-                @foreach (var c in categories)
-                {
-                    <option value="@c" selected="@(c == category)">@c</option>
-                }
-            </select>
-        </label>
-    }
+    <label>Channel
+        <select name="channel" data-autosubmit>
+            <option value="">any</option>
+            @foreach (var c in channels)
+            {
+                <option value="@c" selected="@(c == s.Channel)">@c</option>
+            }
+        </select>
+    </label>
     <label>Kind
         <select name="kind" data-autosubmit>
             <option value="">any</option>
             @foreach (var k in kinds)
             {
-                <option value="@k" selected="@(k == kind)">@Site.KindLabel(k)</option>
+                <option value="@k" selected="@(k == s.Kind)">@Site.KindLabel(k)</option>
             }
         </select>
     </label>
@@ -71,39 +43,59 @@
             <option value="">any</option>
             @foreach (var a in archs)
             {
-                <option value="@a" selected="@(a == arch)">@Site.ArchLabel(a)</option>
+                <option value="@a" selected="@(a == s.Arch)">@Site.ArchLabel(a)</option>
             }
+        </select>
+    </label>
+    @if (categories.Count > 0)
+    {
+        <label>Category
+            <select name="category" data-autosubmit>
+                <option value="">any</option>
+                @foreach (var c in categories)
+                {
+                    <option value="@c" selected="@(c == s.Category)">@c</option>
+                }
+            </select>
+        </label>
+    }
+    <label>Sort
+        <select name="sort" data-autosubmit>
+            <option value="" selected="@(s.Sort == "")">relevance</option>
+            <option value="newest" selected="@(s.Sort == "newest")">newest</option>
+            <option value="downloads" selected="@(s.Sort == "downloads")">downloads</option>
         </select>
     </label>
     <noscript><button type="submit">Filter</button></noscript>
 </form>
-<p class="muted">@hits.Count result@(hits.Count == 1 ? "" : "s")@(q.Length > 0 ? ": names first, then descriptions and tags, then the files packages hold" : "").</p>
+<p class="muted">@hits.Count result@(hits.Count == 1 ? "" : "s")@(s.Q.Length > 0 ? ": names first, then descriptions, tags and the libraries packages provide, then the files they hold" : "").</p>
 @if (hits.Count > 0)
 {
     <table class="list">
-        <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="hide-s">Channel</th></tr></thead>
+        <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="hide-s">Channel</th><th class="num hide-s">Downloads</th></tr></thead>
         <tbody>
-        @foreach (var p in hits)
+        @foreach (var h in hits)
         {
-            var file = q.Length > 0 && !p.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
-                ? p.Latest.Manifest.Files.FirstOrDefault(f => f.Path.Contains(q, StringComparison.OrdinalIgnoreCase)) : null;
+            var p = h.Package;
             <tr>
                 <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a>
                     @if (p.Latest.Manifest.Short is { } sh)
                     {
                         <div class="muted small">@sh</div>
                     }
-                    @if (file is not null)
+                    @if (h.Why is not null)
                     {
-                        <div class="muted small">holds <code>@file.Path</code></div>
+                        <div class="muted small"><em>@h.Why</em></div>
                     }
                 </td>
                 <td><code>@p.Latest.Version</code></td>
                 <td class="hide-s">@Site.KindLabel(p.Kind)</td>
                 <td class="hide-s">@string.Join(", ", p.Archs.Select(Site.ArchLabel))</td>
                 <td class="hide-s">@p.Channel</td>
+                <td class="num hide-s">@(h.Downloads > 0 ? h.Downloads.ToString("N0") : "–")</td>
             </tr>
         }
         </tbody>
     </table>
 }
+<p class="muted small">The same search for tools and agents: <a href="/api">the JSON API</a>.</p>

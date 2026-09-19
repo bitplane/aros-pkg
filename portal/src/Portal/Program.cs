@@ -33,6 +33,7 @@ builder.Services.AddSingleton<PushService>();
 builder.Services.AddSingleton<ArchiveChecker>();
 builder.Services.AddSingleton<ArchiveStore>();
 builder.Services.AddSingleton<Portal.Channels.Publishers>();
+builder.Services.AddSingleton<Portal.Channels.Search>();
 builder.Services.AddSingleton<Portal.Channels.Downloads>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Downloads>());
 builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));
@@ -107,6 +108,9 @@ push.MapPut("/files/{**path}", async (HttpContext http, string channel, string p
 
 push.MapPost("/commit", async (HttpContext http, string channel, PushService s) =>
     Results2.Text(await s.Commit((Publisher)http.Items["publisher"]!, channel, await ReadBody(http), http.RequestAborted)));
+
+// ---- for tools, agents and feed readers --------------------------------------
+Portal.Api.Endpoints.MapPortalApi(app);
 
 // ---- getting Pkg before one has it ------------------------------------------
 

@@ -2,6 +2,7 @@
 @using Microsoft.Extensions.Options
 @using Portal.Channels
 @inject Catalogue Catalogue
+@inject Search Search
 @inject IOptions<PortalOptions> Options
 @{
     var name = (string)RouteData.Values["name"]!;
@@ -33,6 +34,7 @@
     <div><strong>@string.Join(", ", archs.Select(Site.ArchLabel))</strong><span>CPUs</span></div>
 </div>
 
+<p class="small"><a href="/channels/@ch.Name/feed">Feed of new versions</a> (Atom) · <a href="/api/search?channel=@ch.Name">as JSON</a></p>
 <h2>Use this channel</h2>
 <div class="cmd"><code>Pkg STATUS ROOT SYS: CHANNEL @url</code><button class="copy" data-copy="Pkg STATUS ROOT SYS: CHANNEL @url">Copy</button></div>
 <p class="muted small">The same address works over plain http, for machines without TLS: signatures, not the connection, prove what you install.</p>
@@ -72,7 +74,7 @@
     <noscript><button type="submit">Filter</button></noscript>
 </form>
 <table class="list">
-    <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="num">Size</th></tr></thead>
+    <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="num">Size</th><th class="num hide-s">Downloads</th></tr></thead>
     <tbody>
     @foreach (var p in packages)
     {
@@ -92,6 +94,7 @@
             <td class="hide-s">@Site.KindLabel(p.Kind)</td>
             <td class="hide-s">@string.Join(", ", p.Archs.Select(Site.ArchLabel))</td>
             <td class="num">@Site.Size(p.Latest.Manifest.InstalledSize)</td>
+            <td class="num hide-s">@(p.Latest.Manifest.Payload is null ? "–" : Search.DownloadsOf(p).ToString("N0"))</td>
         </tr>
     }
     </tbody>

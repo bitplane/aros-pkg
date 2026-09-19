@@ -4,6 +4,7 @@
 @inject Catalogue Catalogue
 @inject IOptions<PortalOptions> Options
 @inject Publishers Publishers
+@inject Search Search
 @{
     var channel = (string)RouteData.Values["channel"]!;
     var name = (string)RouteData.Values["name"]!;
@@ -255,7 +256,7 @@ else if (!isLatest)
 
 <h2>Versions</h2>
 <table class="list">
-    <thead><tr><th>Version</th><th>CPU</th><th class="hide-s">First seen</th><th class="num">Size</th><th></th></tr></thead>
+    <thead><tr><th>Version</th><th>CPU</th><th class="hide-s">First seen</th><th class="num">Size</th><th class="num hide-s">Downloads</th><th></th></tr></thead>
     <tbody>
     @foreach (var x in p.Versions)
     {
@@ -265,6 +266,7 @@ else if (!isLatest)
             <td>@Site.ArchLabel(x.Arch)</td>
             <td class="hide-s">@Site.Date(x.Published)</td>
             <td class="num">@Site.Size(x.Manifest.InstalledSize)</td>
+            <td class="num hide-s">@(x.Manifest.Payload is null ? "–" : Search.DownloadsOf(x).ToString("N0"))</td>
             <td>
                 @if (x.Withdrawn)
                 {

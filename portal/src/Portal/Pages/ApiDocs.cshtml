@@ -1,0 +1,28 @@
+@page "/api"
+@using Microsoft.Extensions.Options
+@inject IOptions<PortalOptions> Options
+@{
+    ViewData["Title"] = "API and feeds";
+    var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
+}
+<h1>API and feeds</h1>
+<p class="lead">For tools, agents and feed readers. Read-only, no key, JSON or Atom. Channels themselves are plain files: Pkg reads them directly.</p>
+
+<h2>Search</h2>
+<pre><code>curl '@site/api/search?q=rexx'</code></pre>
+<p>The results of the search page, as JSON. Parameters, all optional: <code>q</code>, <code>channel</code>, <code>kind</code>, <code>arch</code>, <code>tag</code>, <code>category</code>, <code>sort</code> (<code>newest</code> or <code>downloads</code>; relevance otherwise), <code>take</code> (1 to 500, 100 by default). Each result gives the channel, name, latest version, kind, CPUs, short description, category, tags, the libraries it provides, authors, licence, signer, last update, downloads, why it matched when not by name, its page, its channel address and the command that installs it.</p>
+
+<h2>One package</h2>
+<pre><code>curl '@site/api/packages/pkg/pkg'</code></pre>
+<p>The same fields, plus every version with its CPU, the date the portal first published it, the manifest and payload digests, the signer, downloads, and whether its publisher withdrew it.</p>
+
+<h2>Feeds</h2>
+<p>Atom, the 50 newest versions first: <a href="/feed">every channel</a>, or one channel at <code>/channels/&lt;name&gt;/feed</code>, such as <a href="/channels/contrib-nightly/feed">contrib-nightly</a>.</p>
+
+<h2>Badges</h2>
+<p><code>/badge/&lt;channel&gt;/&lt;name&gt;.svg</code> shows a package's name and latest version, for a README:</p>
+<p><img src="/badge/pkg/pkg.svg" alt="pkg badge" /></p>
+<pre><code>[![pkg](@site/badge/pkg/pkg.svg)](@site/packages/pkg/pkg)</code></pre>
+
+<h2>Downloads counted</h2>
+<p>A signed package the portal serves, fetched from its first byte, counts once; so does each way of getting Pkg. Archives kept by their makers, such as the nightly contrib build, are not seen by the portal and not counted.</p>
