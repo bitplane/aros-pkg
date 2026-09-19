@@ -15,7 +15,8 @@
        documentation always matches the Pkg built from the same commit. -->
   <ItemGroup>
     <Content Include="../../../README.md" Link="userdocs/README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../../../docs/*.md" Exclude="../../../docs/development*.md" LinkBase="userdocs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Only what the README's Guides list links is shown; contributors' pages are not bundled at all. -->
+    <Content Include="../../../docs/**/*.md" Exclude="../../../docs/development*.md;../../../docs/container.md;../../../docs/aros-defects.md;../../../docs/history.md" LinkBase="userdocs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

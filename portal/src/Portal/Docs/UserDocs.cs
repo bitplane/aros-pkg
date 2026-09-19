@@ -10,35 +10,39 @@ using Markdig.Syntax;
 namespace Portal.Docs;
 
 /// <summary>
-/// The repository's user guides (README.md and docs/*.md, bundled at build
-/// time), rendered as the site's documentation. One source: the pages show
-/// what the Pkg built from the same commit does.
+/// The repository's user guides (README.md and docs/**, bundled at build
+/// time without the contributors' pages), rendered as the site's
+/// documentation. One source: the pages show what the Pkg built from the same
+/// commit does. The README's Guides list decides the order.
 /// </summary>
 public static partial class UserDocs
 {
-    public sealed record Page(string Slug, string Title, string File);
+    /// Slug: the path under docs/ without ".md" ("using", "commands/install");
+    /// a folder's README.md is the folder ("commands"); the top README is "".
+    public sealed record Page(string Slug, string Title, string File, bool InMenu);
     public sealed record Rendered(string Title, string Html, List<(int Level, string Id, string Text)> Headings);
 
-    /// The README first, then every bundled guide in the order the README
-    /// links them, each titled by its own first heading. Nothing to update
-    /// here when guides are added, renamed or split.
+    static readonly string Root = Path.Combine(AppContext.BaseDirectory, "userdocs");
+
     public static readonly Page[] Pages = Discover();
 
     static Page[] Discover()
     {
-        var dir = Path.Combine(AppContext.BaseDirectory, "userdocs");
-        if (!Directory.Exists(dir)) return [];
-        var readme = File.Exists(Path.Combine(dir, "README.md")) ? File.ReadAllText(Path.Combine(dir, "README.md")) : "";
-        // The README's own list of guides gives the order, when it has one.
+        if (!Directory.Exists(Root)) return [];
+        var readme = File.Exists(Path.Combine(Root, "README.md")) ? File.ReadAllText(Path.Combine(Root, "README.md")) : "";
         int list = readme.IndexOf("\n## Guides", StringComparison.Ordinal);
-        if (list >= 0) readme = readme[list..];
-        int Rank(string file) { int i = readme.IndexOf("docs/" + file, StringComparison.Ordinal); return i < 0 ? int.MaxValue : i; }
-        var guides = Directory.EnumerateFiles(dir, "*.md").Select(Path.GetFileName).OfType<string>()
-            .Where(f => f != "README.md" && !f.StartsWith("development", StringComparison.Ordinal))
-            .OrderBy(Rank).ThenBy(f => f, StringComparer.Ordinal)
-            .Select(f => new Page(f[..^3], TitleOf(Path.Combine(dir, f)) ?? f[..^3], f));
-        return [new Page("", "Getting started", "README.md"), .. guides];
+        var guides = list >= 0 ? readme[list..] : readme;
+        int Rank(string rel) { int i = guides.IndexOf("docs/" + rel, StringComparison.Ordinal); return i < 0 ? int.MaxValue : i; }
+        var pages = Directory.EnumerateFiles(Root, "*.md", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(Root, f).Replace('\\', '/'))
+            .Where(rel => rel != "README.md")
+            .Select(rel => new Page(SlugOf(rel), TitleOf(Path.Combine(Root, rel)) ?? SlugOf(rel), rel, Rank(rel) != int.MaxValue))
+            .OrderBy(p => Rank(p.File)).ThenBy(p => p.Slug, StringComparer.Ordinal);
+        return [new Page("", "Getting started", "README.md", true), .. pages];
     }
+
+    static string SlugOf(string rel) =>
+        rel.EndsWith("/README.md", StringComparison.Ordinal) ? rel[..^"/README.md".Length] : rel[..^".md".Length];
 
     static string? TitleOf(string path) =>
         File.ReadLines(path).FirstOrDefault(l => l.StartsWith("# ", StringComparison.Ordinal))?[2..].Trim();
@@ -52,36 +56,57 @@ public static partial class UserDocs
     public static Rendered? Render(string slug) => Cache.GetOrAdd(slug, s =>
     {
         var page = Pages.FirstOrDefault(p => p.Slug == s);
-        var path = page is null ? null : Path.Combine(AppContext.BaseDirectory, "userdocs", page.File);
+        var path = page is null ? null : Path.Combine(Root, page.File);
         if (page is null || !File.Exists(path)) return null;
-        var md = File.ReadAllText(path);
-        // The README ends with the developers' part, which lives in the repository.
+        var md = TopTitle().Replace(File.ReadAllText(path), "", 1);   // the page has its own title
         if (page.File == "README.md")
         {
-            int cut = md.IndexOf("\nHow Pkg is built", StringComparison.Ordinal);
-            if (cut > 0) md = md[..cut];
-            md = TopTitle().Replace(md, "", 1);   // the page has its own title
+            // The README ends with material for contributors, which stays in the repository.
+            foreach (var marker in new[] { "\n## For contributors", "\nFor contributors", "\nHow Pkg is built" })
+            {
+                int cut = md.IndexOf(marker, StringComparison.Ordinal);
+                if (cut > 0) { md = md[..cut]; break; }
+            }
         }
-        else md = TopTitle().Replace(md, "", 1);
         var doc = Markdown.Parse(md, Pipeline);
         var headings = doc.Descendants<HeadingBlock>().Where(h => h.Level is 2 or 3)
             .Select(h => (h.Level, h.GetAttributes().Id ?? "", Inline(h))).ToList();
-        var html = LocalLink().Replace(doc.ToHtml(Pipeline), m =>
-        {
-            var file = m.Groups["file"].Value;
-            var target = Pages.FirstOrDefault(p => p.File == file);
-            return target is null ? m.Value : $"href=\"/docs{(target.Slug.Length > 0 ? "/" + target.Slug : "")}{m.Groups["frag"].Value}\"";
-        });
+        var here = page.File.Contains('/') ? page.File[..(page.File.LastIndexOf('/') + 1)] : "";
+        var html = LocalLink().Replace(doc.ToHtml(Pipeline), m => Link(m, page.File == "README.md" ? "" : "docs/" + here));
         return new Rendered(page.Title, html, headings);
     });
+
+    /// A link between guides becomes a /docs address; one to a page that is not
+    /// published here (contributors' pages, GOAL.md) keeps its text, without a link.
+    static string Link(Match m, string baseDir)
+    {
+        var target = Normalize(baseDir + m.Groups["path"].Value);
+        var frag = m.Groups["frag"].Value;
+        if (target.StartsWith("docs/", StringComparison.Ordinal))
+        {
+            var page = Pages.FirstOrDefault(p => p.File == target["docs/".Length..]);
+            if (page is not null) return $"<a href=\"/docs{(page.Slug.Length > 0 ? "/" + page.Slug : "")}{frag}\"";
+        }
+        else if (target == "README.md") return $"<a href=\"/docs{frag}\"";
+        return "<a data-unpublished=\"1\"";
+    }
+
+    static string Normalize(string path)
+    {
+        var parts = new List<string>();
+        foreach (var p in path.Split('/'))
+            if (p == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); }
+            else if (p is not ("" or ".")) parts.Add(p);
+        return string.Join('/', parts);
+    }
 
     static string Inline(HeadingBlock h) =>
         string.Concat(h.Inline?.Descendants<Markdig.Syntax.Inlines.LiteralInline>().Select(l => l.Content.ToString()) ?? []);
 
-    [GeneratedRegex(@"\A\s*# [^\n]*\n")]
+    [GeneratedRegex(@"\A(?:\s*<!--.*?-->)*\s*# [^\n]*\n", RegexOptions.Singleline)]
     private static partial Regex TopTitle();
 
-    // href="docs/using.md#x", href="using.md", href="../README.md"
-    [GeneratedRegex(@"href=""(?:\.\./|docs/)?(?<file>[A-Za-z]+\.md)(?<frag>#[^""]*)?""")]
+    // <a href="docs/using.md#x">, <a href="../reference.md">: relative links to Markdown files.
+    [GeneratedRegex(@"<a href=""(?<path>(?![a-z]+:)[^""#]*\.md)(?<frag>#[^""]*)?""")]
     private static partial Regex LocalLink();
 }

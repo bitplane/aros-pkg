@@ -1,4 +1,4 @@
-@page "/docs/{slug?}"
+@page "/docs/{**slug}"
 @using Portal.Docs
 @{
     var slug = (string?)RouteData.Values["slug"] ?? "";
@@ -15,9 +15,10 @@
 <h1>@doc.Title</h1>
 <div class="docs">
 <nav class="toc" aria-label="Documentation">
-    @foreach (var p in UserDocs.Pages)
+    @foreach (var p in UserDocs.Pages.Where(p => p.InMenu))
     {
-        var current = p.Slug == slug;
+        // A command's page sits under Commands in the menu.
+        var current = p.Slug == slug || (p.Slug.Length > 0 && slug.StartsWith(p.Slug + "/", StringComparison.Ordinal));
         <a class="@(current ? "on" : "")" href="/docs@(p.Slug.Length > 0 ? "/" + p.Slug : "")">@p.Title</a>
         @if (current)
         {

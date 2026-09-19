@@ -145,6 +145,7 @@ a.button:hover { text-decoration: none; filter: brightness(1.1); }
 .toc { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 0.92rem; }
 .docs .prose { max-width: 72ch; }
 .toc a.on { font-weight: 650; color: var(--fg); }
+.prose a[data-unpublished] { color: inherit; }
 .toc a.sub { font-size: 0.85rem; padding-left: 10px; color: var(--muted); }
 .docs .prose h3 { font-size: 1rem; margin: 1.4rem 0 0.4rem; scroll-margin-top: 16px; }
 .docs .prose table { border-collapse: collapse; font-size: 0.92rem; margin: 0.6rem 0 1rem; }
