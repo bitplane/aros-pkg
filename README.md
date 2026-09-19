@@ -31,6 +31,9 @@ Execute RAM:Get-Pkg
 The script fetches the Pkg for your CPU, and that Pkg installs the signed
 `pkg` package into `SYS:` from the portal's channel.
 
+If `wget` ends at once without a word, it wants its settings file first:
+`Echo "" >ENV:wgetcfg` (and the same to `ENVARC:` to keep it).
+
 **On Macaros, or any AROS hosted on your computer.** Run the macOS and Linux
 line below in the computer's terminal: it also puts the AROS drawer in the
 folder AROS shares (`~/AROS/Shared`), checked against the signed checksums,

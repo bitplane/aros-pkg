@@ -238,6 +238,8 @@ app.MapGet("/Get-Pkg", (HttpContext http, Portal.Channels.Catalogue c, Portal.Ch
     var plain = "http://" + site[(site.IndexOf("://", StringComparison.Ordinal) + 3)..];
     var cpus = c.Get(channel) is null ? [] : Portal.Channels.Bootstrap.ArosCpus(Path.Combine(opts.ChannelsDir, channel));
     if (cpus.Count == 0) return Results.NotFound();
+    // A native AROS with a network is a PC far more often than not: try that build first.
+    cpus = cpus.OrderBy(x => x == "x86_64" ? 0 : 1).ToList();
     var probes = string.Concat(cpus.Select(cpu => $"""
         If "$pkgboot" EQ ""
             $pkgwget -q -O RAM:Pkg-bootstrap {plain}/{channel}/Bootstrap/{cpu}/Pkg

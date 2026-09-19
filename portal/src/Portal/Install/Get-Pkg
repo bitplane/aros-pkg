@@ -6,7 +6,8 @@
 ;   Execute RAM:Get-Pkg
 ;
 ; It needs a started network and wget (AROS One and Icaros have it; in the
-; nightly's contrib it is Extras/Networking/Apps/WGet). It fetches the bare
+; nightly's contrib it is Extras/Networking/Apps/WGet). A wget that ends at
+; once without a word wants its settings file first: Echo "" >ENV:wgetcfg It fetches the bare
 ; Pkg for this machine's CPU, and that Pkg installs the signed pkg package
 ; from @@HTTP@@/@@CHANNEL@@, checking its signature and every
 ; file. Only the bare Pkg is not checked by anything: AROS has no tool to check

@@ -24,6 +24,9 @@ wget -q -O RAM:Get-Pkg http://aros-pkg.azurewebsites.net/Get-Pkg
 Execute RAM:Get-Pkg
 ```
 
+If `wget` ends at once without a word, it wants its settings file first:
+`Echo "" >ENV:wgetcfg` (and the same to `ENVARC:` to keep it).
+
 **On Macaros, or any AROS hosted on your computer**, run
 `curl -fsSL https://aros-pkg.azurewebsites.net/install | sh` in the
 computer's terminal. Besides Pkg for the computer, it puts the AROS drawer

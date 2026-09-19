@@ -27,6 +27,7 @@
             {
                 <p><strong>With a network and <code>wget</code></strong> (AROS One, Icaros, the nightly with contrib), paste these two lines in a Shell:</p>
                 <div class="cmd lines"><code>@getpkg</code><button class="copy" data-copy="@getpkg">Copy</button></div>
+                <p class="muted small">A <code>wget</code> that ends at once without a word wants its settings file first: <code>Echo "" &gt;ENV:wgetcfg</code></p>
                 <p><strong>On Macaros or another hosted AROS</strong>, run the macOS and Linux line on the right: it also puts the drawer in the folder AROS shares and prints the one line to paste in the AROS Shell.</p>
                 <p><strong>Without a network</strong>, download the drawer for your CPU, unzip it on the computer next to the AROS machine and copy the <code>Pkg-&lt;cpu&gt;</code> drawer across (a stick, a shared folder, a disk image). Then, in a Shell:</p>
                 <div class="cmd"><code>Execute Pkg-x86_64/Install-Pkg Pkg-x86_64</code><button class="copy" data-copy="Execute Pkg-x86_64/Install-Pkg Pkg-x86_64">Copy</button></div>
