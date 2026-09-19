@@ -3,6 +3,7 @@
 
 using System.Globalization;
 using System.Net;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
@@ -12,9 +13,10 @@ using Portal.Push;
 
 // `Portal key <publisher> <channel,channel|*>` prints a new push key and the
 // line that configures it, then exits. Only the line goes into the settings.
-if (args is ["key", var publisher, var scope])
+// Add "files" to let the key upload binaries; without it, it publishes by link only.
+if (args.Length is 3 or 4 && args[0] == "key" && (args.Length == 3 || args[3] == "files"))
 {
-    var (key, config) = PublisherKeys.Create(publisher, scope);
+    var (key, config) = PublisherKeys.Create(args[1], args[2], args.Length == 4);
     Console.WriteLine($"key:    {key}");
     Console.WriteLine($"config: {config}");
     Console.WriteLine("summary: give the key to the publisher once; add the config line to Portal:Keys (entries separated by ';')");
@@ -51,6 +53,23 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Do
 builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ArchiveChecker>());
 builder.Services.AddRazorPages();
+// Per address, so one client cannot drown the site: pushes send one request per
+// file (a whole contrib nightly is about 210), admin and search much fewer.
+builder.Services.AddRateLimiter(r =>
+{
+    r.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    static RateLimitPartition<string> Per(HttpContext c, int permits) =>
+        RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "?",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = permits, Window = TimeSpan.FromMinutes(1) });
+    r.AddPolicy("push", c => Per(c, 1200));
+    r.AddPolicy("admin", c => Per(c, 60));
+    r.AddPolicy("api", c => Per(c, 300));
+    r.OnRejected = async (ctx, ct) =>
+    {
+        ctx.HttpContext.Response.ContentType = "text/plain; charset=utf-8";
+        await ctx.HttpContext.Response.WriteAsync(Record.Refused(20, "too many requests from this address", "wait a minute and try again").ToString(), ct);
+    };
+});
 builder.Services.Configure<ForwardedHeadersOptions>(f =>
 {
     // App Service terminates TLS in front of the app and says so in X-Forwarded-Proto.
@@ -79,18 +98,24 @@ app.Use(async (ctx, next) =>
     ctx.Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
     ctx.Response.Headers.XContentTypeOptions = "nosniff";
     ctx.Response.Headers["Referrer-Policy"] = "same-origin";
+    // Pages run only this site's own script, and no other site may frame them.
+    ctx.Response.Headers.ContentSecurityPolicy =
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; " +
+        "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+    ctx.Response.Headers.XFrameOptions = "DENY";
     await next();
 });
 app.UseStaticFiles();
 // Routing after static files: the channel route would otherwise claim /css/site.css.
 app.UseRouting();
+app.UseRateLimiter();
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n"));
 app.MapGet("/health", (Catalogue c) => Results.Text($"ok: {c.ChannelNames().Count()} channels\n"));
 app.MapRazorPages();
 
 // ---- the maintainers' API -----------------------------------------------------
 
-var admin = app.MapGroup("/_admin").AddEndpointFilter(async (ctx, next) =>
+var admin = app.MapGroup("/_admin").RequireRateLimiting("admin").AddEndpointFilter(async (ctx, next) =>
 {
     var http = ctx.HttpContext;
     var loopback = http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
@@ -114,7 +139,7 @@ admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog())
 
 // ---- the push API, under each channel ---------------------------------------
 
-var push = app.MapGroup("/{channel}/_push").AddEndpointFilter(async (ctx, next) =>
+var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpointFilter(async (ctx, next) =>
 {
     var http = ctx.HttpContext;
     var channel = (string)http.GetRouteValue("channel")!;

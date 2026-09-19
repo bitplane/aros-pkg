@@ -78,7 +78,8 @@ Settings (environment variables use `__`, e.g. `Portal__DataDir`):
 |---|---|
 | `Portal:DataDir` | channels, staging, state; `/home/data` on App Service |
 | `Portal:PkgPath` | the Pkg that checks pushes; the deployment puts the static Linux build beside the app |
-| `Portal:Keys` | `name:sha256-of-key:channel,channel;…`, one entry per publisher |
+| `Portal:Keys` | `name:sha256-of-key:channel,channel[:files];…`, one entry per publisher. Without `files` a key publishes by link only: signed manifests and signatures, whose files stay in an archive on an https server named by an `Archive:` line; payloads, archives and bootstrap programs are refused |
+| `Portal:MaxStagingBytes`, `Portal:MaxLinkOnlyStagingBytes` | what one key may hold in staging at once (2 GiB, 16 MiB) |
 | `Portal:PublicUrl` | the address shown in commands |
 | `Portal:Publishers` | publisher profiles, `key|name|url|contact;…` (url and contact optional); they win over SignerNames |
 | `Portal:Owners` | packages moved to another key by the maintainers, `channel/name=key;…`; from then on a push of that package must be signed by that key |
@@ -87,7 +88,7 @@ Settings (environment variables use `__`, e.g. `Portal__DataDir`):
 | `Portal:AdminKeys` | maintainers' keys for `/_admin`, `name:sha256-of-key;…`; `dotnet Portal.dll adminkey <name>` makes one |
 | `Portal:AllowLoopbackHttpPush` | pushes over http from 127.0.0.1, for a local instance only |
 
-A key: `dotnet Portal.dll key <publisher> <channel,channel|*>` prints the
+A key: `dotnet Portal.dll key <publisher> <channel,channel|*> [files]` prints the
 key, which goes to the publisher once, and the line for `Portal:Keys`,
 which holds only its SHA-256.
 

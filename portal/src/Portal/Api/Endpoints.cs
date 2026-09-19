@@ -18,7 +18,8 @@ public static class Endpoints
 {
     public static void MapPortalApi(this WebApplication app)
     {
-        app.MapGet("/api/search", (HttpContext http, Search search, IOptions<PortalOptions> o) =>
+        var api = app.MapGroup("/api").RequireRateLimiting("api");
+        api.MapGet("/search", (HttpContext http, Search search, IOptions<PortalOptions> o) =>
         {
             var s = SearchQuery.From(http.Request.Query);
             var take = int.TryParse(http.Request.Query["take"], out var t) ? Math.Clamp(t, 1, 500) : 100;
@@ -32,7 +33,7 @@ public static class Endpoints
             });
         });
 
-        app.MapGet("/api/packages/{channel}/{name}", (HttpContext http, string channel, string name, Catalogue c,
+        api.MapGet("/packages/{channel}/{name}", (HttpContext http, string channel, string name, Catalogue c,
                                                       Search search, IOptions<PortalOptions> o) =>
             c.Package(channel, name) is { } p ? Results.Json(Describe(p, Site(http, o.Value), search, null, versions: true))
                                               : Results.NotFound());

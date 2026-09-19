@@ -7,7 +7,10 @@ using Microsoft.Extensions.Options;
 
 namespace Portal.Push;
 
-public sealed record Publisher(string Name, IReadOnlySet<string> Channels)
+/// A push key's rights. Files: may upload binaries (payloads, archives, the
+/// bootstrap programs). Without it a key publishes by link only: signed
+/// manifests whose files stay in an archive on an https server (Archive:).
+public sealed record Publisher(string Name, IReadOnlySet<string> Channels, bool Files = false)
 {
     public bool MayPush(string channel) => Channels.Contains("*") || Channels.Contains(channel);
 }
@@ -26,9 +29,11 @@ public sealed class PublisherKeys
         foreach (var entry in options.Value.Keys.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var f = entry.Split(':');
-            if (f.Length != 3 || f[1].Length != 64) continue;
+            // name:sha256:channels[:files]
+            if (f.Length is not (3 or 4) || f[1].Length != 64) continue;
             keys.Add((Convert.FromHexString(f[1]),
-                new Publisher(f[0], f[2].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet())));
+                new Publisher(f[0], f[2].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(),
+                              f.Length == 4 && f[3] == "files")));
         }
     }
 
@@ -45,10 +50,10 @@ public sealed class PublisherKeys
     }
 
     /// A new key and the line that configures it.
-    public static (string Key, string Config) Create(string publisher, string channels)
+    public static (string Key, string Config) Create(string publisher, string channels, bool files = false)
     {
         var key = "pkgk_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
-        return (key, $"{publisher}:{hash}:{channels}");
+        return (key, $"{publisher}:{hash}:{channels}{(files ? ":files" : "")}");
     }
 }

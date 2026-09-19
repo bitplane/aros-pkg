@@ -58,7 +58,7 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                 continue;
             }
             var p = new PlanLine(text[..a], text[(a + 1)..b].ToLowerInvariant(), size);
-            var why = Refusal(p.Path);
+            var why = Refusal(p.Path) ?? LinkOnly(who, p.Path);
             if (why is not null) { r.Add("refused", $"{p.Path} 20 {why}"); refused++; continue; }
             if (ChannelPaths.PromisedDigest(p.Path) is { } promised && promised != p.Sha)
             {
@@ -108,6 +108,8 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                                                            CancellationToken ct)
     {
         if (Refusal(path) is { } why) return (Record.Refused(20, $"{path}: {why}", "check the path"), 400);
+        if (LinkOnly(who, path) is { } linkOnly)
+            return (Record.Refused(20, $"{path}: {linkOnly}", "publish the files as an archive on an https server and name it with an Archive: line"), 403);
         var staging = Staging(who, channel);
         var plan = ReadPlan(staging);
         if (!plan.TryGetValue(path, out var want))
@@ -137,6 +139,12 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
 
         var final = Path.Combine(staging, path);
         var part = final + ".part";
+        var cap = who.Files ? o.MaxStagingBytes : o.MaxLinkOnlyStagingBytes;
+        var held = Directory.Exists(staging)
+            ? new DirectoryInfo(staging).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length) : 0;
+        if (held + (end - start + 1) > cap)
+            return (Record.Refused(20, $"this push would hold {Record.Size(held + end - start + 1)} in staging, more than the {Record.Size(cap)} a key may hold",
+                "commit or let the staged files expire, then push again"), 413);
         Directory.CreateDirectory(Path.GetDirectoryName(final)!);
         long received = File.Exists(part) ? new FileInfo(part).Length : 0;
         if (File.Exists(final))
@@ -242,6 +250,11 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
                 continue;
             }
             var m = Manifest.Load(mp);
+            if (!who.Files && LinkOnlyManifest(m) is { } notLink)
+            {
+                refusedItems.Add($"{c.Name} {c.Version} {c.Arch} 20 {notLink}");
+                continue;
+            }
             if (m.Payload is { } pay && Find($"objects/{pay}.pkg") is null)
             {
                 refusedItems.Add($"{c.Name} {c.Version} {c.Arch} 11 its payload {pay[..16]} was not sent");
@@ -463,6 +476,26 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
     }
 
     // ---- helpers --------------------------------------------------------------
+
+    /// What a link-only key may send: signed manifests, signatures and withdrawals.
+    static string? LinkOnly(Publisher who, string path) =>
+        who.Files || path.EndsWith(".manifest", StringComparison.Ordinal) || path.EndsWith(".sig", StringComparison.Ordinal)
+            || path.EndsWith(".withdrawn", StringComparison.Ordinal)
+            ? null
+            : "this key publishes by link only: it sends signed manifests and signatures, and the files stay on an https server";
+
+    /// A version a link-only key may publish: no payload of its own, its files in
+    /// an archive the signed manifest names by an https address, size and SHA-256.
+    static string? LinkOnlyManifest(Manifest m)
+    {
+        if (m.Payload is not null)
+            return "its manifest names a payload to upload, and this key publishes by link only: put the files in an archive on an https server and name it with an Archive: line";
+        if (m.Source is null || m.Upstream is null)
+            return "its manifest names no Archive: line, and this key publishes by link only";
+        if (!Uri.TryCreate(m.Upstream.Url, UriKind.Absolute, out var u) || u.Scheme != "https" || u.Host.Length == 0)
+            return $"its archive address '{m.Upstream.Url}' is not an https address";
+        return null;
+    }
 
     static string? Refusal(string path) => ChannelPaths.Classify(path) switch
     {

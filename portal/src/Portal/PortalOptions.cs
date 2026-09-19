@@ -50,6 +50,11 @@ public sealed class PortalOptions
     /// Largest request body, one part of a large file included.
     public long MaxPartBytes { get; set; } = 40L * 1024 * 1024;
 
+    /// The most a key may hold in staging at once, so no key can fill the disk.
+    /// Link-only keys send manifests and signatures, so they get far less.
+    public long MaxStagingBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+    public long MaxLinkOnlyStagingBytes { get; set; } = 16L * 1024 * 1024;
+
     /// Staging not committed for this long is removed.
     public TimeSpan StagingLifetime { get; set; } = TimeSpan.FromHours(24);
 
