@@ -199,7 +199,8 @@ removed 1 package nothing needed any more
 ```
 
 Pkg refuses to remove a package that another installed package needs, and
-names which.
+names which. To take Pkg itself off the system, or to move to a Pkg that
+cannot read this one's database, see [Removing Pkg](removing.md).
 
 ## Programs as images
 

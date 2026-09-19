@@ -856,6 +856,30 @@ mkdir -p "$AD/r2/C"; printf 'not the same' > "$AD/r2/C/Base"
 $PKG INSTALL base ROOT "$AD/r2" CHANNEL "$AD/ch" MACHINE > "$T/ad3" 2>&1
 [ $? -eq 15 ] && grep -q 'not the same' "$AD/r2/C/Base"; ok $? "a different file already there is still refused, and left alone"
 
+echo "remove pkg itself"
+# Pkg removes its own package, and says what stays behind: the guide
+# docs/removing.md turns that into a procedure.
+RM="$T/rmpkg"; mkdir -p "$RM/d/C" "$RM/o/Libs"
+printf 'x\000$VER: Pkg 1.5 (1.1.2026)\000' > "$RM/d/C/Pkg"; printf 'lib' > "$RM/o/Libs/o.library"
+$PKG PUBLISH "$RM/d" CHANNEL "$RM/ch" NAME pkg VERSION 1.5 KIND application > /dev/null 2>&1
+$PKG PUBLISH "$RM/o" CHANNEL "$RM/ch" NAME other VERSION 1 KIND library > /dev/null 2>&1
+$PKG INSTALL pkg ROOT "$RM/r" CHANNEL "$RM/ch" > /dev/null 2>&1
+$PKG INSTALL other ROOT "$RM/r" CHANNEL "$RM/ch" > /dev/null 2>&1
+$PKG REMOVE pkg ROOT "$RM/r" > "$T/rm1" 2>&1
+[ $? -eq 0 ] && grep -q 'hint: Pkg is gone, but .*\.pkg still holds' "$T/rm1" && [ ! -e "$RM/r/C/Pkg" ]
+                                                      ok $? "REMOVE pkg takes the file out and says what .pkg still holds"
+[ -f "$RM/r/.pkg/keys/pkg" ] && [ ! -e "$RM/r/.pkg/db/pkg" ] && [ -f "$RM/r/.pkg/db/other" ] \
+  && [ -f "$RM/r/Libs/o.library" ]
+                                                      ok $? "the pinned key outlives the package; the other package's record and files stay"
+$PKG REMOVE other ROOT "$RM/r" > "$T/rm2" 2>&1
+[ $? -eq 0 ] && ! grep -q 'hint: Pkg is gone' "$T/rm2"
+                                                      ok $? "control: removing any other package says nothing of the kind"
+$PKG INSTALL pkg ROOT "$RM/r" CHANNEL "$RM/ch" MACHINE > "$T/rm3" 2>&1
+[ $? -eq 0 ] && grep -q '^hint: Pkg is gone' "$T/rm3" 2>/dev/null; rc=$?
+$PKG REMOVE pkg ROOT "$RM/r" MACHINE > "$T/rm4" 2>&1
+[ $? -eq 0 ] && grep -q '^hint: Pkg is gone, but ' "$T/rm4" && [ "$rc" -ne 0 ]
+                                                      ok $? "MACHINE carries it as a hint: record, and only on the removal"
+
 echo "repair"
 RP="$T/rp"; mkdir -p "$RP/d/C" "$RP/d/Libs" "$RP/d/S"
 printf 'x\000$VER: sysr 1.0 (1.1.2026)\000' > "$RP/d/C/Sysr"; printf 'lib' > "$RP/d/Libs/r.library"; printf 'seq\n' > "$RP/d/S/Startup-Sequence"

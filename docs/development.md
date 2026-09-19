@@ -319,4 +319,5 @@ Goals and milestones: [GOAL.md](../GOAL.md). What remains: [OPEN.md](../OPEN.md)
 | Machine contract, `MACHINE` or `PKG_OUTPUT=machine` | Built: `tests/e2e.sh` on macOS, `tests/aros-contract.sh` compares macOS and hosted AROS line for line |
 | Image route, `KIND image` and `IMAGE` | Built: FFS images, validated by amitools in `tests/image.sh`, mounted by the AROS FFS handler in `tests/goal2.sh` |
 | `Depends`, resolution, orphans, `REMOVE ORPHANS` | Built: `tests/deps.sh` on macOS, `tests/goal2.sh` on hosted AROS |
+| Removing Pkg itself, and moving to an incompatible Pkg | Built: [Removing Pkg](removing.md), proven by `tests/aros-remove-pkg.sh` on hosted AROS |
 | `STATUS`, `UPGRADE ALL`: checking and updating a root, unattended | Built: `tests/status.sh` on macOS, 67 checks; on hosted AROS in the contract, AmigaDOS and ARexx |

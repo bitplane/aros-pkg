@@ -58,4 +58,5 @@ nothing installed in aros
 
 ## Related
 
-[INSTALL](install.md), [Using Pkg](../using.md#remove).
+[INSTALL](install.md), [Using Pkg](../using.md#remove),
+[Removing Pkg](../removing.md), for removing the `pkg` package itself.

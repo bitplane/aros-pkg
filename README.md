@@ -15,7 +15,8 @@ programs**, read [Publishing packages](docs/publishing.md); to **run your own
 channel**, [Channels](docs/channels.md); to **ship builds for several
 CPUs**, [Distributing builds](docs/distributing.md); to **move an existing
 distribution, archive or package manager to Pkg**,
-[Moving to Pkg](docs/migrating.md); and if **an AI assistant does the
+[Moving to Pkg](docs/migrating.md); to **take Pkg itself off a system**,
+[Removing Pkg](docs/removing.md); and if **an AI assistant does the
 typing for you**, [Pkg with an AI assistant](docs/agents.md).
 
 ## Install Pkg
@@ -178,6 +179,8 @@ Using Pkg
 - [Signatures and trust](docs/signing.md): what is signed and by whom, what
   is checked where, what a key change means for you, checking a package by
   hand.
+- [Removing Pkg](docs/removing.md): taking Pkg itself off a system, what it
+  leaves behind, and moving to a Pkg that cannot read this one's database.
 - [Pkg with an AI assistant](docs/agents.md): the skill an agent loads, what
   to ask it, what it will not decide for you.
 

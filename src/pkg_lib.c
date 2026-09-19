@@ -7116,6 +7116,13 @@ static int cmd_remove(const struct pkg_options *a)
         free(which);
         installed_free(&in);
     }
+    /* Pkg removing itself leaves the root's records and pinned keys, which a
+     * later Pkg picks up; say so, since nothing else would. */
+    if (!dryrun && strcmp(m.name, "pkg") == 0)
+        hint("Pkg is gone, but %s%s.pkg still holds what is installed, the keys pinned for it "
+             "and the downloads; a later Pkg takes over from there, and the guide to removing "
+             "Pkg says what to delete when nothing should stay", a->root,
+             *a->root && strchr(":/", a->root[strlen(a->root) - 1]) ? "" : "/");
     pkg_manifest_free(&m);
     return 0;
 }

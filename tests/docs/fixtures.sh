@@ -8,6 +8,7 @@
 #                     hellolib 1.0, and notes 1.0, a program as an image
 #   $1/portal/contrib-nightly   stands for the portal's channel of that name
 #   $1/portal/pkg     the portal's Pkg channel: 1.1, aarch64 and x86_64
+#   $1/portal/pkg-next  the same package signed by another key: Pkg 2.0, aarch64
 #   $1/drawers/MyTool, MyTool-1.1   a program's drawer, as a publisher has it
 #
 # All signed with fixture.key, so that every output is the same on every run.
@@ -105,3 +106,15 @@ open(os.path.join(sys.argv[2], "Game"), "wb").write(bytes(h) + b"\0SDL2.library\
 PY
 "$PKG" PUBLISH "$d/sdl2" CHANNEL "$out/channel" NAME sdl2 VERSION 2.30 KIND library \
     SHORT "Simple DirectMedia Layer" > /dev/null 2>&1
+
+# A Pkg published by another key, for docs/removing.md: the channel a person
+# moves to when the publisher's key changes, which the pinned key refuses.
+"$PKG" KEYGEN FILE "$d/other.key" > /dev/null 2>&1
+rm -rf "$d/pkg2"; mkdir -p "$d/pkg2/C"
+python3 -c "
+import sys
+h = bytearray(64); h[0:4] = b'\\x7fELF'; h[4] = 2; h[5] = 1; h[6] = 1; h[18] = 183
+open(sys.argv[1], 'wb').write(bytes(h) + b'\\0\$VER: Pkg 2.0 (20.9.2026)\\0')
+" "$d/pkg2/C/Pkg"
+PKG_SIGNKEY="$d/other.key" "$PKG" PUBLISH "$d/pkg2" CHANNEL "$out/portal/pkg-next" NAME pkg \
+    VERSION 2.0 KIND application ARCH aarch64 > /dev/null 2>&1
