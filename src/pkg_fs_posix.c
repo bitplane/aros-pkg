@@ -228,7 +228,15 @@ static int open_tmp_beside(const char *path, char *tmp, size_t tl, int mode)
 {
     static unsigned long counter;
     const char *slash = strrchr(path, '/');
-    int dl = slash ? (int)(slash - path) + 1 : 0, fd = -1, tries;
+    int dl, fd = -1, tries;
+#ifdef __AROS__
+    /* "RAM:GURU0" is in RAM:'s root: without the volume the temporary name
+     * would land in the current directory, and the rename cross volumes */
+    const char *colon = strrchr(path, ':');
+    if (colon != NULL && (slash == NULL || colon > slash))
+        slash = colon;
+#endif
+    dl = slash ? (int)(slash - path) + 1 : 0;
     for (tries = 0; tries < 16 && fd < 0; tries++) {
         unsigned char r[4];
         unsigned long v;
