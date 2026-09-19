@@ -2914,14 +2914,22 @@ static int check_entry(const struct pkg_entry *e, void *ctx)
 }
 
 struct stage_ctx {
-    const char *staging;
-    char        err[400];
+    const char                *staging;
+    const struct pkg_manifest *m;
+    const unsigned char       *keep;    /* files not to stage: already in place */
+    char                       err[400];
 };
 
 static int stage_entry(const struct pkg_entry *e, void *ctx)
 {
     struct stage_ctx *s = (struct stage_ctx *)ctx;
-    char *p = pkg_join(s->staging, e->path);
+    char *p;
+    if (s->keep != NULL) {
+        const struct pkg_file *pf = find_file(s->m, e->path);
+        if (pf != NULL && s->keep[pf - s->m->files] >= 2)
+            return 0;           /* stays as it is: nothing to write */
+    }
+    p = pkg_join(s->staging, e->path);
     if (p == NULL || pkg_fs_write_atomic(p, e->data, e->data_len) != 0) {
         snprintf(s->err, sizeof s->err, "cannot stage \"%s\": %s", e->path, strerror(errno));
         free(p);
@@ -3110,8 +3118,11 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     unsigned long adopted;  /* files already there, byte for byte the package's */
     struct installed others;/* loaded when a file is already there */
     int others_loaded = 0;
+    unsigned long same;     /* files the old and new versions share, intact on disk */
+    int fs;
     unsigned char *keep;    /* per file: 1 a person's configuration kept, the new one set
-                               beside it; 2 kept, and the new version is what they edited */
+                               beside it; 2 kept, and the new version is what they edited;
+                               3 already in place, byte for byte: neither staged nor moved */
     int stopped;
     size_t i;
     enum pkg_status st;
@@ -3128,6 +3139,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     if (keep == NULL)
         return refuse("out of memory");
     adopted = 0;
+    same = 0;
     others.m = NULL;
     others.n = 0;
     for (i = 0; i < m->nfiles; i++) {
@@ -3136,9 +3148,15 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             /* A configuration file: a person's version stays where it is. */
             if (of != NULL && file_state(root, of->path, of->digest, of->size) == 1)
                 keep[i] = strcmp(of->digest, m->files[i].digest) == 0 ? 2 : 1;
-            else if (of == NULL && file_state(root, m->files[i].path, m->files[i].digest,
-                                              m->files[i].size) == 1)
-                keep[i] = 1;
+            else if (of == NULL) {
+                int cs = file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size);
+                if (cs == 1) keep[i] = 1;
+                else if (cs == 0) { keep[i] = 3; adopted++; }
+            } else if (strcmp(of->digest, m->files[i].digest) == 0 && of->size == m->files[i].size
+                       && file_state(root, of->path, of->digest, of->size) == 0) {
+                keep[i] = 3;
+                same++;
+            }
             continue;
         }
         if (of == NULL) {
@@ -3161,6 +3179,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
                         owner = others.m[k].name;
                 if (owner == NULL) {
                     adopted++;
+                    keep[i] = 3;
                     continue;
                 }
                 refuse_c(15, "\"%s\" belongs to %s, which is installed; %s %s ships it too, and "
@@ -3178,7 +3197,12 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
                               "may be the requester's own file, or another version's",
                               m->files[i].path, root, m->name, m->version);
             }
-        } else if (file_state(root, of->path, of->digest, of->size) == 1) {
+        } else if ((fs = file_state(root, of->path, of->digest, of->size)) == 0) {
+            if (strcmp(of->digest, m->files[i].digest) == 0 && of->size == m->files[i].size) {
+                keep[i] = 3;            /* the same in both versions, and intact */
+                same++;
+            }
+        } else if (fs == 1) {
             free(keep);
             installed_free(&others);
             return refuse_c(15, "\"%s\" was edited since %s %s was installed, and %s %s ships it too; "
@@ -3193,8 +3217,13 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         else say("  adopted  %lu file%s already there, identical to %s %s's\n", adopted,
                  adopted == 1 ? "" : "s", m->name, m->version);
     }
+    if (same) {
+        if (machine) kv("unchanged-files", "%lu", same);
+        else say("  unchanged %lu file%s the same in %s and %s, not written again\n", same,
+                 same == 1 ? "" : "s", old->version, m->version);
+    }
     for (i = 0; i < m->nfiles; i++)
-        if (keep[i]) {
+        if (keep[i] == 1 || keep[i] == 2) {
             (*kept)++;
             char *nw = keep[i] == 1 ? beside(m->files[i].path, ".pkgnew") : NULL;
             if (machine) {
@@ -3216,7 +3245,9 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     tr("%s %s: every file checked against the container, nothing in the way", m->name, m->version);
     if (dryrun) {
         /* Every check above has passed; say what would move, move nothing. */
-        *placed = (unsigned long)m->nfiles - (unsigned long)*kept;
+        *placed = 0;
+        for (i = 0; i < m->nfiles; i++)
+            if (!keep[i]) (*placed)++;
         for (i = 0; old != NULL && i < old->nfiles; i++)
             if (find_file(m, old->files[i].path) == NULL)
                 (*dropped)++;
@@ -3233,7 +3264,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         free(keep);
         return refuse_c(17, "cannot prepare staging in %s", root);
     }
-    sc.staging = staging; sc.err[0] = '\0';
+    sc.staging = staging; sc.m = m; sc.keep = keep; sc.err[0] = '\0';
     if (pkg_read(f->pkg, f->pkg_len, stage_entry, &sc, &stopped) != PKG_OK) {
         refuse_c(PKGRC_IO, "%s; nothing was changed", sc.err);
         pkg_fs_rmtree(staging);
@@ -3246,7 +3277,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         char *from = pkg_join(staging, m->files[i].path);
         char *to = pkg_join(root, m->files[i].path);
         int good;
-        if (keep[i] == 2) {
+        if (keep[i] == 2 || keep[i] == 3) {
             free(from);
             free(to);
             continue;

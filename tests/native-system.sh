@@ -17,7 +17,8 @@
 # channel in $PKG_SYSTEM_WORK/ch (default ~/aros-native/system-test),
 # published from that ISO's tree; qemu-system-x86_64, qemu-img, xorriso,
 # bsdtar. The disk image stays in that directory, so later runs skip
-# partitioning; PKG_FRESH=1 starts from an empty disk.
+# partitioning; PKG_FRESH=1 starts from an empty disk. PKG_DISPLAY=cocoa
+# shows the AROS screen in a window on a Mac while it runs.
 
 set -u
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -32,7 +33,8 @@ cleanup() {
     [ "${PKG_KEEP:-0}" = 1 ] && { echo "native-system: keeping $work" >&2; return; }
     rm -rf "$work"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
 for need in "$aros_pkg" "$iso" "$W/ch/index"; do
     [ -e "$need" ] || { echo "native-system: missing $need" >&2; exit 69; }
@@ -45,11 +47,12 @@ fails=0
 ok() { checks=$((checks + 1)); [ "$1" -eq 0 ] || { fails=$((fails + 1)); echo "  FAIL $2"; }; }
 has() { grep -q -- "$2" "$1" 2>/dev/null; }
 
-# The system partition as InstallAROS makes it: its SFS choice by default
-# here, since FFS takes no name over 30 characters and the ISO has some;
-# PKG_SYSFS=FFSIntl for its other choice. PKG_SYSSIZE in MB.
-sysfs=${PKG_SYSFS:-SFS}
+# The system partition as InstallAROS makes it by default: FFSIntl, in a
+# logical partition of an MBR disk; PKG_SYSFS=SFS for its other choice.
+# PKG_SYSSIZE in MB.
+sysfs=${PKG_SYSFS:-FFSIntl}
 syssize=${PKG_SYSSIZE:-2048}
+scheme=${PKG_SCHEME:-mbr}     # rdb would put the RDB where Install-grub2 writes GRUB
 case $sysfs in FFSIntl) fmtflags="FFS INTL" ;; *) fmtflags="" ;; esac
 
 # What InstallAROS copies, less Developer (an option there too).
@@ -80,57 +83,106 @@ cp "$T/boot/grub/i386-pc/eltorito.img" "$T/PkgTest/eltorito.img"
 
 P='CD0:PkgTest/C/Pkg'
 C='CHANNEL CD0:PkgTest/chan'
-step() {  # step <name> <command...>
-    printf 'Echo "==BEGIN %s==" >SER1:\n%s >SER1:\nEcho "==RC $RC" >SER1:\nEcho "==END==" >SER1:\n' "$1" "$2" \
-        >> "$T/S/User-Startup"
+# Everything runs in a Shell window on the Workbench screen, where it can be
+# watched and recorded: User-Startup only opens that window, and the boot
+# goes on to Wanderer. Each step shows its command and Pkg's own output,
+# which also goes to the second serial port, where this script reads it.
+S="$T/S/pkg-steps"
+step() {  # step <name> <command shown> <command run>
+    cat >> "$S" <<EOF
+Echo "*N*E[1m1> $2*E[0m"
+$3 >T:o
+Echo "==RC \$RC" >T:rc
+Type T:o
+Echo "==BEGIN $1==" >SER1:
+Type T:o >SER1:
+Type T:rc >SER1:
+Echo "==END==" >SER1:
+EOF
 }
-cat > "$T/S/User-Startup" <<EOF
-FailAt 21
+say() {  # say <line>: a comment shown in the window
+    printf 'Echo "*N*E[32m; %s*E[0m"\n' "$1" >> "$S"
+}
+cat > "$T/S/User-Startup" <<'EOF'
 Echo "==BOOT==" >SER1:
+Run >NIL: C:NewShell "CON:0/16/800/584/Pkg on AROS/AUTO/WAIT" FROM S:pkg-demo
+EOF
+cat > "$T/S/pkg-demo" <<'EOF'
+Wait 12
+Execute S:pkg-steps
+EOF
+cat > "$S" <<EOF
+FailAt 21
 If EXISTS SYS:pkgtest-installed
     Skip disk
 EndIf
 Assign >NIL: EXISTS DH0:
 If WARN
     Echo "==STEP partition" >SER1:
-    C:Partition DEVICE ata.device UNIT 0 SYSSIZE $syssize SYSTYPE $sysfs SYSNAME DH0 MAXWORK WORKTYPE SFS WORKNAME DH1 WIPE FORCE QUIET >SER1:
+    Echo "*N*E[32m; An empty disk: partitioned as InstallAROS partitions it*E[0m"
+    C:Partition DEVICE ata.device UNIT 0 SCHEME $scheme SYSSIZE $syssize SYSTYPE $sysfs SYSNAME DH0 MAXWORK WORKTYPE SFS WORKNAME DH1 WIPE FORCE QUIET
     Echo "==BOOT-END==" >SER1:
+    Wait 3
     C:Reboot
 EndIf
+If EXISTS DH0:pkgtest-installed
+    Echo "==DISK-BOOT-FAILED==" >SER1:
+    Echo "==BOOT-END==" >SER1:
+    Quit
+EndIf
 Echo "==STEP install" >SER1:
+Echo "*N*E[32m; Formatting System and Work*E[0m"
 Echo "" >RAM:cr
-SYS:System/Format <RAM:cr DRIVE DH0: NAME System $fmtflags QUICK NOICONS >SER1:
-SYS:System/Format <RAM:cr DRIVE DH1: NAME Work QUICK NOICONS >SER1:
+SYS:System/Format <RAM:cr DRIVE DH0: NAME System $fmtflags QUICK NOICONS >NIL:
+SYS:System/Format <RAM:cr DRIVE DH1: NAME Work QUICK NOICONS >NIL:
+Echo "*N*E[32m; Copying AROS onto System, as InstallAROS copies it*E[0m"
 EOF
 for d in $drawers; do
-    printf 'Copy SYS:%s DH0:%s ALL CLONE QUIET\n' "$d" "$d" >> "$T/S/User-Startup"
+    printf 'Echo "  %s"\nCopy SYS:%s DH0:%s ALL CLONE QUIET\n' "$d" "$d" "$d" >> "$S"
 done
-printf 'Copy SYS:#?.info DH0: CLONE QUIET\n' >> "$T/S/User-Startup"
-printf 'Copy CD0:PkgTest/eltorito.img DH0:boot/grub/i386-pc/eltorito.img CLONE QUIET\n' >> "$T/S/User-Startup"
-for p in $pkgs; do step "adopt-$p" "$P INSTALL $p ROOT DH0: $C MACHINE"; done
-step grub 'C:Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub'
-cat >> "$T/S/User-Startup" <<'EOF'
+printf 'Copy SYS:#?.info DH0: CLONE QUIET\n' >> "$S"
+printf 'Copy CD0:PkgTest/eltorito.img DH0:boot/grub/i386-pc/eltorito.img CLONE QUIET\n' >> "$S"
+say "Pkg takes over the files it finds there, package by package"
+# PKG_TRACE_AROS=1: Pkg's trace of each adoption goes to the second serial
+# port, ahead of the step's own output, to see where a slow one spends it.
+tr=; [ "${PKG_TRACE_AROS:-0}" = 1 ] && tr=" TRACE SER1:"
+for p in $pkgs; do step "adopt-$p" "pkg INSTALL $p ROOT DH0:" "$P INSTALL $p ROOT DH0: $C$tr"; done
+say "The boot loader, as InstallAROS installs it"
+step grub "Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub" 'C:Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub'
+cat >> "$S" <<'EOF'
 Copy CD0:PkgTest/C/Pkg DH0:C/Pkg CLONE QUIET
 Echo x >DH0:pkgtest-installed
+Echo "*N*E[32m; Installed. Rebooting from the disk*E[0m"
+; the file systems write out what they hold before the reboot
+C:Lock DH0: ON >NIL:
+Wait 5
 Echo "==INSTALLED==" >SER1:
 Echo "==BOOT-END==" >SER1:
 C:Reboot
 Lab disk
 Echo "==STEP disk" >SER1:
+Echo "*N*E[32m; Booted from the disk. What Pkg knows of this system*E[0m"
 EOF
-step list "C:Pkg LIST ROOT SYS: MACHINE"
-step verify1 "C:Pkg VERIFY ALL ROOT SYS: MACHINE"
-cat >> "$T/S/User-Startup" <<'EOF'
+step list "pkg LIST ROOT SYS:" "C:Pkg LIST ROOT SYS:"
+step verify1 "pkg VERIFY ALL ROOT SYS:" "C:Pkg VERIFY ALL ROOT SYS:"
+say "Accidents: C:Dir deleted, Clock overwritten; and Shell-Startup edited on purpose"
+cat >> "$S" <<'EOF'
+Echo "1> Delete SYS:C/Dir"
 Delete SYS:C/Dir QUIET
+Echo "1> Echo >SYS:Utilities/Clock ..."
 Echo "overwritten by accident" >SYS:Utilities/Clock
+Echo "1> Echo >>SYS:S/Shell-Startup ..."
 Echo "; my own line" >>SYS:S/Shell-Startup
 EOF
-step verify2 "C:Pkg VERIFY ALL ROOT SYS: MACHINE"
-step repair "C:Pkg REPAIR ALL ROOT SYS: $C MACHINE"
-step verify3 "C:Pkg VERIFY ALL ROOT SYS: MACHINE"
-step dir "SYS:C/Dir SYS:Utilities"
-step shellstartup "Search SYS:S/Shell-Startup \"my own line\""
-printf 'Echo "==PKGTEST-DONE==" >SER1:\n' >> "$T/S/User-Startup"
+step verify2 "pkg VERIFY ALL ROOT SYS:" "C:Pkg VERIFY ALL ROOT SYS:"
+step repair "pkg REPAIR ALL ROOT SYS: CHANNEL <the CD>" "C:Pkg REPAIR ALL ROOT SYS: $C"
+step verify3 "pkg VERIFY ALL ROOT SYS:" "C:Pkg VERIFY ALL ROOT SYS:"
+step dir "Dir SYS:Utilities" "SYS:C/Dir SYS:Utilities"
+step shellstartup "Search SYS:S/Shell-Startup my-own-line" "Search SYS:S/Shell-Startup \"my own line\""
+cat >> "$S" <<'EOF'
+Echo "*N*E[32m; Done*E[0m"
+Echo "==PKGTEST-DONE==" >SER1:
+EOF
 xorriso -as mkisofs -R -J -V AROS -o "$work/test.iso" -b boot/grub/i386-pc/eltorito.img \
     -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info "$T" > "$work/xorriso.log" 2>&1
                                                       ok $? "the test CD is built"
@@ -143,13 +195,22 @@ echo "native-system 2: boots, until the run is done"
 boots=0
 from=d
 start=$(date +%s)
+# What the screen shows, boot after boot, for tools/qemu-video.sh; the last
+# frames of a boot that hangs show where. PKG_FRAMES=0 records nothing.
+frames="$W/frames"
+rm -rf "$frames"
 while [ $boots -lt 6 ] && ! LC_ALL=C grep -a -q 'PKGTEST-DONE' "$work/all.log"; do
     boots=$((boots + 1))
     : > "$work/com2.log"
     qemu-system-x86_64 -m 2048 -drive file="$disk",format=raw,if=ide,index=0 -cdrom "$work/test.iso" \
-        -boot $from -display none -no-reboot -serial file:"$work/com1.log" -serial file:"$work/com2.log" \
+        -boot $from -display "${PKG_DISPLAY:-none}" -name "Pkg on AROS - boot $boots" -no-reboot -serial file:"$work/com1.log" -serial file:"$work/com2.log" \
         -monitor unix:"$work/mon",server,nowait > "$work/qemu.log" 2>&1 &
     qemu_pid=$!
+    cap_pid=
+    if [ "${PKG_FRAMES:-1}" != 0 ]; then
+        python3 "$repo_root/tools/qemu-frames.py" "$work/mon" "$frames" "${PKG_FRAME_INTERVAL:-1}" &
+        cap_pid=$!
+    fi
     w=0
     while [ $w -lt 5400 ] && kill -0 "$qemu_pid" 2>/dev/null \
           && ! LC_ALL=C grep -a -q 'PKGTEST-DONE\|BOOT-END' "$work/com2.log"; do
@@ -158,13 +219,17 @@ while [ $boots -lt 6 ] && ! LC_ALL=C grep -a -q 'PKGTEST-DONE' "$work/all.log"; 
         [ $w -ge 300 ] && [ ! -s "$work/com1.log" ] && [ ! -s "$work/com2.log" ] && break
     done
     if ! LC_ALL=C grep -a -q 'PKGTEST-DONE\|BOOT-END' "$work/com2.log"; then
-        echo "screendump $W/screen-boot$boots.ppm" | nc -U -w 2 "$work/mon" > /dev/null 2>&1
-        echo "  boot $boots stopped without finishing: its screen is in $W/screen-boot$boots.ppm"
+        echo "  boot $boots stopped without finishing: its last screens are the last frames in $frames"
     fi
     sleep 2
     kill "$qemu_pid" 2>/dev/null; wait "$qemu_pid" 2>/dev/null; qemu_pid=
+    [ -z "$cap_pid" ] || wait "$cap_pid" 2>/dev/null
     LC_ALL=C tr -d '\r' < "$work/com2.log" >> "$work/all.log"
     LC_ALL=C grep -a -q '==INSTALLED==' "$work/com2.log" && from=c
+    if LC_ALL=C grep -a -q '==DISK-BOOT-FAILED==' "$work/com2.log"; then
+        echo "  boot $boots: the installed disk did not boot; AROS came up from the CD"
+        break
+    fi
     echo "  boot $boots from $from: $(LC_ALL=C grep -a -o '==STEP [a-z-]*' "$work/com2.log" | tr '\n' ' ')($w s)"
 done
 LC_ALL=C grep -a -q 'PKGTEST-DONE' "$work/all.log";   ok $? "the run reached its end in $boots boots, $(( $(date +%s) - start )) s"
@@ -181,26 +246,28 @@ cp -R "$O" "$W/last-run" 2>/dev/null
 
 echo "native-system 3: what AROS did"
 for p in $pkgs; do
-    [ "$(rc "adopt-$p")" = 0 ] && has "$O/adopt-$p" '^result: installed$' && has "$O/adopt-$p" '^adopted: '
-                                                      ok $? "$p adopts the files copied as InstallAROS copies them ($(sed -n 's/^adopted: //p' "$O/adopt-$p" 2>/dev/null))"
+    [ "$(rc "adopt-$p")" = 0 ] && has "$O/adopt-$p" "^installed $p " && has "$O/adopt-$p" '^  adopted  '
+                                                      ok $? "$p adopts the files copied as InstallAROS copies them ($(sed -n 's/^  adopted  \([0-9]*\).*/\1/p' "$O/adopt-$p" 2>/dev/null))"
 done
 [ "$(rc grub)" = 0 ];                                 ok $? "GRUB installed on the disk as InstallAROS installs it"
-has "$work/all.log" '==STEP disk';                    ok $? "AROS booted from the disk"
-has "$O/list" '^package: aros-base ';                 ok $? "the booted system lists its packages"
-[ "$(rc verify1)" = 0 ] && has "$O/verify1" '^result: intact$'
+has "$work/all.log" '==STEP disk' && ! has "$work/all.log" '==DISK-BOOT-FAILED=='
+                                                      ok $? "AROS booted from the disk"
+has "$O/list" 'aros-base';                            ok $? "the booted system lists its packages"
+[ "$(rc verify1)" = 0 ] && has "$O/verify1" 'all intact'
                                                       ok $? "VERIFY ALL finds the booted system intact"
-has "$O/verify2" '^missing: aros-base C/Dir$' && has "$O/verify2" '^changed: aros-tools Utilities/Clock$' \
-  && has "$O/verify2" '^edited: aros-base S/Shell-Startup$' && [ "$(rc verify2)" != 0 ]
+has "$O/verify2" '^  missing  C/Dir (aros-base)' && has "$O/verify2" '^  changed  Utilities/Clock (aros-tools)' \
+  && has "$O/verify2" '^  edited   S/Shell-Startup (aros-base' && [ "$(rc verify2)" != 0 ]
                                                       ok $? "after the accidents VERIFY ALL names each file with its package"
-[ "$(rc repair)" = 0 ] && has "$O/repair" '^restored: C/Dir$' && has "$O/repair" '^set-aside: Utilities/Clock '
+[ "$(rc repair)" = 0 ] && has "$O/repair" '^  restored C/Dir' && has "$O/repair" '^  aside    Utilities/Clock -> '
                                                       ok $? "REPAIR ALL puts both back from the channel, keeping the overwritten bytes"
-[ "$(rc verify3)" = 0 ] && has "$O/verify3" '^result: intact$'
+[ "$(rc verify3)" = 0 ] && has "$O/verify3" 'all intact'
                                                       ok $? "and the system verifies intact again"
 [ "$(rc dir)" = 0 ] && has "$O/dir" 'Clock';          ok $? "the restored Dir runs"
 [ "$(rc shellstartup)" = 0 ];                         ok $? "the edit of S/Shell-Startup is still there"
 for f in verify1 verify3; do
-    [ -f "$O/$f" ] && echo "  $f: $(sed -n 's/^summary: //p' "$O/$f")"
+    [ -f "$O/$f" ] && echo "  $f: $(tail -1 "$O/$f")"
 done
+[ -s "$frames/frames.txt" ] && echo "  the screen was recorded: sh tools/qemu-video.sh $frames <out.mp4>"
 
 echo
 echo "native-system: $checks checks, $fails failures"

@@ -841,6 +841,17 @@ $PKG UPGRADE base ROOT "$AD/r" CHANNEL "$AD/ch" > /dev/null 2>&1 && $PKG ROLLBAC
 $PKG INSTALL other ROOT "$AD/r" CHANNEL "$AD/ch" MACHINE > "$T/ad2" 2>&1
 [ $? -eq 15 ] && grep -q 'belongs to base, which is installed' "$T/ad2"
                                                       ok $? "a file another installed package owns is never adopted"
+ino() { ls -i "$1" | awk '{print $1}'; }
+mkdir -p "$AD/r3"; cp -R "$AD/d1/" "$AD/r3/"; i1=$(ino "$AD/r3/Libs/b.library")
+$PKG INSTALL base VERSION 1.0 ROOT "$AD/r3" CHANNEL "$AD/ch" > /dev/null 2>&1
+[ "$(ino "$AD/r3/Libs/b.library")" = "$i1" ] && [ -z "$(ls "$AD/r3/.pkg/staging/base" 2>/dev/null)" ]
+                                                      ok $? "an adopted file is left where it is, not written again"
+mkdir -p "$AD/d3/C" "$AD/d3/Libs"; cp "$AD/d2/C/Base" "$AD/d3/C/Base"; printf 'lib3' > "$AD/d3/Libs/b.library"
+printf 'x\000$VER: base 1.2 (1.1.2026)\000' > "$AD/d3/C/Base"; cp "$AD/d1/Libs/b.library" "$AD/d3/Libs/b.library"
+$PKG PUBLISH "$AD/d3" CHANNEL "$AD/ch" > /dev/null 2>&1
+$PKG UPGRADE base VERSION 1.2 ROOT "$AD/r3" CHANNEL "$AD/ch" MACHINE > "$T/ad5" 2>&1
+[ $? -eq 0 ] && grep -q '^unchanged-files: 1$' "$T/ad5" && [ "$(ino "$AD/r3/Libs/b.library")" = "$i1" ] && cmp -s "$AD/r3/C/Base" "$AD/d3/C/Base"
+                                                      ok $? "an upgrade writes only the files that changed"
 mkdir -p "$AD/r2/C"; printf 'not the same' > "$AD/r2/C/Base"
 $PKG INSTALL base ROOT "$AD/r2" CHANNEL "$AD/ch" MACHINE > "$T/ad3" 2>&1
 [ $? -eq 15 ] && grep -q 'not the same' "$AD/r2/C/Base"; ok $? "a different file already there is still refused, and left alone"
