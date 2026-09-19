@@ -779,6 +779,19 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
                 seterr(err, errlen, line, "Source must appear once, as <archive>!/<path inside it>");
                 free(val); goto fail;
             }
+            {   /* the archive is a file of the channel, and of the download cache:
+                 * a plain name, never a path that could leave either */
+                size_t al = (size_t)(bang - val), k;
+                int plain = val[0] != '.';
+                for (k = 0; k < al && plain; k++)
+                    if (val[k] == '/' || val[k] == ':')
+                        plain = 0;
+                if (!plain || (bang[2] != '\0' && pkg_check_path(bang + 2) != NULL)) {
+                    seterr(err, errlen, line, "Source names its archive by a plain file name, "
+                           "and a safe path inside it");
+                    free(val); goto fail;
+                }
+            }
             m->source = val;
         } else if (strcmp(key, "Short") == 0 || strcmp(key, "Category") == 0
                    || strcmp(key, "Homepage") == 0 || strcmp(key, "Repository") == 0

@@ -101,6 +101,16 @@ static void strict_parsing(void)
     snprintf(buf, sizeof buf, "%sFile: %s 3 ../x\n", head, D1);
     ok(!parses(buf, err, sizeof err), "traversal in a File line refused");
     ok(strstr(err, "..") != NULL, "the refusal quotes the path");
+    snprintf(buf, sizeof buf, "%sSource: nightly.tar.bz2!/Top\n", head);
+    ok(parses(buf, err, sizeof err), "a Source archive by its file name");
+    snprintf(buf, sizeof buf, "%sSource: ../../evil.tar.bz2!/Top\n", head);
+    ok(!parses(buf, err, sizeof err), "a Source archive with a path refused");
+    snprintf(buf, sizeof buf, "%sSource: .hidden.tar!/Top\n", head);
+    ok(!parses(buf, err, sizeof err), "a Source archive starting with a dot refused");
+    snprintf(buf, sizeof buf, "%sSource: SYS:x.tar!/Top\n", head);
+    ok(!parses(buf, err, sizeof err), "a Source archive on an AROS volume refused");
+    snprintf(buf, sizeof buf, "%sSource: x.tar!/../Top\n", head);
+    ok(!parses(buf, err, sizeof err), "a Source path leaving its archive refused");
     snprintf(buf, sizeof buf, "%sFile: %s -3 x\n", head, D1);
     ok(!parses(buf, err, sizeof err), "negative size refused");
     snprintf(buf, sizeof buf, "%sFile: ABCD 3 x\n", head);
