@@ -64,6 +64,38 @@
 #define PKG_API_VERSION 1   /* stays 1 until the first official release */
 #define PKG_VERSION_STRING "1.4"   /* the tool's own version, as in its $VER */
 
+/* What every request to a channel says about this Pkg: its version, the
+ * system and the CPU it was built for, all known when it is compiled. The
+ * portal counts requests by these three and keeps nothing else about who
+ * made them (its /privacy page says so). */
+#if defined(__AROS__)
+#define PKG_UA_SYSTEM "aros"
+#elif defined(__APPLE__)
+#define PKG_UA_SYSTEM "macos"
+#elif defined(_WIN32)
+#define PKG_UA_SYSTEM "windows"
+#elif defined(__linux__)
+#define PKG_UA_SYSTEM "linux"
+#else
+#define PKG_UA_SYSTEM "other"
+#endif
+#if defined(__aarch64__)
+#define PKG_UA_CPU "aarch64"
+#elif defined(__x86_64__) || defined(_M_X64)
+#define PKG_UA_CPU "x86_64"
+#elif defined(__i386__) || defined(_M_IX86)
+#define PKG_UA_CPU "i386"
+#elif defined(__m68k__) || defined(__mc68000__)
+#define PKG_UA_CPU "m68k"
+#elif defined(__powerpc__) || defined(__PPC__)
+#define PKG_UA_CPU "ppc"
+#elif defined(__arm__)
+#define PKG_UA_CPU "arm"
+#else
+#define PKG_UA_CPU "other"
+#endif
+#define PKG_USER_AGENT "Pkg/" PKG_VERSION_STRING " (" PKG_UA_SYSTEM "; " PKG_UA_CPU ")"
+
 enum {
     PKG_RC_OK         = 0,
     PKG_RC_REFUSED    = 10,  /* a refusal with no better class */

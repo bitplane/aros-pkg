@@ -11,6 +11,7 @@
 #endif
 
 #include "pkg_fs.h"
+#include "pkg.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -851,13 +852,14 @@ static int send_https(const char *method, const char *url, const char *body_file
                       char *err, size_t errlen)
 {
     char data[1100], hdr[1100], codebuf[32];
-    char *argv[20];
+    char *argv[24];
     int n = 0, st, fd, saved;
     pid_t pid;
     posix_spawn_file_actions_t fa;
     char codefile[] = "/tmp/pkg-code.XXXXXX";
 
-    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = (char *)method;
+    argv[n++] = "curl"; argv[n++] = "-sS"; argv[n++] = "-A"; argv[n++] = PKG_USER_AGENT;
+    argv[n++] = "-X"; argv[n++] = (char *)method;
     if (body_file) {
         /* streamed from the file, never held whole: an archive is large */
         snprintf(data, sizeof data, "%s", body_file);
@@ -900,7 +902,8 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
 {
     /* -s alone: a 404 for a file that may not exist (a withdrawal) is no
      * error, and the exit code says the rest */
-    char *argv[] = { "curl", "-s", "-f", "-L", "--max-redirs", "5", "-o", (char *)tmp, (char *)url, NULL };
+    char *argv[] = { "curl", "-s", "-f", "-L", "--max-redirs", "5", "-A", PKG_USER_AGENT,
+                     "-o", (char *)tmp, (char *)url, NULL };
     pid_t pid;
     int st;
     if (posix_spawnp(&pid, "curl", NULL, NULL, argv, environ) != 0) {
@@ -988,7 +991,7 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     {
         /* header_file holds "Name: value\n" lines; the wire wants \r\n */
         char req[8192];
-        size_t at = (size_t)snprintf(req, sizeof req, "%s %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Pkg\r\nConnection: close\r\n"
+        size_t at = (size_t)snprintf(req, sizeof req, "%s %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " PKG_USER_AGENT "\r\nConnection: close\r\n"
                                      "Content-Type: application/octet-stream\r\nContent-Length: %lld\r\n",
                                      method, path, host, (long long)sb.st_size), i;
         for (i = 0; i < hdrlen && at + 4 < sizeof req; i++) {
@@ -1066,7 +1069,7 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
     snprintf(host, sizeof host, "%.*s", (int)hl, p);
     s = net_open(host, port, err, errlen);
     if (s < 0) return -1;
-    snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Pkg\r\nConnection: close\r\n\r\n",
+    snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " PKG_USER_AGENT "\r\nConnection: close\r\n\r\n",
              path, host);
     if (net_write(s, req, strlen(req)) != (ssize_t)strlen(req)) {
         net_close(s); snprintf(err, errlen, "cannot send to %s", host); return -1;

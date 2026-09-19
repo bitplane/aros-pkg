@@ -141,6 +141,17 @@ What the portal holds and enforces:
 Publishers upload with `PUSH`; see
 [Publishing](publishing.md#upload-to-the-portal).
 
+### What Pkg tells a channel, and what the portal keeps
+
+Every request Pkg makes names Pkg's version, the system and the CPU it was
+built for, and nothing else: `User-Agent: Pkg/1.4 (aros; aarch64)`. No
+name, no key, no machine identifier, no list of what is installed. The
+portal uses those three words to count usage per day (how many requests
+came from each version, system and CPU) and keeps the totals only: not the
+requests, not the addresses they came from. Its `/privacy` page says the
+same. A channel you serve yourself sees the same header and does with it
+what its server does.
+
 ## Host your own portal
 
 The portal is in this repository, `portal/`, and anyone can run one: for a

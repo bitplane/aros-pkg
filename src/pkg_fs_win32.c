@@ -14,6 +14,7 @@
 #define _UNICODE
 
 #include "pkg_fs.h"
+#include "pkg.h"
 
 #include <windows.h>
 #include <io.h>
@@ -650,7 +651,8 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
     if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
     snprintf(tmp, dl + 8, "%s.part", dest);
     if (mkparents(tmp) != 0) { free(tmp); snprintf(err, errlen, "cannot create the cache directory"); return -1; }
-    rc = _spawnlp(_P_WAIT, "curl.exe", "curl.exe", "-s", "-f", "-L", "--max-redirs", "5", "-o", tmp, url, (char *)NULL);
+    rc = _spawnlp(_P_WAIT, "curl.exe", "curl.exe", "-s", "-f", "-L", "--max-redirs", "5",
+                 "-A", "\"" PKG_USER_AGENT "\"", "-o", tmp, url, (char *)NULL);
     if (rc == -1) { free(tmp); snprintf(err, errlen, "fetching a channel needs curl.exe, part of Windows 10 and later"); return -1; }
     if (rc == 22) { pkg_fs_unlink(tmp); free(tmp); return 1; }
     if (rc != 0) { pkg_fs_unlink(tmp); free(tmp); snprintf(err, errlen, "curl failed with exit code %d fetching %s", (int)rc, url); return -1; }
@@ -676,12 +678,13 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
                  char *err, size_t errlen)
 {
     char data[1100], hdr[1100], codefile[1100];
-    const char *argv[20];
+    const char *argv[24];
     int n = 0;
     intptr_t rc;
     FILE *f;
     snprintf(codefile, sizeof codefile, "%s.code", out_file);
-    argv[n++] = "curl.exe"; argv[n++] = "-sS"; argv[n++] = "-X"; argv[n++] = method;
+    argv[n++] = "curl.exe"; argv[n++] = "-sS"; argv[n++] = "-A"; argv[n++] = "\"" PKG_USER_AGENT "\"";
+    argv[n++] = "-X"; argv[n++] = method;
     if (body_file) {
         snprintf(data, sizeof data, "%s", body_file);
         argv[n++] = "-T"; argv[n++] = data;
