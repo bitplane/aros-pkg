@@ -109,6 +109,32 @@ struct pkg_sink {
      * of `text` that starts with '\r' and is rewritten in place. A caller
      * that keeps the output (a log) leaves such lines out. */
     int   progress;
+    /* Optional, text form: each line with its role, for a front end that
+     * lays the text out (a terminal with colour, a window). When set, `text`
+     * is not called; every line arrives here instead, without its newline
+     * and without the framing `text` adds ("pkg install: ", "  hint: "),
+     * which the front end draws in its own way. A table arrives as one
+     * PKG_LINE_HEAD, its PKG_LINE_ROWs, cells separated by tabs, and a
+     * PKG_LINE_END, so the front end can size the columns. `is_error`
+     * follows `text`: non-zero for a refusal, its next step and a warning. */
+    void (*line)(void *user, int kind, int is_error, const char *text);
+};
+
+/* The role of a line handed to pkg_sink.line. */
+enum pkg_line {
+    PKG_LINE_TEXT = 0,  /* a line with no particular role */
+    PKG_LINE_RESULT,    /* what the operation did: "installed hello 1.2 into SYS:" */
+    PKG_LINE_DETAIL,    /* an item under a result: "3 files, signed by 26ffb2bc" */
+    PKG_LINE_ITEM,      /* a file or package under a result: "kept\tC/Hello (edited)" */
+    PKG_LINE_NOTE,      /* a remark worth reading, not a warning */
+    PKG_LINE_HINT,      /* what usually comes next */
+    PKG_LINE_WARNING,   /* something to look at; the operation went on */
+    PKG_LINE_REFUSAL,   /* why the operation was refused */
+    PKG_LINE_NEXT,      /* the step after a refusal */
+    PKG_LINE_HEAD,      /* a table's header, cells separated by tabs */
+    PKG_LINE_ROW,       /* a table's row, cells separated by tabs */
+    PKG_LINE_END,       /* the table ends; the text is empty */
+    PKG_LINE_PROGRESS   /* a counter to draw in place, empty when the step ends */
 };
 
 /* Every option any operation takes; each operation reads the ones it needs

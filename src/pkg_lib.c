@@ -101,12 +101,38 @@ static int refused_class;
 static int machine;              /* the structured form */
 static int dryrun;               /* every check, no write */
 
+/* Text leaves through one of two doors. A sink with `line` gets each line
+ * with its role and no framing; a sink with `text` alone gets the text as
+ * the command line always printed it, framing and newlines included, so
+ * the ARexx port and every other embedder see no change. `plain` is that
+ * framed text; `kind` and `bare` the role and the unframed line for `line`,
+ * split at its line breaks. */
+static void emit_line(int kind, int is_error, const char *bare)
+{
+    char *copy, *p, *next;
+    if (sink->line == NULL)
+        return;
+    copy = (char *)malloc(strlen(bare) + 1u);
+    if (copy == NULL)
+        return;
+    strcpy(copy, bare);
+    for (p = copy; p != NULL; p = next) {
+        next = strchr(p, '\n');
+        if (next != NULL)
+            *next++ = '\0';
+        if (next == NULL && *p == '\0' && p != copy)
+            break;                       /* the newline that ended the text */
+        sink->line(sink->user, kind, is_error, p);
+    }
+    free(copy);
+}
+
 static void emit(int is_error, const char *fmt, va_list ap)
 {
     char small[1024], *big = NULL;
     va_list cp;
     int n;
-    if (sink == NULL || sink->text == NULL)
+    if (sink == NULL || (sink->text == NULL && sink->line == NULL))
         return;
     va_copy(cp, ap);
     n = vsnprintf(small, sizeof small, fmt, cp);
@@ -119,8 +145,131 @@ static void emit(int is_error, const char *fmt, va_list ap)
             return;
         vsnprintf(big, (size_t)n + 1u, fmt, ap);
     }
-    sink->text(sink->user, is_error, big ? big : small);
+    if (sink->line != NULL)
+        emit_line(PKG_LINE_TEXT, is_error, big ? big : small);
+    else
+        sink->text(sink->user, is_error, big ? big : small);
     free(big);
+}
+
+/* A line with a role: `fmt` gives the bare line, and `frame` how the text
+ * form wraps it ("%s" for none, "  hint: %s\n" for a hint). */
+static void emit_kind(int kind, int is_error, const char *frame, const char *fmt, va_list ap)
+{
+    char small[1024], *big = NULL, *bare;
+    va_list cp;
+    int n;
+    if (sink == NULL || (sink->text == NULL && sink->line == NULL))
+        return;
+    va_copy(cp, ap);
+    n = vsnprintf(small, sizeof small, fmt, cp);
+    va_end(cp);
+    if (n < 0)
+        return;
+    if ((size_t)n >= sizeof small) {
+        big = (char *)malloc((size_t)n + 1u);
+        if (big == NULL)
+            return;
+        vsnprintf(big, (size_t)n + 1u, fmt, ap);
+    }
+    bare = big ? big : small;
+    if (sink->line != NULL) {
+        emit_line(kind, is_error, bare);
+    } else {
+        size_t need = strlen(bare) + strlen(frame) + 1u;
+        char *framed = (char *)malloc(need);
+        if (framed != NULL) {
+            snprintf(framed, need, frame, bare);
+            sink->text(sink->user, is_error, framed);
+            free(framed);
+        }
+    }
+    free(big);
+}
+
+static void say_kind(int kind, const char *frame, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    emit_kind(kind, 0, frame, fmt, ap);
+    va_end(ap);
+}
+
+/* What the operation did, one sentence, no newline. */
+#define say_result(...) say_kind(PKG_LINE_RESULT, "%s\n", __VA_ARGS__)
+/* A line under a result: a count, a source, a key. */
+#define say_detail(...) say_kind(PKG_LINE_DETAIL, "  %s\n", __VA_ARGS__)
+/* A file or a package under a result, "kept\tC/Hello (edited)": a word,
+ * a tab, the rest. The text form pads the word to eight columns, as the
+ * command line always did. */
+static void say_item(const char *word, const char *fmt, ...)
+{
+    char rest[2048];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(rest, sizeof rest, fmt, ap);
+    va_end(ap);
+    if (sink != NULL && sink->line != NULL)
+        say_kind(PKG_LINE_ITEM, "%s", "%s\t%s", word, rest);
+    else
+        say_kind(PKG_LINE_ITEM, "  %s\n", "%-8s %s", word, rest);
+}
+/* A package's line in a batch: its name, then what became of it. */
+static void say_pkgline(const char *name, const char *fmt, ...)
+{
+    char rest[2048];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(rest, sizeof rest, fmt, ap);
+    va_end(ap);
+    if (sink != NULL && sink->line != NULL)
+        say_kind(PKG_LINE_ITEM, "%s", "%s\t%s", name, rest);
+    else
+        say_kind(PKG_LINE_ITEM, "%s\n", "%-24s %s", name, rest);
+}
+/* A remark under a result. */
+#define say_note(...) say_kind(PKG_LINE_NOTE, "  note: %s\n", __VA_ARGS__)
+/* A table: its header, its rows, cells apart by tabs, and its end. The text
+ * form prints the rows with the column widths the command line always
+ * used, `widths`, and no header. */
+static const int *table_widths;
+static void tbl_head(const int *widths, const char *cells)
+{
+    table_widths = widths;
+    if (sink != NULL && sink->line != NULL)
+        say_kind(PKG_LINE_HEAD, "%s", "%s", cells);
+}
+static void tbl_row(const char *fmt, ...)
+{
+    char cells[4096], line[4600], *p, *tab;
+    int col = 0, at = 0;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(cells, sizeof cells, fmt, ap);
+    va_end(ap);
+    if (sink != NULL && sink->line != NULL) {
+        say_kind(PKG_LINE_ROW, "%s", "%s", cells);
+        return;
+    }
+    for (p = cells; p != NULL; p = tab, col++) {
+        int w = table_widths ? table_widths[col] : 0;
+        tab = strchr(p, '\t');
+        if (tab != NULL)
+            *tab++ = '\0';
+        if (tab != NULL)
+            at += snprintf(line + at, sizeof line - (size_t)at, "%-*s ", w, p);
+        else
+            at += snprintf(line + at, sizeof line - (size_t)at, "%s", p);
+        if ((size_t)at >= sizeof line - 1u)
+            break;
+    }
+    say_kind(PKG_LINE_ROW, "%s\n", "%s", line);
+}
+static void tbl_end(void)
+{
+    table_widths = NULL;
+    if (sink != NULL && sink->line != NULL)
+        say_kind(PKG_LINE_END, "%s", "%s", "");
 }
 
 /* The operation's account of itself, for the sink's trace, if it has one. */
@@ -157,12 +306,20 @@ static void progress(const char *what, size_t i, size_t n)
     if (i < n && i % 20 != 0)
         return;
     if (i >= n) {
-        if (last[0]) say("\r%*s\r", (int)strlen(last), "");
+        if (last[0]) {
+            if (sink->line != NULL)
+                sink->line(sink->user, PKG_LINE_PROGRESS, 0, "");
+            else
+                say("\r%*s\r", (int)strlen(last), "");
+        }
         last[0] = '\0';
         return;
     }
-    snprintf(last, sizeof last, "  %s %lu/%lu", what, (unsigned long)i, (unsigned long)n);
-    say("\r%s", last);
+    snprintf(last, sizeof last, "%s %lu/%lu", what, (unsigned long)i, (unsigned long)n);
+    if (sink->line != NULL)
+        sink->line(sink->user, PKG_LINE_PROGRESS, 0, last);
+    else
+        say("\r  %s", last);
 }
 
 static void say_err(const char *fmt, ...)
@@ -176,14 +333,17 @@ static void say_err(const char *fmt, ...)
 static void say_raw(const char *buf, size_t len)
 {
     char *s;
-    if (sink == NULL || sink->text == NULL)
+    if (sink == NULL || (sink->text == NULL && sink->line == NULL))
         return;
     s = (char *)malloc(len + 1u);
     if (s == NULL)
         return;
     memcpy(s, buf, len);
     s[len] = '\0';
-    sink->text(sink->user, 0, s);
+    if (sink->line != NULL)
+        emit_line(PKG_LINE_TEXT, 0, s);
+    else
+        sink->text(sink->user, 0, s);
     free(s);
 }
 
@@ -231,7 +391,7 @@ static void summary_line(const char *fmt, ...)
     va_end(ap);
     kv("summary", "%s", buf);
     if (!machine)
-        say("%s\n", buf);
+        say_result("%s", buf);
 }
 
 /* A record with several fields: the joined value goes to `record`, as the
@@ -377,7 +537,10 @@ static int refuse_c(int cls, const char *fmt, ...)
         }
         return 1;
     }
-    if (sink && sink->text) {
+    if (sink && sink->line) {
+        emit_line(PKG_LINE_REFUSAL, 1, buf);
+        emit_line(PKG_LINE_NEXT, 1, next_words(refused_next));
+    } else if (sink && sink->text) {
         char *line;
         size_t n = strlen(verb_name) + strlen(buf) + strlen(next_words(refused_next)) + 32;
         line = (char *)malloc(n);
@@ -404,8 +567,10 @@ static void warn(const char *fmt, ...)
     va_end(ap);
     if (machine)
         kv("warning", "%s", buf);
+    else if (sink != NULL && sink->line != NULL)
+        emit_line(PKG_LINE_WARNING, 1, buf);
     else
-        say("pkg %s: warning: %s\n", verb_name, buf);
+        say_result("pkg %s: warning: %s", verb_name, buf);
 }
 
 /* What usually comes next after a success, or what is worth telling the
@@ -420,7 +585,7 @@ static void hint(const char *fmt, ...)
     if (machine)
         kv("hint", "%s", buf);
     else
-        say("  hint: %s\n", buf);
+        say_kind(PKG_LINE_HINT, "  hint: %s\n", "%s", buf);
 }
 
 static void short12(const char *hex, char out[13])
@@ -545,7 +710,8 @@ static int cmd_keygen(const struct pkg_options *a)
     kv("file", "%s", a->file);
     kv("public", "%s", k.pkhex);
     if (!machine)
-        say("key written to %s, readable by you alone\npublic key %s\n", a->file, k.pkhex);
+        say_result("key written to %s, readable by you alone", a->file);
+        say_detail("public key %s", k.pkhex);
     hint("every later version of what this key publishes must be signed with it: keep the "
          "file with the person's secrets, outside any channel or repository, and back it up. "
          "Use it with SIGN <file> or PKG_SIGNKEY; only the public key may be shared");
@@ -635,7 +801,7 @@ static int cmd_keyinfo(const struct pkg_options *a)
     kv("file", "%s", path);
     kv("public", "%s", k.pkhex);
     if (!machine)
-        say("%s holds the public key %s\n", path, k.pkhex);
+        say_result("%s holds the public key %s", path, k.pkhex);
     memset(&k, 0, sizeof k);
     return 0;
 }
@@ -660,7 +826,7 @@ static int cmd_sign(const struct pkg_options *a)
     kv("file", "%s", a->target);
     kv("signer", "%s", k.pkhex);
     if (!machine)
-        say("signed %s with %.16s\n", a->target, k.pkhex);
+        say_result("signed %s with %.16s", a->target, k.pkhex);
     return 0;
 }
 
@@ -2466,7 +2632,7 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
     pkg_fs_mkdirs(dir);
     free(dir);
     if (!machine)
-        say("downloading %s (%llu MB) from %s, once for every package it holds\n", an,
+        say_result("downloading %s (%llu MB) from %s, once for every package it holds", an,
             (m->archive_size + 524288ull) / 1048576ull, m->archive_url);
     rc = pkg_net_get(m->archive_url, dest, net_err, sizeof net_err);
     if (rc == 0 && file_digest(dest, hex, &size) == 0
@@ -2779,7 +2945,7 @@ static int cmd_withdraw(const struct pkg_options *a)
         kv("name", "%s", e->name);
         kv("version", "%s", e->version);
         if (!machine)
-            say("%s %s is already withdrawn from %s\n", e->name, e->version, a->channel);
+            say_result("%s %s is already withdrawn from %s", e->name, e->version, a->channel);
         rc = 0;
         goto out;
     }
@@ -2807,7 +2973,7 @@ static int cmd_withdraw(const struct pkg_options *a)
     kv("version", "%s", e->version);
     kv("channel", "%s", a->channel);
     if (!machine)
-        say("%s %s %s from %s: it stays in the channel, and nothing installs it any more\n",
+        say_result("%s %s %s from %s: it stays in the channel, and nothing installs it any more",
             dryrun ? "would withdraw" : "withdrew", e->name, e->version, a->channel);
     rc = 0;
 out:
@@ -2846,7 +3012,7 @@ static int check_pin(const char *root, const char *name, const char *signer,
         tr("signer of %s differs from the pinned key; accepted because acceptkey names it", name);
         kv("key-changed", "%s %s", pinned, signer);
         if (!machine)
-        say("  key for %s changed by explicit ACCEPTKEY\n    was %s\n    now %s\n",
+        say_kind(PKG_LINE_DETAIL, "  %s\n", "key for %s changed by explicit ACCEPTKEY\n    was %s\n    now %s",
                name, pinned, signer);
         return 0;
     }
@@ -3235,12 +3401,12 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     }
     if (adopted) {
         if (machine) kv("adopted", "%lu", adopted);
-        else say("  adopted  %lu file%s already there, identical to %s %s's\n", adopted,
+        else say_item("adopted", "%lu file%s already there, identical to %s %s's", adopted,
                  adopted == 1 ? "" : "s", m->name, m->version);
     }
     if (same) {
         if (machine) kv("unchanged-files", "%lu", same);
-        else say("  unchanged %lu file%s the same in %s and %s, not written again\n", same,
+        else say_item("unchanged", "%lu file%s the same in %s and %s, not written again", same,
                  same == 1 ? "" : "s", old->version, m->version);
     }
     for (i = 0; i < m->nfiles; i++)
@@ -3251,12 +3417,12 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
                 kv("config-kept", "%s", m->files[i].path);
                 if (nw) kv("config-new", "%s", nw);
             } else if (nw) {
-                say("  kept     %s (edited; %s %s's version is beside it as %s)\n",
+                say_item("kept", "%s (edited; %s %s's version is beside it as %s)",
                     m->files[i].path, m->name, m->version, nw);
             } else if (keep[i] == 1) {
-                say("  kept     %s (edited)\n", m->files[i].path);
+                say_item("kept", "%s (edited)", m->files[i].path);
             } else {
-                say("  kept     %s (edited; %s %s ships it unchanged)\n", m->files[i].path,
+                say_item("kept", "%s (edited; %s %s ships it unchanged)", m->files[i].path,
                     m->name, m->version);
             }
             free(nw);
@@ -3350,7 +3516,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             } else if (s == 1) {
                 (*kept)++;
                 if (machine) kv("kept", "%s", of->path);
-                else say("  kept     %s (edited, and no longer part of %s)\n", of->path, m->name);
+                else say_item("kept", "%s (edited, and no longer part of %s)", of->path, m->name);
             }
         }
     }
@@ -3611,7 +3777,7 @@ static int remove_files(const char *root, const struct pkg_manifest *m,
             if (!report)
                 continue;
             if (machine) kv("kept", "%s", m->files[i].path);
-            else say("  kept     %s (changed since install, so it is yours now)\n", m->files[i].path);
+            else say_item("kept", "%s (changed since install, so it is yours now)", m->files[i].path);
         } else {
             (*gone)++;
         }
@@ -3685,7 +3851,7 @@ static int run_plan(struct plan *p, const struct pkg_manifest *cur,
             snprintf(j, sizeof j, "%s %s", p->f[i].m.name, p->f[i].m.version);
             rec_item("dependency", j, "name", p->f[i].m.name, "version", p->f[i].m.version, NULL);
         } else {
-            say("  %s %s %s, a dependency\n", dryrun ? "would add" : "added   ",
+            say_item(dryrun ? "would add" : "added", "%s %s, a dependency",
                 p->f[i].m.name, p->f[i].m.version);
         }
     }
@@ -3812,11 +3978,11 @@ static int cmd_mountlist(const struct pkg_options *a)
         if (a->out == NULL)
             say_raw(text, (size_t)n);
         else
-            say("%s %s, the mount entry for %s (%lu blocks)\n",
+            say_result("%s %s, the mount entry for %s (%lu blocks)",
                     dryrun ? "would write" : "wrote", a->out, m.name, blocks);
-        say("\nOn AROS, the device is named after the mountlist file:\n"
+        say_kind(PKG_LINE_NOTE, "\n%s\n", "On AROS, the device is named after the mountlist file:\n"
                 "  MakeDir %s\n  Assign FDSK: %s\n  MakeLink %s/%s %s\n  Protect %s w SUB\n%s%s%s"
-                "  Mount %s\n", fdsk, fdsk, fdsk, unitbuf, img ? img : "", img ? img : "",
+                "  Mount %s", fdsk, fdsk, fdsk, unitbuf, img ? img : "", img ? img : "",
                 libs ? "  Assign LIBS: " : "", libs ? a->root : "", libs ? "/Libs ADD\n" : "",
                 a->out ? a->out : "<file>");
     }
@@ -4049,6 +4215,11 @@ static int cmd_show(const struct pkg_options *a)
     }
 
     /* 3. What was found, entry by entry. */
+    {
+        static const int widths[] = { 20, 8, 11, 8, 10, 0 };
+        if (!machine && ix.n > 0)
+            tbl_head(widths, "Package\tVersion\tKind\tArch\tStatus\tSigner");
+    }
     for (i = 0; i < ix.n; i++) {
         struct show_row *r = &row[i];
         struct fetched *fp = &r->f;
@@ -4117,15 +4288,17 @@ static int cmd_show(const struct pkg_options *a)
                          "reason", r->reason, NULL);
             }
         } else {
-            say("%-20s %-8s %-11s %-8s %-10s %.16s%s\n", ix.e[i].name, ix.e[i].version,
+            tbl_row("%s\t%s\t%s\t%s\t%s\t%.16s%s", ix.e[i].name, ix.e[i].version,
                     rc == 0 ? fp->m.kind : "-", rc == 0 ? fp->m.architecture : "-", status,
                     rc == 0 ? fp->signer : "-",
                     rc == 0 && fp->m.source != NULL && a->metadata ? "  (archive not checked)" : "");
             if (rc != 0)
-                say("  %s\n", r->reason);
+                say_kind(PKG_LINE_DETAIL, "  %s\n", "%s", r->reason);
         }
         fetched_free(fp);
     }
+    if (!machine && ix.n > 0)
+        tbl_end();
     free(row);
     for (i = 0; i < ix.n; i++) {
         char others[600], claim[65];
@@ -4142,14 +4315,14 @@ static int cmd_show(const struct pkg_options *a)
                 kv("warning", "%s is signed by more than one key: %s on %s, and %s", ix.e[i].name,
                    claim, ix.e[i].version, others);
             else
-                say("  warning: %s is signed by more than one key: %.16s on %s, and %s\n",
+                say_kind(PKG_LINE_WARNING, "  warning: %s\n", "%s is signed by more than one key: %.16s on %s, and %s",
                     ix.e[i].name, claim, ix.e[i].version, others);
         }
     }
     kv("count", "%lu", (unsigned long)shown);
     kv("bad", "%lu", (unsigned long)bad);
     if (!machine && shown == 0)
-        say("%s%s offers nothing%s%s\n", a->channel, "", a->target ? " named " : "",
+        say_result("%s%s offers nothing%s%s", a->channel, "", a->target ? " named " : "",
                 a->target ? a->target : "");
     if (shown == 0 && a->target != NULL)
         hint("no package is published as %s in this channel: before a first publish, the "
@@ -4212,7 +4385,7 @@ static int cmd_image(const struct pkg_options *a)
     kv("volume", "%s", vol);
     kv("blocks", "%lu", (unsigned long)(d.v[0].len / PKG_IMAGE_BLOCK));
     if (!machine)
-        say("wrote %s: volume %s, %lu blocks of %u bytes\n", a->out, vol,
+        say_result("wrote %s: volume %s, %lu blocks of %u bytes", a->out, vol,
                 (unsigned long)(d.v[0].len / PKG_IMAGE_BLOCK), PKG_IMAGE_BLOCK);
     drawer_free(&d);
     return 0;
@@ -4292,7 +4465,7 @@ static int republish(const struct pkg_options *a, const struct index *ix, const 
         kv("name", "%s", b->m.name);
         kv("version", "%s", b->m.version);
         if (!machine)
-            say("%s %s is already published with this exact content; nothing to do\n",
+            say_result("%s %s is already published with this exact content; nothing to do",
                 b->m.name, b->m.version);
         goto out;
     }
@@ -4326,7 +4499,7 @@ static int republish(const struct pkg_options *a, const struct index *ix, const 
     if (!good_p) kv("repaired", "payload");
     if (!good_s) kv("repaired", "signature");
     if (!machine)
-        say("%s %s %s in %s:%s%s%s written again from the same bytes\n",
+        say_result("%s %s %s in %s:%s%s%s written again from the same bytes",
             dryrun ? "would repair" : "repaired", b->m.name, b->m.version, a->channel,
             good_m ? "" : " manifest", good_p ? "" : " payload", good_s ? "" : " signature");
 out:
@@ -4572,7 +4745,7 @@ static int cmd_publish(const struct pkg_options *a)
         kv("version", "%s", b.m.version);
         kv("same-as", "%s", same_as);
         if (!machine)
-            say("%s %s: every file is that of %s, so no new version is published\n", b.m.name,
+            say_result("%s %s: every file is that of %s, so no new version is published", b.m.name,
                 b.m.version, same_as);
         rc = 0;
         goto out;
@@ -4606,24 +4779,24 @@ static int cmd_publish(const struct pkg_options *a)
         for (d = 0; d < b.nleft; d++)
             kv("left-out", "%s", b.left_out[d]);
         if (!machine) {
-            say("would publish %s %s (%s, %s) to %s, signed by %.16s\n", b.m.name, b.m.version,
+            say_result("would publish %s %s (%s, %s) to %s, signed by %.16s", b.m.name, b.m.version,
                     b.m.kind, b.m.architecture, a->channel, k.pkhex);
             for (d = 0; d < b.m.ndeps; d++)
-                say("  depends  %s%s%s\n", b.m.deps[d].name, b.m.deps[d].min ? " >= " : "",
+                say_item("depends", "%s%s%s", b.m.deps[d].name, b.m.deps[d].min ? " >= " : "",
                         b.m.deps[d].min ? b.m.deps[d].min : "");
             if (b.m.ndeps == 0)
-                say("  depends  nothing\n");
+                say_item("depends", "nothing");
             for (d = 0; d < b.m.nfiles; d++)
-                say("  file     %s (%llu bytes)\n", b.m.files[d].path, b.m.files[d].size);
+                say_item("file", "%s (%llu bytes)", b.m.files[d].path, b.m.files[d].size);
             for (d = 0; d < b.m.ncontent; d++)
-                say("  content  %s (%llu bytes)\n", b.m.content[d].path, b.m.content[d].size);
+                say_item("content", "%s (%llu bytes)", b.m.content[d].path, b.m.content[d].size);
             for (d = 0; d < b.nleft; d++)
-                say("  left out %s\n", b.left_out[d]);
+                say_item("left out", "%s", b.left_out[d]);
             if (b.ver_from[0] || b.name_from[0])
-                say("  %s from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
+                say_detail("%s from $VER: in %s", b.ver_from[0] && b.name_from[0] ? "name and version"
                     : b.ver_from[0] ? "version" : "name", b.ver_from[0] ? b.ver_from : b.name_from);
             if (b.kind_from[0] || b.deps_from[0])
-                say("  %s from %s, published before\n", b.kind_from[0] && b.deps_from[0] ? "kind and dependencies" : b.kind_from[0] ? "kind" : "dependencies", b.kind_from[0] ? b.kind_from : b.deps_from);
+                say_detail("%s from %s, published before", b.kind_from[0] && b.deps_from[0] ? "kind and dependencies" : b.kind_from[0] ? "kind" : "dependencies", b.kind_from[0] ? b.kind_from : b.deps_from);
         }
         if (new_channel)
             hint("there is no channel at %s yet: publishing creates it. Check it is the one "
@@ -4667,13 +4840,13 @@ static int cmd_publish(const struct pkg_options *a)
     kv("signer", "%s", k.pkhex);
     kv("files", "%lu", (unsigned long)b.m.nfiles);
     if (!machine)
-    say("published %s %s to %s: %lu files, %s%s, signed by %.16s\n", b.m.name,
+    say_result("published %s %s to %s: %lu files, %s%s, signed by %.16s", b.m.name,
            b.m.version, a->channel, (unsigned long)b.m.nfiles, b.m.payload ? "payload " : "from ",
            b.m.payload ? s12 : b.m.source, k.pkhex);
     if (b.arch_from[0] && machine)
         kv("arch-from", "%s", b.arch_from);
     else if (b.arch_from[0])
-        say("  architecture %s, read from %s\n", b.m.architecture, b.arch_from);
+        say_item("architecture", "%s, read from %s", b.m.architecture, b.arch_from);
     if (machine) {
         if (b.ver_from[0]) kv("version-from", "%s", b.ver_from);
         if (b.name_from[0]) kv("name-from", "%s", b.name_from);
@@ -4683,18 +4856,18 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.m.archive_url) kv("upstream", "%s", b.m.archive_url);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
     } else if (b.ver_from[0] || b.name_from[0]) {
-        say("  %s taken from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
+        say_detail("%s taken from $VER: in %s", b.ver_from[0] && b.name_from[0] ? "name and version"
             : b.ver_from[0] ? "version" : "name", b.ver_from[0] ? b.ver_from : b.name_from);
     }
     if (!machine && (b.kind_from[0] || b.deps_from[0]))
-        say("  %s from %s, published before\n", b.kind_from[0] && b.deps_from[0]
+        say_detail("%s from %s, published before", b.kind_from[0] && b.deps_from[0]
             ? "kind and dependencies" : b.kind_from[0] ? "kind" : "dependencies",
             b.kind_from[0] ? b.kind_from : b.deps_from);
     for (i = 0; i < b.nleft; i++) {
         if (machine)
             kv("left-out", "%s", b.left_out[i]);
         else
-            say("  left out %s, host metadata no Amiga uses\n", b.left_out[i]);
+            say_item("left out", "%s, host metadata no Amiga uses", b.left_out[i]);
     }
     if (new_channel)
         hint("the channel %s did not exist and was created: machines install from it with "
@@ -4752,7 +4925,7 @@ static int cmd_install(const struct pkg_options *a)
             kv("name", "%s", cur.name);
             kv("version", "%s", cur.version);
             if (!machine)
-                say("%s %s was installed as a dependency; it is now kept for itself\n",
+                say_result("%s %s was installed as a dependency; it is now kept for itself",
                         cur.name, cur.version);
             pkg_manifest_free(&cur);
             free(ix.e);
@@ -4766,7 +4939,7 @@ static int cmd_install(const struct pkg_options *a)
             kv("name", "%s", cur.name);
             kv("version", "%s", cur.version);
             if (!machine)
-                say("%s %s is already installed in %s\n", cur.name, cur.version, a->root);
+                say_result("%s %s is already installed in %s", cur.name, cur.version, a->root);
             pkg_manifest_free(&cur);
             free(ix.e);
             return 0;
@@ -4794,7 +4967,7 @@ static int cmd_install(const struct pkg_options *a)
         else kv("source", "%s", f.m.source);
         kv("signer", "%s", f.signer);
         if (!machine)
-        say("%s %s %s into %s: %lu files, %s%s, signed by %.16s\n",
+        say_result("%s %s %s into %s: %lu files, %s%s, signed by %.16s",
                dryrun ? "would install" : "installed",
                f.m.name, f.m.version, a->root, placed, f.m.payload ? "payload " : "from ",
                f.m.payload ? s12 : f.m.source, f.signer);
@@ -4802,7 +4975,7 @@ static int cmd_install(const struct pkg_options *a)
             kv("image", "%s", f.m.files[0].path);
             kv("blocks", "%llu", f.m.files[0].size / PKG_IMAGE_BLOCK);
             if (!machine)
-                say("  image %s, %llu blocks\n", f.m.files[0].path,
+                say_item("image", "%s, %llu blocks", f.m.files[0].path,
                         f.m.files[0].size / PKG_IMAGE_BLOCK);
             hint("to run it, mount the image: MOUNTLIST %s ROOT %s OUT <file> writes the "
                  "mount entry and lists the steps", f.m.name, a->root);
@@ -4835,11 +5008,14 @@ static int move_to(const struct pkg_options *a, const struct index *ix, const st
         kv("removed", "%lu", dropped);
         kv("signer", "%s", f.signer);
         if (!machine) {
-        say("%s%s %s from %s to %s in %s: %lu placed, %lu removed",
+        {
+        char keptw[40];
+        keptw[0] = '\0';
+        if (kept) snprintf(keptw, sizeof keptw, ", %lu kept", kept);
+        say_result("%s%s %s from %s to %s in %s: %lu placed, %lu removed%s",
                dryrun ? "would have " : "", verb, f.m.name,
-               cur->version, f.m.version, a->root, placed, dropped);
-        if (kept) say(", %lu kept", kept);
-        say("\n");
+               cur->version, f.m.version, a->root, placed, dropped, keptw);
+        }
         }
         if (strcmp(f.m.kind, "image") == 0 && f.m.nfiles == 1)
             hint("the image %s is replaced: a machine that has it mounted must Eject it %s, "
@@ -4879,7 +5055,7 @@ static int cmd_upgrade(const struct pkg_options *a)
         kv("name", "%s", cur.name);
         kv("version", "%s", cur.version);
         if (!machine)
-            say("%s is already at %s\n", cur.name, cur.version);
+            say_result("%s is already at %s", cur.name, cur.version);
         for (o = 0; o < ix.n; o++)
             if (strcmp(ix.e[o].name, cur.name) == 0 && !arch_matches(&ix.e[o])
                 && pkg_version_cmp(ix.e[o].version, cur.version) > 0 && !ix.e[o].withdrawn) {
@@ -4887,7 +5063,7 @@ static int cmd_upgrade(const struct pkg_options *a)
                     kv("note", "%s %s is published for %s, not for this root's CPU", ix.e[o].name,
                        ix.e[o].version, ix.e[o].arch);
                 else
-                    say("  %s %s is published for %s, not yet for this root's CPU\n",
+                    say_detail("%s %s is published for %s, not yet for this root's CPU",
                         ix.e[o].name, ix.e[o].version, ix.e[o].arch);
             }
         rc = 0;
@@ -4969,6 +5145,10 @@ static int cmd_list(const struct pkg_options *a)
     }
     free(dir);
     kv("result", "listed");
+    if (!machine && n > 0) {
+        static const int widths[] = { 24, 10, 12, 0 };
+        tbl_head(widths, "Package\tVersion\tKind\tFiles");
+    }
     for (i = 0; i < n; i++) {
         struct pkg_manifest m;
         if (load_installed(a->root, names[i], &m, 0) == 0) {
@@ -4982,15 +5162,17 @@ static int cmd_list(const struct pkg_options *a)
                          "files", files, "reason", dep ? "dependency" : "explicit", NULL);
             }
             else
-                say("%-24s %-10s %-12s %lu files%s\n", m.name, m.version, m.kind,
+                tbl_row("%s\t%s\t%s\t%lu files%s", m.name, m.version, m.kind,
                         (unsigned long)m.nfiles, dep ? ", a dependency" : "");
             pkg_manifest_free(&m);
         }
         free(names[i]);
     }
     free(names);
+    if (!machine && n > 0)
+        tbl_end();
     if (n == 0 && !machine)
-        say("nothing installed in %s\n", a->root);
+        say_result("nothing installed in %s", a->root);
     kv("count", "%lu", (unsigned long)n);
     return 0;
 }
@@ -5052,15 +5234,15 @@ static int verify_all(const struct pkg_options *a)
             if (s == 1 && m->files[i].config) {
                 edited++;
                 if (machine) kv("edited", "%s %s", m->name, m->files[i].path);
-                else say("  edited   %s (%s, a configuration file)\n", m->files[i].path, m->name);
+                else say_item("edited", "%s (%s, a configuration file)", m->files[i].path, m->name);
             } else if (s == 1) {
                 changed++;
                 if (machine) kv("changed", "%s %s", m->name, m->files[i].path);
-                else say("  changed  %s (%s)\n", m->files[i].path, m->name);
+                else say_item("changed", "%s (%s)", m->files[i].path, m->name);
             } else if (s == 2) {
                 missing++;
                 if (machine) kv("missing", "%s %s", m->name, m->files[i].path);
-                else say("  missing  %s (%s)\n", m->files[i].path, m->name);
+                else say_item("missing", "%s (%s)", m->files[i].path, m->name);
             }
         }
         files += m->nfiles;
@@ -5070,13 +5252,13 @@ static int verify_all(const struct pkg_options *a)
                          (unsigned long)changed, (unsigned long)missing);
             if (machine) kv("package", "%s %s damaged %lu %lu", m->name, m->version,
                             (unsigned long)changed, (unsigned long)missing);
-            else say("%s %s: %lu changed, %lu missing, of %lu file%s\n", m->name, m->version,
+            else say_result("%s %s: %lu changed, %lu missing, of %lu file%s", m->name, m->version,
                      (unsigned long)changed, (unsigned long)missing, (unsigned long)m->nfiles,
                      m->nfiles == 1 ? "" : "s");
         } else if (machine) {
             kv("package", "%s %s intact", m->name, m->version);
         } else {
-            say("%s %s: %lu file%s, all intact\n", m->name, m->version, (unsigned long)m->nfiles,
+            say_result("%s %s: %lu file%s, all intact", m->name, m->version, (unsigned long)m->nfiles,
                 m->nfiles == 1 ? "" : "s");
         }
     }
@@ -5119,11 +5301,11 @@ static int cmd_verify(const struct pkg_options *a)
         if (s == 1 && m.files[i].config) {
             edited++;           /* a configuration file: editing it is what it is for */
             if (machine) kv("edited", "%s", m.files[i].path);
-            else say("  edited   %s (a configuration file)\n", m.files[i].path);
+            else say_item("edited", "%s (a configuration file)", m.files[i].path);
         } else if (s == 1) {
             changed++;
             if (machine) kv("changed", "%s", m.files[i].path);
-            else say("  changed  %s\n", m.files[i].path);
+            else say_item("changed", "%s", m.files[i].path);
         }
         if (s == 2)
             missing++;          /* reported below, once moved files are known */
@@ -5145,16 +5327,16 @@ static int cmd_verify(const struct pkg_options *a)
                 if (found[i] != NULL) {
                     moved++;
                     if (machine) kv("moved", "%s %s", m.files[i].path, found[i]);
-                    else say("  moved    %s -> %s\n", m.files[i].path, found[i]);
+                    else say_item("moved", "%s -> %s", m.files[i].path, found[i]);
                 } else if (miss[i]) {
                     if (machine) kv("missing", "%s", m.files[i].path);
-                    else say("  missing  %s\n", m.files[i].path);
+                    else say_item("missing", "%s", m.files[i].path);
                 }
         } else {
             for (i = 0; i < m.nfiles; i++)
                 if (file_state(a->root, m.files[i].path, m.files[i].digest, m.files[i].size) == 2) {
                     if (machine) kv("missing", "%s", m.files[i].path);
-                    else say("  missing  %s\n", m.files[i].path);
+                    else say_item("missing", "%s", m.files[i].path);
                 }
         }
         for (i = 0; found != NULL && i < m.nfiles; i++) free(found[i]);
@@ -5163,7 +5345,7 @@ static int cmd_verify(const struct pkg_options *a)
         if (moved == missing && changed == 0) {
             kv("result", "moved");
             if (!machine)
-                say("%s %s: moved by hand, every file intact where it is now\n", m.name, m.version);
+                say_result("%s %s: moved by hand, every file intact where it is now", m.name, m.version);
             hint("moving an installed drawer is the person's right, and the package stays listed. "
                  "REMOVE and UPGRADE act on the places Pkg recorded: the moved files are left "
                  "where they are, and an upgrade installs beside them");
@@ -5175,13 +5357,13 @@ static int cmd_verify(const struct pkg_options *a)
         kv("result", "intact");
         if (edited) kv("edited-config", "%lu", (unsigned long)edited);
         if (!machine)
-            say("%s %s: %lu files, all intact%s\n", m.name, m.version, (unsigned long)m.nfiles,
+            say_result("%s %s: %lu files, all intact%s", m.name, m.version, (unsigned long)m.nfiles,
                 edited ? ", configuration files edited as people do" : "");
         pkg_manifest_free(&m);
         return 0;
     }
     if (!machine)
-        say("%s %s: %lu changed, %lu missing, of %lu files\n", m.name, m.version,
+        say_result("%s %s: %lu changed, %lu missing, of %lu files", m.name, m.version,
                 (unsigned long)changed, (unsigned long)missing, (unsigned long)m.nfiles);
     refused_class = PKGRC_INTEGRITY;
     kv("result", "damaged");
@@ -5249,7 +5431,7 @@ static int repair_entry(const struct pkg_entry *e, void *ctx)
         }
         c->aside++;
         if (machine) kv("set-aside", "%s %s", pf->path, oldrel);
-        else say("  aside    %s -> %s\n", pf->path, oldrel);
+        else say_item("aside", "%s -> %s", pf->path, oldrel);
         free(oldrel);
     }
     slash = strrchr(to, '/');
@@ -5267,7 +5449,7 @@ static int repair_entry(const struct pkg_entry *e, void *ctx)
     attrs_one(c->root, pf);
     c->restored++;
     if (machine) kv("restored", "%s", pf->path);
-    else say("  restored %s\n", pf->path);
+    else say_item("restored", "%s", pf->path);
     return 0;
 }
 
@@ -5367,7 +5549,7 @@ static int cmd_repair(const struct pkg_options *a)
         total_aside += s;
         if (r) fixed_pk++;
         if (machine) kv("package", "%s %s", name, r ? "repaired" : "intact");
-        else if (r) say("%s: %lu file%s put back\n", name, r, r == 1 ? "" : "s");
+        else if (r) say_result("%s: %lu file%s put back", name, r, r == 1 ? "" : "s");
     }
     installed_free(&in);
     free(ix.e);
@@ -5454,7 +5636,7 @@ static int remove_orphans(const struct pkg_options *a)
                     rec_item("refused", jn, "name", m->name, "version", m->version, "class",
                              class_name(refused_class), "code", codes, "reason", quiet_reason, NULL);
                 else
-                    say("%-24s not removed: %s\n", m->name, quiet_reason);
+                    say_pkgline(m->name, "not removed: %s", quiet_reason);
                 if (at_f + 80 < sizeof failed)
                     at_f += (size_t)snprintf(failed + at_f, sizeof failed - at_f, "%s%s ",
                                              at_f ? "" : " ", m->name);
@@ -5471,7 +5653,7 @@ static int remove_orphans(const struct pkg_options *a)
                 rec_item("package", j, "name", m->name, "version", m->version, NULL);
             }
             else
-                say("%s %s %s, which nothing needed: %lu files%s\n",
+                say_result("%s %s %s, which nothing needed: %lu files%s",
                         dryrun ? "would remove" : "removed", m->name,
                         m->version, (unsigned long)r, k ? ", edited files kept" : "");
         }
@@ -5515,7 +5697,7 @@ static int remove_orphans(const struct pkg_options *a)
         if (nfailed)
             kv("next", "%s", first_next ? first_next : next_default(first_class));
         if (!machine)
-            say("%s\n", summary);
+            say_result("%s", summary);
     }
     return nfailed ? 1 : 0;
 }
@@ -5551,11 +5733,15 @@ static int cmd_remove(const struct pkg_options *a)
     kv("removed", "%lu", (unsigned long)removed);
     kv("gone", "%lu", (unsigned long)gone);
     if (!machine) {
-    say("%s %s %s from %s: %lu files %s", dryrun ? "would remove" : "removed", m.name,
-           m.version, a->root, (unsigned long)removed, dryrun ? "to remove" : "removed");
-    if (kept) say(", %lu kept", (unsigned long)kept);
-    if (gone) say(", %lu already gone", (unsigned long)gone);
-    say("\n");
+    {
+    char tail[80];
+    int at = 0;
+    tail[0] = '\0';
+    if (kept) at += snprintf(tail + at, sizeof tail - (size_t)at, ", %lu kept", (unsigned long)kept);
+    if (gone) snprintf(tail + at, sizeof tail - (size_t)at, ", %lu already gone", (unsigned long)gone);
+    say_result("%s %s %s from %s: %lu files %s%s", dryrun ? "would remove" : "removed", m.name,
+           m.version, a->root, (unsigned long)removed, dryrun ? "to remove" : "removed", tail);
+    }
     }
     /* Say what this leaves behind; removing it is a separate, explicit act. */
     if (load_all(a->root, &in) == 0) {
@@ -5572,7 +5758,7 @@ static int cmd_remove(const struct pkg_options *a)
                          in.m[which[i]].version, NULL);
             }
             else
-                say("  %s %s is no longer needed by anything; REMOVE ORPHANS takes it out\n",
+                say_detail("%s %s is no longer needed by anything; REMOVE ORPHANS takes it out",
                         in.m[which[i]].name, in.m[which[i]].version);
         }
         free(which);
@@ -5662,7 +5848,7 @@ static void note(const char *fmt, ...)
     if (machine)
         kv("note", "%s", buf);
     else
-        say("  note: %s\n", buf);
+        say_note("%s", buf);
 }
 
 /* ROOT and CHANNEL, the root's machine, the channel's index and every
@@ -5701,6 +5887,10 @@ static int cmd_status(const struct pkg_options *a)
         }
     }
     kv("result", "shown");
+    if (!machine && in.n > 0) {
+        static const int widths[] = { 24, 12, 0 };
+        tbl_head(widths, "Package\tInstalled\tState");
+    }
     for (i = 0; i < in.n; i++) {
         struct standing s;
         const char *avail;
@@ -5742,11 +5932,13 @@ static int cmd_status(const struct pkg_options *a)
                          s.newer ? "upgradable to " : "");
             else
                 snprintf(what, sizeof what, "current");
-            say("%-24s %-12s %s%s%s\n", s.m->name, s.m->version, what,
+            tbl_row("%s\t%s\t%s%s%s", s.m->name, s.m->version, what,
                 strcmp(s.state, "edited") == 0 && s.newer ? avail : "",
                 s.withdrawn && s.newer ? " (the installed version was withdrawn)" : "");
         }
     }
+    if (!machine && in.n > 0)
+        tbl_end();
     kv("count", "%lu", (unsigned long)shown);
     kv("upgradable", "%lu", (unsigned long)upgradable);
     if (shown == 0)
@@ -5759,9 +5951,9 @@ static int cmd_status(const struct pkg_options *a)
            (unsigned long)shown, shown == 1 ? "" : "s");
     if (!machine) {
         if (shown == 0)
-            say("nothing installed in %s\n", a->root);
+            say_result("nothing installed in %s", a->root);
         else
-            say("%lu package%s in %s, %lu upgradable from %s\n", (unsigned long)shown,
+            say_result("%lu package%s in %s, %lu upgradable from %s", (unsigned long)shown,
                 shown == 1 ? "" : "s", a->root, (unsigned long)upgradable, a->channel);
     }
     if (upgradable > 0)
@@ -5911,7 +6103,7 @@ static int upgrade_all(const struct pkg_options *a)
                 rec_item("skipped", jn, "name", s->m->name, "installed", s->m->version,
                          "waits-for", dn, NULL);
             } else {
-                say("%-24s skipped: it needs %s, which could not be upgraded\n", s->m->name, dn);
+                say_pkgline(s->m->name, "skipped: it needs %s, which could not be upgraded", dn);
             }
             continue;
         }
@@ -5945,7 +6137,7 @@ static int upgrade_all(const struct pkg_options *a)
                          "class", class_name(refused_class), "code", codes, "reason", quiet_reason,
                          "next", refused_next ? refused_next : next_default(refused_class), NULL);
             } else {
-                say("%-24s not upgraded: %s\n", s->m->name, quiet_reason);
+                say_pkgline(s->m->name, "not upgraded: %s", quiet_reason);
             }
             if (at_r + 80 < sizeof refused_names)
                 at_r += (size_t)snprintf(refused_names + at_r, sizeof refused_names - at_r, "%s%s (%s)",
@@ -5960,10 +6152,12 @@ static int upgrade_all(const struct pkg_options *a)
             rec_item("package", jn, "name", s->m->name, "from", s->m->version,
                      "version", s->offer->version, NULL);
         } else {
-            say("%s %s from %s to %s: %lu placed, %lu removed", dryrun ? "would upgrade" : "upgraded",
-                s->m->name, s->m->version, s->offer->version, placed, dropped);
-            if (kept) say(", %lu kept", kept);
-            say("\n");
+            char keptw[40];
+            keptw[0] = '\0';
+        if (kept) snprintf(keptw, sizeof keptw, ", %lu kept", kept);
+            say_pkgline(s->m->name, "%s from %s to %s: %lu placed, %lu removed%s",
+                dryrun ? "would upgrade" : "upgraded",
+                s->m->version, s->offer->version, placed, dropped, keptw);
         }
         {
             const struct fetched *f = &p.f[p.n - 1];
@@ -6016,7 +6210,7 @@ static int upgrade_all(const struct pkg_options *a)
         if (nrefused + nskipped > 0)
             kv("next", "%s", first_next ? first_next : next_default(first_class));
         if (!machine)
-            say("%s\n", summary);
+            say_result("%s", summary);
         rc = nrefused + nskipped == 0 ? 0 : 1;
     }
 out:
@@ -6451,7 +6645,7 @@ static int cmd_push(const struct pkg_options *a)
                 if (machine && sink && sink->record)
                     { one_line(v); sink->record(sink->user, k, v); }
                 else if (strcmp(k, "refused") == 0 || strcmp(k, "published") == 0)
-                    say("  %s %s\n", k, v);
+                    say_item(k, "%s", v);
             }
             p2 = nl ? nl + 1 : end;
         }
@@ -6459,8 +6653,11 @@ static int cmd_push(const struct pkg_options *a)
         kv("uploaded", "%lu", (unsigned long)sent);
         kv("uploaded-bytes", "%llu", sent_bytes);
         if (!machine)
-            say("%s\n  %lu file%s sent to %s (%llu bytes)\n", summary[0] ? summary : result,
+        {
+            say_result("%s", summary[0] ? summary : result);
+            say_detail("%lu file%s sent to %s (%llu bytes)",
                 (unsigned long)sent, sent == 1 ? "" : "s", base, sent_bytes);
+        }
         if (code == 401 || code == 403) {
             refused_class = 14;
             refused_next = "ask-requester";

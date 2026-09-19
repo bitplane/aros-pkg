@@ -84,7 +84,7 @@ static void print_trace(void *user, const char *line)
     }
 }
 
-static struct pkg_sink out_sink = { print_record, print_text, NULL, 0, NULL, NULL, NULL, 0 };
+static struct pkg_sink out_sink = { print_record, print_text, NULL, 0, NULL, NULL, NULL, 0, NULL };
 
 /* A usage error found while reading the words, answered like any refusal. */
 static int usage_errorf(const char *fmt, ...)
