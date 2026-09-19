@@ -1,8 +1,10 @@
 # The AROS system of a pc-x86_64 boot ISO, as packages.
 # name | kind | paths (FILES) | configuration files (CONFIG), or -
-# Left out, the ISO's own: AROS.boot boot.catalog efi.img mach_kernel .disk System/Library (a Mac boot label);
+# Left out, the ISO's own: boot.catalog efi.img mach_kernel .disk System/Library (a Mac boot label);
+# AROS.boot stays: dos.library boots only from a volume whose AROS.boot names its CPU.
+# core.img is a configuration file: Install-grub2 writes into it where GRUB lies on the disk.
 # .backdrop, Workbench desktop state, is left to the person (no drawer walk takes dot files).
-aros-boot   | boot        | boot,efi                                            | boot/grub/grub.cfg
+aros-boot   | boot        | boot,efi,AROS.boot                                  | boot/grub/grub.cfg,boot/grub/i386-pc/core.img
 aros-base   | startup     | C,L,Libs,Devs,S,Classes,System,Rexxc,Storage,WBStartup,disk.info,Devs.info,Libs.info,Rexxc.info,Storage.info,System.info,WBStartup.info | S/Startup-Sequence,S/Shell-Startup,Devs/DOSDrivers
 aros-prefs  | application | Prefs,Prefs.info                                    | Prefs/Env-Archive
 aros-fonts  | font        | Fonts,Fonts.info                                    | -

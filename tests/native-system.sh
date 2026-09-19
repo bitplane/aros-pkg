@@ -47,10 +47,12 @@ fails=0
 ok() { checks=$((checks + 1)); [ "$1" -eq 0 ] || { fails=$((fails + 1)); echo "  FAIL $2"; }; }
 has() { grep -q -- "$2" "$1" 2>/dev/null; }
 
-# The system partition as InstallAROS makes it by default: FFSIntl, in a
-# logical partition of an MBR disk; PKG_SYSFS=SFS for its other choice.
+# The system partition as InstallAROS makes it, in a logical partition of an
+# MBR disk: SFS, its other choice, since GRUB aborts reading an FFS one
+# ("alloc magic is broken") and FFS holds no name over 30 characters, which
+# the ISO has; PKG_SYSFS=FFSIntl for InstallAROS's default.
 # PKG_SYSSIZE in MB.
-sysfs=${PKG_SYSFS:-FFSIntl}
+sysfs=${PKG_SYSFS:-SFS}
 syssize=${PKG_SYSSIZE:-2048}
 scheme=${PKG_SCHEME:-mbr}     # rdb would put the RDB where Install-grub2 writes GRUB
 case $sysfs in FFSIntl) fmtflags="FFS INTL" ;; *) fmtflags="" ;; esac
@@ -154,12 +156,16 @@ for d in $drawers; do
     printf 'Echo "  %s"\nCopy SYS:%s DH0:%s ALL CLONE QUIET\n' "$d" "$d" "$d" >> "$S"
 done
 printf 'Copy SYS:#?.info DH0: CLONE QUIET\n' >> "$S"
+printf 'Copy SYS:AROS.boot DH0: CLONE QUIET\n' >> "$S"   # the boot signature dos.library looks for
 printf 'Copy CD0:PkgTest/eltorito.img DH0:boot/grub/i386-pc/eltorito.img CLONE QUIET\n' >> "$S"
 say "Pkg takes over the files it finds there, package by package"
 # PKG_TRACE_AROS=1: Pkg's trace of each adoption goes to the second serial
 # port, ahead of the step's own output, to see where a slow one spends it.
 tr=; [ "${PKG_TRACE_AROS:-0}" = 1 ] && tr=" TRACE SER1:"
-for p in $pkgs; do step "adopt-$p" "pkg INSTALL $p ROOT DH0:" "$P INSTALL $p ROOT DH0: $C$tr"; done
+# PKG_ADOPT=0: no Pkg at all before the reboot, as a control of the disk boot.
+if [ "${PKG_ADOPT:-1}" != 0 ]; then
+    for p in $pkgs; do step "adopt-$p" "pkg INSTALL $p ROOT DH0:" "$P INSTALL $p ROOT DH0: $C$tr"; done
+fi
 say "The boot loader, as InstallAROS installs it"
 cmd grub "Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub" 'C:Install-grub2 DEVICE ata.device UNIT 0 GRUB DH0:boot/grub'
 cat >> "$S" <<'EOF'
@@ -199,6 +205,11 @@ EOF
 xorriso -as mkisofs -R -J -V AROS -o "$work/test.iso" -b boot/grub/i386-pc/eltorito.img \
     -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info "$T" > "$work/xorriso.log" 2>&1
                                                       ok $? "the test CD is built"
+# After the install the CD only carries the channel: without AROS.boot it is
+# no boot volume, so AROS starts from the disk, and REPAIR still reads it.
+rm -f "$T/AROS.boot"
+xorriso -as mkisofs -R -J -V AROS -o "$work/channel.iso" "$T" > "$work/xorriso2.log" 2>&1
+                                                      ok $? "the channel CD is built"
 rm -rf "$T"
 [ "${PKG_FRESH:-0}" = 1 ] && rm -f "$disk"
 [ -f "$disk" ] || qemu-img create -f raw "$disk" 4G > /dev/null
@@ -215,7 +226,8 @@ rm -rf "$frames"
 while [ $boots -lt 6 ] && ! LC_ALL=C grep -a -q 'PKGTEST-DONE' "$work/all.log"; do
     boots=$((boots + 1))
     : > "$work/com2.log"
-    qemu-system-x86_64 -m 2048 -drive file="$disk",format=raw,if=ide,index=0 -cdrom "$work/test.iso" \
+    cd_iso="$work/test.iso"; [ "$from" = c ] && cd_iso="$work/channel.iso"
+    qemu-system-x86_64 -m 2048 -drive file="$disk",format=raw,if=ide,index=0 -cdrom "$cd_iso" \
         -boot $from -display "${PKG_DISPLAY:-none}" -name "Pkg on AROS - boot $boots" -no-reboot -serial file:"$work/com1.log" -serial file:"$work/com2.log" \
         -monitor unix:"$work/mon",server,nowait > "$work/qemu.log" 2>&1 &
     qemu_pid=$!
