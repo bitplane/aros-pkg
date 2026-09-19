@@ -4,7 +4,7 @@
 @inject Downloads Downloads
 @{
     ViewData["Title"] = "Statistics";
-    var channels = Catalogue.Channels().ToList();
+    var channels = Catalogue.Listed().ToList();
     var packages = channels.SelectMany(c => c.Packages.Values).ToList();
     var latest = packages.Select(p => p.Latest).ToList();
     var versions = channels.Sum(c => c.Lines.Count);

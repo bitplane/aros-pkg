@@ -159,6 +159,32 @@ public sealed class AdminService(IOptions<PortalOptions> options, Catalogue cata
         return r.Add("summary", $"put back {versions} version{S(versions)} and {files} file{S(files)} from stash {stamp}");
     }
 
+    // ---- listed or not --------------------------------------------------------
+
+    public async Task<Record> SetListed(string admin, string channel, bool listed, CancellationToken ct)
+    {
+        if (!File.Exists(Path.Combine(Live(channel), "index")))
+            return Record.Refused(11, $"there is no channel {channel}", "check the channel name");
+        var mark = catalogue.UnlistedPath(channel);
+        if (listed)
+        {
+            File.Delete(mark);
+            if (catalogue.IsUnlisted(channel))
+                return Record.Refused(15, $"{channel} is unlisted by the Portal:Unlisted setting, which this API does not change",
+                                      "take it out of the setting and restart the portal");
+        }
+        else
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(mark)!);
+            await File.WriteAllTextAsync(mark, $"{DateTime.UtcNow:O} {admin}\n", ct);
+        }
+        await Log(admin, listed ? "list" : "unlist", channel, "-", "", ct);
+        return new Record().Add("result", listed ? "listed" : "unlisted").Add("channel", channel)
+            .Add("summary", listed
+                ? $"{channel} is shown on the site again"
+                : $"{channel} is served to whoever has its address and shown nowhere: not on the home page, in search, statistics, feeds or publishers");
+    }
+
     // ---- log ------------------------------------------------------------------
 
     public Record ReadLog()

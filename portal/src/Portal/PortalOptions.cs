@@ -38,6 +38,11 @@ public sealed class PortalOptions
     /// one once, and their owners decide with ACCEPTKEY.
     public string Owners { get; set; } = "";
 
+    /// Channels served to whoever has the address but shown nowhere: not on the
+    /// home page, in search, statistics, feeds or publishers. "a;b". The admin
+    /// API adds to this list without a restart (state/<channel>/unlisted).
+    public string Unlisted { get; set; } = "";
+
     /// Packages shown first, as "channel/name" separated by commas, e.g.
     /// "pkg/pkg,contrib-nightly/regina". Pkg itself belongs here: people
     /// need it before anything else.

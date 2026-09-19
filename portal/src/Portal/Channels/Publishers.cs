@@ -72,7 +72,7 @@ public sealed class Publishers(Catalogue catalogue, IOptions<PortalOptions> opti
     {
         var names = Names();
         var profiles = Profiles();
-        return catalogue.Channels().SelectMany(c => c.Packages.Values).SelectMany(p => p.Versions)
+        return catalogue.Listed().SelectMany(c => c.Packages.Values).SelectMany(p => p.Versions)
             .Where(v => v.Signer is not null).GroupBy(v => v.Signer!, StringComparer.OrdinalIgnoreCase)
             .Select(g => new PublisherInfo(g.Key, names.GetValueOrDefault(g.Key), g.Min(v => v.Published), g.ToList(),
                 profiles.GetValueOrDefault(g.Key)?.Url, profiles.GetValueOrDefault(g.Key)?.Contact))

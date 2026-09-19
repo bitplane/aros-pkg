@@ -119,6 +119,28 @@ public class AdminTests
     }
 
     [Fact]
+    public async Task An_unlisted_channel_is_served_and_shown_nowhere_until_listed_again()
+    {
+        using var f = new Factory();
+        var c = f.Https();
+        Assert.Contains("tool", await c.GetStringAsync("/api/search?q=tool"));
+        var (status, body) = await Post(c, "/_admin/channels/demo/unlist", f.AdminKey);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Contains("result: unlisted", body);
+        Assert.DoesNotContain("\"name\":\"tool\"", await c.GetStringAsync("/api/search?q=tool"));
+        Assert.DoesNotContain("demo", await c.GetStringAsync("/"));
+        Assert.DoesNotContain("tool", await c.GetStringAsync("/feed"));
+        // whoever has the address still gets everything
+        Assert.Contains("tool 1.0", await c.GetStringAsync("/demo/index"));
+        Assert.Contains("unlisted", await c.GetStringAsync("/channels/demo"));
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/packages/demo/tool")).StatusCode);
+        // a push key cannot do it
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Post(c, "/_admin/channels/demo/list", f.PushKey)).Item1);
+        Assert.Contains("result: listed", (await Post(c, "/_admin/channels/demo/list", f.AdminKey)).Item2);
+        Assert.Contains("\"name\":\"tool\"", await c.GetStringAsync("/api/search?q=tool"));
+    }
+
+    [Fact]
     public async Task A_name_that_matches_nothing_is_refused_and_nothing_moves()
     {
         using var f = new Factory();

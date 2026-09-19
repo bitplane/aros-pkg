@@ -57,7 +57,7 @@ public static class Endpoints
 
         app.MapGet("/feed", (HttpContext http, Catalogue c, IOptions<PortalOptions> o) =>
             Atom(http, o.Value, "AROS Packages: new versions", "/feed", "/",
-                 c.Channels().SelectMany(ch => ch.Packages.Values)));
+                 c.Listed().SelectMany(ch => ch.Packages.Values)));
 
         app.MapGet("/channels/{name}/feed", (HttpContext http, string name, Catalogue c, IOptions<PortalOptions> o) =>
             c.Get(name) is { } ch

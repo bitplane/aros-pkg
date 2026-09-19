@@ -46,7 +46,7 @@ public sealed class Search(Catalogue catalogue, Downloads downloads)
             if (m.Files.FirstOrDefault(f => Has(f.Path)) is { } file) return (5, $"holds {file.Path}");
             return (9, null);
         }
-        var hits = catalogue.Channels()
+        var hits = catalogue.Listed()
             .Where(c => s.Channel.Length == 0 || c.Name == s.Channel)
             .SelectMany(c => c.Packages.Values)
             .Select(p => { var (r, why) = Rank(p); return new SearchHit(p, r, why, DownloadsOf(p)); })

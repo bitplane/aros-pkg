@@ -5,7 +5,7 @@
 @{
     var s = SearchQuery.From(Request.Query);
     var hits = Search.Run(s);
-    var all = Catalogue.Channels().SelectMany(c => c.Packages.Values).ToList();
+    var all = Catalogue.Listed().SelectMany(c => c.Packages.Values).ToList();
     var what = s.Q.Length > 0 ? $"“{s.Q}”" : s.Tag.Length > 0 ? $"tagged {s.Tag}" : s.Category.Length > 0 ? $"in {s.Category}" : null;
     ViewData["Title"] = what is null ? "All packages" : $"Search: {what}";
     var channels = Catalogue.ChannelNames().ToList();

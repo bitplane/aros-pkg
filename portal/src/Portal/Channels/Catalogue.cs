@@ -104,6 +104,16 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
 
     public IEnumerable<ChannelInfo> Channels() => ChannelNames().Select(Get).OfType<ChannelInfo>();
 
+    /// The channels the site shows. An unlisted one is served like any other
+    /// to whoever names it, and appears in no list, search, feed or count.
+    public IEnumerable<ChannelInfo> Listed() => Channels().Where(c => !IsUnlisted(c.Name));
+
+    public string UnlistedPath(string channel) => Path.Combine(o.StateDir, channel, "unlisted");
+
+    public bool IsUnlisted(string channel) =>
+        o.Unlisted.Split(';', ',').Any(x => string.Equals(x.Trim(), channel, StringComparison.OrdinalIgnoreCase))
+        || File.Exists(UnlistedPath(channel));
+
     public ChannelInfo? Get(string channel)
     {
         if (!ChannelPaths.IsChannelName(channel)) return null;

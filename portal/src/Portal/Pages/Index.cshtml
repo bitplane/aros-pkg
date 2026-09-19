@@ -4,7 +4,7 @@
 @inject Catalogue Catalogue
 @inject IOptions<PortalOptions> Options
 @{
-    var channels = Catalogue.Channels().ToList();
+    var channels = Catalogue.Listed().ToList();
     var pinned = Catalogue.Pinned();
     var recent = channels.SelectMany(c => c.Packages.Values).OrderByDescending(p => p.Updated).Take(12).ToList();
     var total = channels.Sum(c => c.Packages.Count);

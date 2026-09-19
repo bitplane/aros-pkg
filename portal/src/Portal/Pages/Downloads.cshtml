@@ -25,7 +25,7 @@
 <table class="list">
     <thead><tr><th>Channel</th><th>Address</th><th class="num">Packages</th></tr></thead>
     <tbody>
-    @foreach (var c in Catalogue.Channels())
+    @foreach (var c in Catalogue.Listed())
     {
         var url = Site.ChannelUrl(Request, Options.Value, c.Name);
         <tr>

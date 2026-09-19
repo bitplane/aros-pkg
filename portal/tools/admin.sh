@@ -6,6 +6,7 @@
 #
 #   PKG_ADMINKEY=<key> sh portal/tools/admin.sh <portal> remove <channel> [--dry-run] '<name> *' ['<name> <version> <arch>' ...]
 #   PKG_ADMINKEY=<key> sh portal/tools/admin.sh <portal> restore <stash>
+#   PKG_ADMINKEY=<key> sh portal/tools/admin.sh <portal> unlist|list <channel>   served but shown nowhere, or shown again
 #   PKG_ADMINKEY=<key> sh portal/tools/admin.sh <portal> log
 #
 # A removal takes versions off a channel; their files go to a stash on the
@@ -14,7 +15,7 @@
 set -eu
 portal=${1:?portal address, e.g. https://aros-pkg.azurewebsites.net}
 portal=${portal%/}
-verb=${2:?remove, restore or log}
+verb=${2:?remove, restore, unlist, list or log}
 key=${PKG_ADMINKEY:?set PKG_ADMINKEY to a maintainer key}
 call() { curl -sS -H "Authorization: Bearer $key" "$@"; }
 case $verb in
@@ -23,6 +24,7 @@ case $verb in
         q=""; [ "${1:-}" = --dry-run ] && { q="?dryrun=1"; shift; }
         [ $# -gt 0 ] || { echo "admin: name what to remove, e.g. 'pkg *'" >&2; exit 20; }
         answer=$(printf '%s\n' "$@" | call -X POST --data-binary @- "$portal/_admin/channels/$channel/remove$q") ;;
+    unlist|list) answer=$(call -X POST "$portal/_admin/channels/${3:?channel}/$verb") ;;
     restore) answer=$(call -X POST "$portal/_admin/restore/${3:?stash}") ;;
     log)     answer=$(call "$portal/_admin/log") ;;
     *) echo "admin: remove, restore or log" >&2; exit 20 ;;

@@ -154,6 +154,12 @@ admin.MapPost("/channels/{channel}/remove", async (HttpContext http, string chan
         : Results2.Text(await s.Remove((string)http.Items["admin"]!, channel, await ReadBody(http),
         http.Request.Query["dryrun"] is var d && (d == "1" || d == "true"), http.RequestAborted)));
 
+foreach (var (verb, listed) in new[] { ("unlist", false), ("list", true) })
+    admin.MapPost($"/channels/{{channel}}/{verb}", async (HttpContext http, string channel, Portal.Admin.AdminService s) =>
+        !ChannelPaths.IsChannelName(channel)
+            ? Results2.Text(Record.Refused(20, $"'{channel}' is not a channel name", "check the address"), 400)
+            : Results2.Text(await s.SetListed((string)http.Items["admin"]!, channel, listed, http.RequestAborted)));
+
 admin.MapPost("/restore/{stamp}", async (HttpContext http, string stamp, Portal.Admin.AdminService s) =>
     Results2.Text(await s.Restore((string)http.Items["admin"]!, stamp, http.RequestAborted)));
 

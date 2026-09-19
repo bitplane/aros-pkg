@@ -122,6 +122,10 @@ What the portal holds and enforces:
 - Every push is checked by the portal running Pkg itself (`SHOW ... METADATA`)
   before anything is published. What that proves and what it cannot:
   [Signatures and trust](signing.md).
+- A channel can be **unlisted**: served like any other to whoever has its
+  address, and shown nowhere on the site (home page, search, statistics,
+  feeds, publishers). The portal's maintainers switch it; it is for
+  previews and private rounds, not a secret: the address is the only key.
 - Its rules are readable: `https://aros-pkg.azurewebsites.net/api/policy`
   says whether pushes are open, which keys may upload files (the others
   publish by link to an `https` archive), which hosts links may point to,
