@@ -4999,6 +4999,31 @@ out:
 
 /* A new version against the highest one published: the files that changed,
  * and the slips that show there (the old build again, a $VER not raised). */
+/* Whether two versions say the same about themselves: dependencies,
+ * Provides and the catalogue fields, all but files and identity. */
+static int same_description(const struct pkg_manifest *x, const struct pkg_manifest *y)
+{
+    struct pkg_manifest tx = *x, ty = *y;
+    char *ox = NULL, *oy = NULL;
+    size_t lx = 0, ly = 0;
+    int same;
+    tx.version = ty.version = (char *)"0";
+    tx.payload = ty.payload = NULL;
+    tx.source = ty.source = NULL;
+    tx.archive_sha = ty.archive_sha = NULL;
+    tx.nfiles = ty.nfiles = 0;
+    tx.ncontent = ty.ncontent = 0;
+    if (pkg_manifest_emit(&tx, &ox, &lx) != 0 || pkg_manifest_emit(&ty, &oy, &ly) != 0) {
+        free(ox);
+        free(oy);
+        return 0;
+    }
+    same = lx == ly && memcmp(ox, oy, lx) == 0;
+    free(ox);
+    free(oy);
+    return same;
+}
+
 static long compare_last(const struct pkg_manifest *em, const struct built *b)
 {
     const struct pkg_file *nv = b->m.ncontent ? b->m.content : b->m.files;
@@ -5205,7 +5230,8 @@ static int cmd_publish(const struct pkg_options *a)
                         return 1;
                     }
                     if (compare_last(&em, &b) == 0 && a->build != NULL
-                        && strcmp(em.kind, b.m.kind) == 0 && strcmp(em.architecture, b.m.architecture) == 0) {
+                        && strcmp(em.kind, b.m.kind) == 0 && strcmp(em.architecture, b.m.architecture) == 0
+                        && same_description(&em, &b.m)) {
                         /* A new build of the same files is no new version. */
                         snprintf(same_as, sizeof same_as, "%s %s", em.name, em.version);
                     }

@@ -95,6 +95,17 @@ $PKG SHOW tool CHANNEL ch > o8 2>&1
 has o8 'tool 1.2: A tool that does things' && has o8 'Indented, and'
                                                       ok $? "and as text for a person"
 
+echo "nightly"
+# a nightly whose files did not move publishes nothing, unless what it says changed
+mkdir -p arc/Top/Extras/Night; printf 'x\000$VER: night 1.0 (1.1.2026)\000' > arc/Top/Extras/Night/Night
+mkdir -p nch/archives; (cd arc && tar -cf ../nch/archives/n.tar Top)
+$PKG PUBLISH "nch/archives/n.tar!/Top" FILES Extras/Night CHANNEL nch NAME night BUILD 20260918 KIND application > /dev/null 2>&1
+$PKG PUBLISH "nch/archives/n.tar!/Top" FILES Extras/Night CHANNEL nch NAME night BUILD 20260919 MACHINE > o12 2>&1
+has o12 '^result: unchanged$';                        ok $? "the next nightly with the same files is no new version"
+$PKG PUBLISH "nch/archives/n.tar!/Top" FILES Extras/Night CHANNEL nch NAME night BUILD 20260919 SHORT "A night tool" MACHINE > o13 2>&1
+has o13 '^result: published$' && has o13 '^version: 1.0+20260919$'
+                                                      ok $? "the same files with a new description are a new version"
+
 echo "foreign keys"
 # a manifest signed with lines for another system: installed, the lines kept and shown
 signed() {  # signed <channel> <extra lines>: tool 1.0 with those lines, signed with key
