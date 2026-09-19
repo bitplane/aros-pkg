@@ -11,15 +11,15 @@
 }
 <section class="hero">
     <h1>Install and update AROS software</h1>
+    <div class="hero-row">
     <div class="welcome">
         <p>Hello, and welcome. This is the package site for AROS: programs, libraries and tools you can install and keep up to date with one command, using <a href="/packages/pkg/pkg">Pkg</a>, the AROS package tool.</p>
         <p>Every package is signed by its publisher, and Pkg checks each file before it writes anything, so you always know what you are installing and who made it (<a href="/trust">how</a>).</p>
         <p>New here? <a href="/downloads">Get Pkg</a> first, then browse the channels below or search for a program. Today it holds @total package@(total == 1 ? "" : "s") in @channels.Count channel@(channels.Count == 1 ? "" : "s"), most of them from the AROS contrib nightly build.</p>
     </div>
-</section>
-
-@if (pinned.Count > 0)
-{
+    @if (pinned.Count > 0)
+    {
+    <div class="start">
     <h2>Start here</h2>
     <div class="cards">
     @foreach (var p in pinned)
@@ -35,7 +35,10 @@
         </a>
     }
     </div>
-}
+    </div>
+    }
+    </div>
+</section>
 
 <h2>Channels</h2>
 @if (channels.Count == 0)

@@ -11,3 +11,4 @@ portal/publish/
 r2.env
 portal.env
 *.env
+portal/captures/

@@ -25,4 +25,15 @@
     <Content Include="../../../docs/**/*.md" Exclude="../../../docs/README.md;../../../docs/development*.md;../../../docs/container.md;../../../docs/aros-defects.md;../../../docs/history.md" LinkBase="userdocs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The footer says which portal this is: build number (commits), commit, build time. -->
+  <PropertyGroup><Version>1.0.0</Version></PropertyGroup>
+  <Target Name="StampBuild" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true"><Output TaskParameter="ConsoleOutput" PropertyName="GitCommit" /></Exec>
+    <Exec Command="git rev-list --count HEAD" ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true"><Output TaskParameter="ConsoleOutput" PropertyName="GitCount" /></Exec>
+    <ItemGroup>
+      <AssemblyMetadata Include="Commit" Value="$(GitCommit)" />
+      <AssemblyMetadata Include="Build" Value="$(GitCount)" />
+      <AssemblyMetadata Include="Built" Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm'))" />
+    </ItemGroup>
+  </Target>
 </Project>

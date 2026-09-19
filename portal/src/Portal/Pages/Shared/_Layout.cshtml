@@ -1,4 +1,6 @@
+@using Microsoft.Extensions.Options
 @inject Portal.Channels.Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,6 +9,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta name="color-scheme" content="light dark" />
     <title>@(ViewData["Title"] is string t ? t + " · " : "")AROS Packages</title>
+    <script src="~/js/theme.js" asp-append-version="true"></script>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="icon" href="~/favicon.svg" type="image/svg+xml" />
     <link rel="alternate" type="application/atom+xml" title="New versions" href="/feed" />
@@ -26,8 +29,26 @@
             <a class="@On("/docs")" href="/docs">Documentation</a>
         </nav>
         <form class="search" action="/search" method="get" role="search">
-            <input type="search" name="q" value="@Context.Request.Query["q"]" placeholder="Search packages" aria-label="Search packages" />
+            <input type="search" name="q" value="@Context.Request.Query["q"]" placeholder="Search" aria-label="Search packages" />
         </form>
+        <div class="tools">
+            <span class="theme" role="group" aria-label="Theme">
+                <button type="button" data-theme="light" title="Light" aria-label="Light theme"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+                <button type="button" data-theme="system" title="As the system" aria-label="Theme of the system"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
+                <button type="button" data-theme="dark" title="Dark" aria-label="Dark theme"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
+            </span>
+            @if (Options.Value.GitHub.On)
+            {
+                if (User.Identity?.IsAuthenticated == true)
+                {
+                    <a class="who in" href="/account" title="Signed in with GitHub: your publisher account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>@User.Identity.Name</a>
+                }
+                else
+                {
+                    <a class="who" href="/account" title="Sign in with GitHub to publish"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Sign in</a>
+                }
+            }
+        </div>
     </div>
 </header>
 <main class="wrap">
@@ -41,6 +62,7 @@
     <p>Preview, unlisted. Every package is signed with Ed25519, and Pkg checks each file against its signed manifest before installing it.
        <a href="/trust">Trust and signatures</a> · <a href="/publishers#publish">Publish here</a> · <a href="/account">Your account</a> · <a href="/docs">Documentation</a> · <a href="/api">API and feeds</a></p>
     <p><a href="https://github.com/jonx/aros-pkg" rel="noopener">Source on GitHub</a> · <a href="https://github.com/jonx/aros-pkg/issues" rel="noopener">Report an issue</a> · Contact: <a href="https://github.com/jonx" rel="noopener">github.com/jonx</a></p>
+    <p class="muted small">@Portal.BuildInfo.Line</p>
 </footer>
 <script src="~/js/site.js" asp-append-version="true"></script>
 </body>

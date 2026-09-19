@@ -208,6 +208,18 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
+// Development only, from this machine only: ?dev-as=<login>&dev-id=<n> makes this one request a
+// signed-in one, so that tools/shot.sh can look at what a signed-in person sees.
+if (app.Environment.IsDevelopment())
+    app.Use(async (ctx, next) =>
+    {
+        if (ctx.Request.Query["dev-as"].ToString() is { Length: > 0 } login && long.TryParse(ctx.Request.Query["dev-id"], out var id)
+            && ctx.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip))
+            ctx.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                [new(System.Security.Claims.ClaimTypes.NameIdentifier, id.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                 new(System.Security.Claims.ClaimTypes.Name, login)], "dev"));
+        await next();
+    });
 app.UseAuthorization();
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n"));
 app.MapGet("/health", (Catalogue c) => Results.Text($"ok: {c.ChannelNames().Count()} channels\n"));

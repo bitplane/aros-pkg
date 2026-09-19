@@ -25,7 +25,7 @@
         @foreach (var p in all)
         {
             <tr>
-                <td><a href="/publishers/@p.Key">@(p.Name ?? "unnamed key")</a></td>
+                <td><a href="/publishers/@p.Key">@(p.Name ?? "unnamed key")</a>@if (Registry.ByKey(p.Key) is { Suspended: false } v) { <partial name="_Verified" model="v.Login" /> }</td>
                 <td><code>@p.Short</code></td>
                 <td class="num">@p.ByPackage.Count()</td>
                 <td class="num hide-s">@p.Versions.Count</td>
@@ -38,7 +38,7 @@
     return;
 }
 <p class="crumbs"><a href="/publishers">Publishers</a> /</p>
-<h1>@(one.Name ?? "Unnamed key")</h1>
+<h1>@(one.Name ?? "Unnamed key")@if (Registry.ByKey(one.Key) is { Suspended: false } vv) { <partial name="_Verified" model="vv.Login" /> }</h1>
 @if (Registry.ByKey(one.Key) is { } account)
 {
     <p class="muted">GitHub account verified: <a href="https://github.com/@account.Login" rel="noopener">@account.Login</a>@(account.Suspended ? " (suspended)" : "")</p>

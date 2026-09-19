@@ -120,3 +120,13 @@ a code block, and one-line `@if (…) { <tag> }` blocks.
 `dotnet test portal/tests/Portal.Tests` covers the version order (the same
 as Pkg's), which paths a channel serves, manifest attributes, and the push
 gate (HTTPS, key, channel scope, no indexing).
+
+## Seeing the portal
+
+`sh portal/tools/shot.sh [--as jane|mallory|<login>] [--admin] [--dark] [--phone] [--live] <path>...`
+renders pages in headless Chrome and writes `portal/captures/<time>_<page>.png`.
+Local runs start the portal in Development on sample data (a listed and an
+unlisted channel, a registered and a suspended account) and stop it afterwards;
+`--as` makes each request a signed-in one through `?dev-as=&dev-id=`, which exists
+in Development and from this machine only. Look before saying a page is right:
+markup that passes its tests can still render wrongly.
