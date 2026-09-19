@@ -109,6 +109,8 @@ test:
 	@PKG=./build/pkg sh tests/push.sh
 	@echo "== hostile"
 	@PKG=./build/pkg sh tests/hostile.sh
+	@echo "== docs-examples"
+	@PKG=./build/pkg sh tests/docs-examples.sh
 	@echo "== archive"
 	@rm -f build/test_archive
 	@$(MAKE) --no-print-directory build/test_archive
