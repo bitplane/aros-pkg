@@ -7917,7 +7917,7 @@ static int cmd_push(const struct pkg_options *a)
             int bl = (int)(e ? (size_t)(e - a->to) : strlen(a->to));
             return refuse_n(14, "ask-requester", "no key to push with. A portal takes pushes only from "
                             "publishers its maintainers have registered, and nobody can register themselves "
-                            "yet: ask them, as %.*s/publish explains. Once registered, sign the push with SIGN "
+                            "yet: ask them, as %.*s/publishers explains. Once registered, sign the push with SIGN "
                             "<keyfile> (or PKG_SIGNKEY), the key you registered, or over https with "
                             "PKG_PUSHKEY, the key the portal gave you. Never make a key up", bl, a->to);
         }

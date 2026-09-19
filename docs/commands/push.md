@@ -37,7 +37,7 @@ The portal knows who pushes in one of two ways:
 
 ```console
 $ pkg PUSH CHANNEL channel TO https://aros-pkg.azurewebsites.net/mychannel    # exits 14
-pkg push: no key to push with. A portal takes pushes only from publishers its maintainers have registered, and nobody can register themselves yet: ask them, as https://aros-pkg.azurewebsites.net/publish explains. Once registered, sign the push with SIGN <keyfile> (or PKG_SIGNKEY), the key you registered, or over https with PKG_PUSHKEY, the key the portal gave you. Never make a key up
+pkg push: no key to push with. A portal takes pushes only from publishers its maintainers have registered, and nobody can register themselves yet: ask them, as https://aros-pkg.azurewebsites.net/publishers explains. Once registered, sign the push with SIGN <keyfile> (or PKG_SIGNKEY), the key you registered, or over https with PKG_PUSHKEY, the key the portal gave you. Never make a key up
   next: ask whoever requested this (the person, or the agent that launched you); it is their decision, not a step to take for them
 ```
 

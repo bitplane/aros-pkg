@@ -250,7 +250,7 @@ and the channel never carries the archive.
 
 **The portal takes pushes only from publishers its maintainer has
 registered, and for now the only way to be registered is to ask:** see
-<https://aros-pkg.azurewebsites.net/publish>. Send your public key
+<https://aros-pkg.azurewebsites.net/publishers>. Send your public key
 (`pkg KEYINFO FILE <your key>`, not secret) and the channel you want; you
 are told when it is done. There is no sign-up form yet.
 
