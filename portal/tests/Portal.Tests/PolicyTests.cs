@@ -171,16 +171,17 @@ public class PolicyTests
         using var s = new Site(new() { ["Portal:Keys"] = PublisherKeys.Create("carol", "hers").Config, ["Portal:PublicUrl"] = "https://portal.test" });
         var (st1, none) = await s.Send(HttpMethod.Post, "/any/_push/plan", "not-a-key");
         Assert.Equal(HttpStatusCode.Unauthorized, st1);
-        Assert.Contains("https://portal.test/publish", none);
+        Assert.Contains("https://portal.test/publishers", none);
         var c = s.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         var session = await c.PostAsync("/any/_push/session", new StringContent("key: " + new string('a', 64)));
         Assert.Equal(HttpStatusCode.Unauthorized, session.StatusCode);
-        Assert.Contains("https://portal.test/publish", await session.Content.ReadAsStringAsync());
-        var page = await c.GetStringAsync("/publish");      // redirects to the publishers' page
+        Assert.Contains("https://portal.test/publishers", await session.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/publish")).StatusCode);   // one page, one address
+        var page = await c.GetStringAsync("/publishers");
         Assert.Contains("ask the portal's maintainer to register you", page);
         Assert.Contains("pkg KEYINFO FILE my.key", page);
         using var d = JsonDocument.Parse(await c.GetStringAsync("/api/policy"));
-        Assert.Equal("https://portal.test/publish", d.RootElement.GetProperty("publish").GetString());
+        Assert.Equal("https://portal.test/publishers", d.RootElement.GetProperty("publish").GetString());
     }
 
     [Fact]

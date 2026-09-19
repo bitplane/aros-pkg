@@ -46,7 +46,7 @@ public static class Endpoints
                 admin = p.Admin,
                 plainHttp = p.PlainHttp,
                 signedPush = p.SignedPush,
-                publish = $"{Site(http, o.Value)}/publish",
+                publish = $"{Site(http, o.Value)}/publishers",
                 minPkg = p.MinPkg.Trim().Length > 0 ? p.MinPkg.Trim() : null,
                 minPkgReads = p.MinPkgReads,
                 note = p.Note.Length > 0 ? p.Note : null,

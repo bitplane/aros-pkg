@@ -203,7 +203,7 @@ admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog())
 
 // Who may push is decided by people, and a refusal says where to ask them.
 string SiteOf(HttpContext http) => opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";
-string Ask(HttpContext http) => $"Publishers are registered by this portal's maintainers, and nobody can register themselves yet: {SiteOf(http)}/publish says how to ask";
+string Ask(HttpContext http) => $"Publishers are registered by this portal's maintainers, and nobody can register themselves yet: {SiteOf(http)}/publishers says how to ask";
 
 var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpointFilter(async (ctx, next) =>
 {
@@ -307,9 +307,6 @@ app.MapGet("/see/{key}", (HttpContext http, string key, Portal.Channels.Catalogu
         { HttpOnly = true, Secure = http.Request.IsHttps, SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax, MaxAge = TimeSpan.FromDays(365), IsEssential = true });
     return Results.Redirect("/");
 }).RequireRateLimiting("admin");
-
-// /publish is the address Pkg's refusals name: how to become a publisher, on the publishers' page.
-app.MapGet("/publish", () => Results.Redirect("/publishers#publish"));
 
 // Get-Pkg: the same for an AROS machine with a network and wget, over plain
 // http since AROS has no TLS. An AmigaDOS script, Latin-1 like the Shell.
