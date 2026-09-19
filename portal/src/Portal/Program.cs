@@ -49,6 +49,52 @@ builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Port
 builder.Services.AddSingleton<Catalogue>();
 builder.Services.AddSingleton<PublisherKeys>();
 builder.Services.AddSingleton<SignedPush>();
+builder.Services.AddSingleton<Portal.Accounts.Registry>();
+
+// "Sign in with GitHub": who a publisher is. The portal reads the account's
+// number and login from the public profile, asks for no scope, keeps no token.
+{
+    var gh = builder.Configuration.GetSection("Portal:GitHub");
+    var auth = builder.Services.AddAuthentication(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme)
+        .AddCookie(c =>
+        {
+            c.Cookie.Name = "pkg-account";
+            c.Cookie.HttpOnly = true;
+            c.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
+            c.ExpireTimeSpan = TimeSpan.FromDays(30);
+            c.SlidingExpiration = true;
+            c.LoginPath = "/account";
+            c.AccessDeniedPath = "/account";
+        });
+    if (!string.IsNullOrEmpty(gh["ClientId"]) && !string.IsNullOrEmpty(gh["ClientSecret"]))
+        auth.AddOAuth("GitHub", g =>
+        {
+            g.ClientId = gh["ClientId"]!;
+            g.ClientSecret = gh["ClientSecret"]!;
+            g.CallbackPath = "/signin-github";
+            g.AuthorizationEndpoint = "https://github.com/login/oauth/authorize";
+            g.TokenEndpoint = "https://github.com/login/oauth/access_token";
+            g.UserInformationEndpoint = "https://api.github.com/user";
+            g.SaveTokens = false;
+            g.CorrelationCookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
+            g.Events.OnCreatingTicket = async ctx =>
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, ctx.Options.UserInformationEndpoint);
+                req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ctx.AccessToken);
+                req.Headers.UserAgent.ParseAdd("AROS-Packages-portal");
+                req.Headers.Accept.ParseAdd("application/vnd.github+json");
+                using var res = await ctx.Backchannel.SendAsync(req, ctx.HttpContext.RequestAborted);
+                res.EnsureSuccessStatusCode();
+                using var user = System.Text.Json.JsonDocument.Parse(await res.Content.ReadAsStringAsync(ctx.HttpContext.RequestAborted));
+                var id = user.RootElement.GetProperty("id").GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var login = user.RootElement.GetProperty("login").GetString() ?? "";
+                // The account's number and its login: all the portal ever keeps of it.
+                ctx.Identity!.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, id));
+                ctx.Identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, login));
+            };
+        });
+    builder.Services.AddAuthorization();
+}
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<PkgRunner>();
 builder.Services.AddSingleton<PushService>();
@@ -161,6 +207,8 @@ app.UseStaticFiles();
 // Routing after static files: the channel route would otherwise claim /css/site.css.
 app.UseRouting();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n"));
 app.MapGet("/health", (Catalogue c) => Results.Text($"ok: {c.ChannelNames().Count()} channels\n"));
 app.MapRazorPages();
@@ -203,7 +251,9 @@ admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog())
 
 // Who may push is decided by people, and a refusal says where to ask them.
 string SiteOf(HttpContext http) => opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";
-string Ask(HttpContext http) => $"Publishers are registered by this portal's maintainers, and nobody can register themselves yet: {SiteOf(http)}/publishers says how to ask";
+string Ask(HttpContext http) => opts.GitHub.On
+    ? $"A publisher registers their signing key at {SiteOf(http)}/account (sign in with GitHub), or asks the maintainers: {SiteOf(http)}/publishers says how"
+    : $"Publishers are registered by this portal's maintainers, and nobody can register themselves yet: {SiteOf(http)}/publishers says how to ask";
 
 var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpointFilter(async (ctx, next) =>
 {
@@ -296,6 +346,16 @@ foreach (var (route, file) in new[] { ("/install", "install.sh"), ("/install.sh"
         http.Response.Headers.CacheControl = "no-cache";
         return Results.Text(text, "text/plain; charset=utf-8");
     });
+
+// Sign in and out. The return address is always this site's own account page.
+app.MapGet("/signin", (HttpContext http) => opts.GitHub.On
+    ? Results.Challenge(new Microsoft.AspNetCore.Authentication.AuthenticationProperties { RedirectUri = "/account" }, ["GitHub"])
+    : Results.NotFound()).RequireRateLimiting("admin");
+app.MapPost("/signout", async (HttpContext http) =>
+{
+    await Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions.SignOutAsync(http);
+    return Results.Redirect("/");
+}).DisableAntiforgery();
 
 // A view key in this browser: its holder sees the unlisted channels too. Rate-limited
 // like the admin API; the key is shown once by `Portal viewkey <name>`.

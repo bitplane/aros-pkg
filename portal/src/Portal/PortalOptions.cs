@@ -53,6 +53,13 @@ public sealed class PortalOptions
     /// shows what is unlisted and does nothing else: it is no push or admin key.
     public string ViewKeys { get; set; } = "";
 
+    /// "Sign in with GitHub", for publishers to register themselves and for the
+    /// maintainers' page. Empty: no sign-in, publishers are registered by hand.
+    public GitHubOptions GitHub { get; set; } = new();
+
+    /// The GitHub logins that are this portal's maintainers: "jonx;other".
+    public string Admins { get; set; } = "";
+
     /// Packages shown first, as "channel/name" separated by commas, e.g.
     /// "pkg/pkg,contrib-nightly/regina". Pkg itself belongs here: people
     /// need it before anything else.
@@ -90,4 +97,11 @@ public sealed class PortalOptions
     public string ChannelsDir => Path.Combine(DataDir, "channels");
     public string StagingDir => Path.Combine(DataDir, "staging");
     public string StateDir => Path.Combine(DataDir, "state");
+}
+
+public sealed class GitHubOptions
+{
+    public string ClientId { get; set; } = "";
+    public string ClientSecret { get; set; } = "";
+    public bool On => ClientId.Length > 0 && ClientSecret.Length > 0;
 }

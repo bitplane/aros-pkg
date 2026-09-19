@@ -1,0 +1,88 @@
+@page "/account"
+@using System.Security.Claims
+@using Microsoft.Extensions.Options
+@using Portal.Accounts
+@inject Registry Registry
+@inject IOptions<PortalOptions> Options
+@functions {
+    public string? Problem { get; set; }
+    public bool Saved { get; set; }
+    [BindProperty] public string PublisherName { get; set; } = "";
+    [BindProperty] public string PublicKey { get; set; } = "";
+    [BindProperty] public string Channel { get; set; } = "";
+
+    (long Id, string Login)? Me() =>
+        User.Identity?.IsAuthenticated == true && long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+            ? (id, User.FindFirstValue(ClaimTypes.Name) ?? "") : null;
+
+    public IActionResult OnPost()
+    {
+        if (Me() is not { } me) return Redirect("/signin");
+        Problem = Registry.Register(me.Id, me.Login, PublisherName, PublicKey, Channel);
+        Saved = Problem is null;
+        return Page();
+    }
+}
+@{
+    ViewData["Title"] = "Your publisher account";
+    var me = Me();
+    var mine = me is { } m ? Registry.ByAccount(m.Id) : null;
+    var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
+}
+<h1>Your publisher account</h1>
+@if (!Options.Value.GitHub.On)
+{
+    <p class="lead">This portal has no sign-in: its maintainer registers publishers by hand. <a href="/publishers#publish">How to ask</a>.</p>
+    return;
+}
+@if (me is null)
+{
+    <p class="lead">Sign in with GitHub to register as a publisher: you tell the portal which signing key is yours and which channel you publish to.</p>
+    <p><a class="button" href="/signin">Sign in with GitHub</a></p>
+    <p class="muted">The portal reads your public profile only, and keeps your account's number and your login: no email, no repositories, no token. Installing and browsing need no sign-in. <a href="/privacy">Privacy</a>.</p>
+    return;
+}
+<p class="lead">Signed in as <strong>@me.Value.Login</strong> on GitHub.</p>
+<form method="post" action="/signout"><button class="linklike" type="submit">Sign out</button></form>
+
+@if (mine is { Suspended: true })
+{
+    <p class="notice">This account is suspended: its pushes are refused. Ask the maintainer.</p>
+}
+@if (Saved)
+{
+    <p class="notice">Registered. Your channel is served at its address and shown nowhere on the site until the maintainer lists it.</p>
+}
+@if (Problem is not null)
+{
+    <p class="notice bad">@Problem</p>
+}
+
+@if (mine is not null)
+{
+    <h2>What is registered</h2>
+    <table class="list">
+        <tbody>
+            <tr><th>Publisher</th><td>@mine.Name</td></tr>
+            <tr><th>Signing key</th><td><code>@mine.Key</code></td></tr>
+            <tr><th>Channels</th><td>@string.Join(", ", mine.Channels)</td></tr>
+            <tr><th>Your push carries</th><td>@(mine.Files ? "your files: the portal stores them" : "signed descriptions only: your files stay at an https address, such as a GitHub release (UPSTREAM)")</td></tr>
+        </tbody>
+    </table>
+    <h2>Publish</h2>
+    <div class="cmd lines"><code>pkg PUBLISH "release/mytool-1.0.tar.bz2!/MyTool" CHANNEL @mine.Channels[0] KIND application UPSTREAM https://github.com/@me.Value.Login/mytool/releases/download/v1.0/mytool-1.0.tar.bz2 SIGN my.key
+pkg PUSH CHANNEL @mine.Channels[0] TO @site/@mine.Channels[0] SIGN my.key</code></div>
+    <p class="muted"><a href="/docs/publishing">Publishing packages</a> says the rest.</p>
+}
+
+<h2>@(mine is null ? "Register" : "Add a channel, or change what is registered")</h2>
+<form method="post" class="form">
+    <label>Publisher name, as people will see it
+        <input name="PublisherName" maxlength="60" required value="@(mine?.Name ?? me.Value.Login)" /></label>
+    <label>Your public key: what <code>pkg KEYINFO FILE my.key</code> prints (64 hexadecimal digits; never the key file)
+        <input name="PublicKey" maxlength="64" minlength="64" pattern="[0-9a-fA-F]{64}" required value="@(mine?.Key ?? "")" spellcheck="false" autocomplete="off" /></label>
+    <label>Channel: lowercase letters, digits and <code>-</code>
+        <input name="Channel" maxlength="40" pattern="[a-z0-9][a-z0-9-]*" required value="@(mine?.Channels.FirstOrDefault() ?? "")" spellcheck="false" /></label>
+    <button class="button" type="submit">@(mine is null ? "Register" : "Save")</button>
+</form>
+<p class="muted">A new publisher publishes by link, into channels of their own, unlisted until the maintainer lists them; up to @Registry.MaxChannels channels. The maintainer can allow file uploads and list a channel.</p>

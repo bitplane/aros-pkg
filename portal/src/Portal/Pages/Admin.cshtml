@@ -1,0 +1,104 @@
+@page "/admin"
+@using System.Security.Claims
+@using Microsoft.Extensions.Options
+@using Portal.Accounts
+@using Portal.Channels
+@inject Registry Registry
+@inject Catalogue Catalogue
+@inject Portal.Admin.AdminService Service
+@inject IOptions<PortalOptions> Options
+@functions {
+    public string? Done { get; set; }
+
+    string? Maintainer() =>
+        User.Identity?.IsAuthenticated == true && User.FindFirstValue(ClaimTypes.Name) is { Length: > 0 } login
+        && Options.Value.Admins.Split(';', ',').Any(a => string.Equals(a.Trim(), login, StringComparison.OrdinalIgnoreCase)) ? login : null;
+
+    public IActionResult OnGet() => Maintainer() is null ? NotFound() : Page();
+
+    public async Task<IActionResult> OnPostAsync(string what, long account, string? channel)
+    {
+        if (Maintainer() is not { } who) return NotFound();
+        switch (what)
+        {
+            case "suspend":   Registry.Change(account, r => r with { Suspended = true });  Done = "Suspended: that account's pushes are refused from now on."; break;
+            case "resume":    Registry.Change(account, r => r with { Suspended = false }); Done = "Resumed."; break;
+            case "files-on":  Registry.Change(account, r => r with { Files = true });      Done = "That publisher may upload files."; break;
+            case "files-off": Registry.Change(account, r => r with { Files = false });     Done = "That publisher publishes by link only."; break;
+            case "list" when channel is not null && ChannelPaths.IsChannelName(channel):
+                Done = (await Service.SetListed("github:" + who, channel, true, HttpContext.RequestAborted)).Get("summary"); break;
+            case "unlist" when channel is not null && ChannelPaths.IsChannelName(channel):
+                Done = (await Service.SetListed("github:" + who, channel, false, HttpContext.RequestAborted)).Get("summary"); break;
+        }
+        return Page();
+    }
+}
+@{
+    ViewData["Title"] = "Maintainers";
+    var publishers = Registry.All().OrderByDescending(r => r.Since).ToList();
+}
+<h1>Maintainers</h1>
+@if (Done is not null)
+{
+    <p class="notice">@Done</p>
+}
+<h2>Registered publishers</h2>
+@if (publishers.Count == 0)
+{
+    <p class="muted">Nobody has registered yet.</p>
+}
+else
+{
+    <table class="list">
+        <thead><tr><th>Publisher</th><th>GitHub</th><th>Key</th><th>Channels</th><th>Push carries</th><th>State</th><th></th></tr></thead>
+        <tbody>
+        @foreach (var r in publishers)
+        {
+            <tr>
+                <td>@r.Name</td>
+                <td><a href="https://github.com/@r.Login" rel="noopener">@r.Login</a></td>
+                <td><a href="/publishers/@r.Key"><code>@r.Key[..16]</code></a></td>
+                <td>
+                    @foreach (var c in r.Channels)
+                    {
+                        var hidden = Catalogue.IsUnlisted(c);
+                        <form method="post" class="inline">
+                            <a href="/channels/@c">@c</a> <span class="muted small">@(Catalogue.Get(c) is null ? "empty" : hidden ? "unlisted" : "listed")</span>
+                            <input type="hidden" name="account" value="@r.GitHubId" /><input type="hidden" name="channel" value="@c" />
+                            <button class="linklike" name="what" value="@(hidden ? "list" : "unlist")">@(hidden ? "list" : "unlist")</button>
+                        </form>
+                    }
+                </td>
+                <td>@(r.Files ? "files" : "links")</td>
+                <td>@(r.Suspended ? "suspended" : "active")</td>
+                <td>
+                    <form method="post" class="inline">
+                        <input type="hidden" name="account" value="@r.GitHubId" />
+                        <button class="linklike" name="what" value="@(r.Suspended ? "resume" : "suspend")">@(r.Suspended ? "resume" : "suspend")</button>
+                        <button class="linklike" name="what" value="@(r.Files ? "files-off" : "files-on")">@(r.Files ? "links only" : "allow files")</button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+<h2>Every channel</h2>
+<table class="list">
+    <thead><tr><th>Channel</th><th class="num">Packages</th><th>Shown</th><th></th></tr></thead>
+    <tbody>
+    @foreach (var c in Catalogue.Channels())
+    {
+        var hidden = Catalogue.IsUnlisted(c.Name);
+        <tr>
+            <td><a href="/channels/@c.Name">@c.Name</a></td>
+            <td class="num">@c.Packages.Count</td>
+            <td>@(hidden ? "unlisted" : "listed")</td>
+            <td><form method="post" class="inline"><input type="hidden" name="channel" value="@c.Name" /><input type="hidden" name="account" value="0" />
+                <button class="linklike" name="what" value="@(hidden ? "list" : "unlist")">@(hidden ? "list" : "unlist")</button></form></td>
+        </tr>
+    }
+    </tbody>
+</table>
+<h2>Log</h2>
+<pre class="small">@string.Join("\n", Service.ReadLog().ToString().Split('\n').Where(l => l.StartsWith("action: ")).Select(l => l[8..]).Reverse().Take(30))</pre>

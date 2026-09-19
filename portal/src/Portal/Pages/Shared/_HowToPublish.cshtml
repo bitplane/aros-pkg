@@ -8,7 +8,21 @@
 }
 <section id="publish">
 <h2>Publish on this portal</h2>
-<p class="lead">To publish here, ask the portal's maintainer to register you: for now that is the only way, and there is no sign-up form yet.</p>
+@if (Options.Value.GitHub.On)
+{
+    <p class="lead">Sign in with GitHub, tell the portal which signing key is yours and which channel you publish to, and you can push.</p>
+    <p><a class="button" href="/account">Register as a publisher</a></p>
+    <p class="muted">A new publisher publishes by link, into channels of their own, unlisted until the maintainer lists them. What follows is the same by hand, for who has no GitHub account.</p>
+}
+@if (!Options.Value.GitHub.On)
+{
+    <p class="lead">To publish here, ask the portal's maintainer to register you: for now that is the only way, and there is no sign-up form yet.</p>
+}
+else
+{
+    <h3>Without a GitHub account</h3>
+    <p>Ask the portal's maintainer to register you by hand.</p>
+}
 
 <h3>How to ask</h3>
 @if (contact.Length > 0)

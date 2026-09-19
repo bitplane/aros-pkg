@@ -33,9 +33,12 @@ public sealed partial class SignedPush
 
     sealed class Session(string key) { public readonly string Key = key; public long Seq; public DateTime Expires = DateTime.UtcNow + Lifetime; }
 
-    public SignedPush(IOptions<PortalOptions> options, PkgRunner pkg)
+    readonly Portal.Accounts.Registry registry;
+
+    public SignedPush(IOptions<PortalOptions> options, PkgRunner pkg, Portal.Accounts.Registry registry)
     {
         this.pkg = pkg;
+        this.registry = registry;
         o = options.Value;
         foreach (var entry in o.SignedKeys.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
@@ -48,12 +51,15 @@ public sealed partial class SignedPush
 
     public int Count => byKey.Count;
 
+    /// The maintainers' settings first, then the publishers who registered themselves.
+    Publisher? Known(string key) => byKey.TryGetValue(key, out var who) ? who : registry.PublisherFor(key);
+
     /// "key: <public key>" in, "session: <hex>" out. Anyone may ask; a session
     /// is worth nothing without the key's signatures.
     public Record Open(string body, string ask)
     {
         var key = body.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("key: ", StringComparison.Ordinal))?[5..].Trim() ?? "";
-        if (!byKey.ContainsKey(key))
+        if (Known(key) is null)
             return Record.Refused(14, "this portal does not know that signing key. " + ask, "send the maintainers your public key (pkg KEYINFO FILE <keyfile>), your publisher name and the channel");
         foreach (var (id, s) in sessions) if (s.Expires < DateTime.UtcNow) sessions.TryRemove(id, out _);
         var mine = sessions.Where(x => string.Equals(x.Value.Key, key, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Value.Expires).ToList();
@@ -75,7 +81,7 @@ public sealed partial class SignedPush
         if (!m.Success) return (null, Record.Refused(14, "the Pkg-Signature header is not in the form key=,session=,seq=,sha256=,sig=", "use Pkg 1.4 or later"), null);
         var (key, id, sig) = (m.Groups[1].Value, m.Groups[2].Value, m.Groups[5].Value);
         if (!long.TryParse(m.Groups[3].Value, out var seq)) seq = -1;
-        if (!byKey.TryGetValue(key, out var who))
+        if (Known(key) is not { } who)
             return (null, Record.Refused(14, "this portal does not know that signing key. " + ask, "send the maintainers your public key (pkg KEYINFO FILE <keyfile>), your publisher name and the channel"), null);
         if (!sessions.TryGetValue(id, out var s) || s.Expires < DateTime.UtcNow || !string.Equals(s.Key, key, StringComparison.OrdinalIgnoreCase))
             return (null, Record.Refused(14, "the session is unknown or over", "push again: Pkg asks for a new one"), null);
