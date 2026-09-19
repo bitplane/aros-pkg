@@ -59,4 +59,16 @@ public class RegistryTests
         Assert.Null(r.PublisherFor(K1));
         Assert.Contains("suspended", r.Register(7, "jane", "Jane", K1, "a1"));
     }
+
+    [Fact]
+    public void A_maintainer_takes_a_settings_key_under_their_account_as_it_is()
+    {
+        var (r, _, _) = New($"owner:{K2}:*:files");
+        Assert.Contains("not one of", r.Adopt(1, "jonx", K1));
+        Assert.Null(r.Adopt(1, "jonx", K2.ToUpperInvariant()));
+        var p = r.PublisherFor(K2)!;
+        Assert.True(p.Name == "owner" && p.Files && p.MayPush("anything"));
+        Assert.Equal("jonx", r.ByAccount(1)!.Login);
+        Assert.Contains("another account", r.Adopt(2, "other", K2));
+    }
 }

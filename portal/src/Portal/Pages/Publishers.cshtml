@@ -1,6 +1,7 @@
 @page "/publishers/{id?}"
 @using Portal.Channels
 @inject Publishers Publishers
+@inject Portal.Accounts.Registry Registry
 @{
     var id = (string?)RouteData.Values["id"];
     var all = Publishers.All();
@@ -38,6 +39,10 @@
 }
 <p class="crumbs"><a href="/publishers">Publishers</a> /</p>
 <h1>@(one.Name ?? "Unnamed key")</h1>
+@if (Registry.ByKey(one.Key) is { } account)
+{
+    <p class="muted">GitHub account verified: <a href="https://github.com/@account.Login" rel="noopener">@account.Login</a>@(account.Suspended ? " (suspended)" : "")</p>
+}
 <p class="lead">@one.ByPackage.Count() package@(one.ByPackage.Count() == 1 ? "" : "s"), @one.Versions.Count version@(one.Versions.Count == 1 ? "" : "s"), signing since @Site.Date(one.Since).</p>
 @if (one.Url is not null || one.Contact is not null)
 {

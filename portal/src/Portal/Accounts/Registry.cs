@@ -102,6 +102,30 @@ public sealed partial class Registry
         return null;
     }
 
+    /// The keys the settings name (Portal:SignedKeys), which a maintainer may take under their account.
+    public IEnumerable<(string Name, string Key, List<string> Channels, bool Files)> SettingsKeys() =>
+        o.SignedKeys.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(e => e.Split(':')).Where(f => f.Length is 3 or 4 && Hex64().IsMatch(f[1]))
+            .Select(f => (f[0], f[1].ToLowerInvariant(), f[2].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(), f.Length == 4 && f[3] == "files"));
+
+    /// A maintainer puts a key of the settings under their GitHub account, as it is:
+    /// same name, channels and rights, so nothing published changes hands or name.
+    public string? Adopt(long id, string login, string key)
+    {
+        var k = SettingsKeys().FirstOrDefault(x => string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (k.Key is null) return "That key is not one of the portal's settings.";
+        lock (gate)
+        {
+            if (all.Any(r => r.GitHubId != id && string.Equals(r.Key, key, StringComparison.OrdinalIgnoreCase)))
+                return "That key is under another account already.";
+            if (all.Any(r => r.GitHubId == id && !string.Equals(r.Key, key, StringComparison.OrdinalIgnoreCase)))
+                return "This account has another key registered; one account, one key.";
+            all = all.Where(r => r.GitHubId != id).Append(new Registered(id, login, k.Name, k.Key, k.Channels, k.Files, false, DateTime.UtcNow)).ToList();
+            Save();
+        }
+        return null;
+    }
+
     public bool Change(long id, Func<Registered, Registered> how)
     {
         lock (gate)

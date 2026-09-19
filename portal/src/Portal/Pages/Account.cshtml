@@ -15,6 +15,17 @@
         User.Identity?.IsAuthenticated == true && long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
             ? (id, User.FindFirstValue(ClaimTypes.Name) ?? "") : null;
 
+    bool Maintainer(string login) => Options.Value.Admins.Split(';', ',').Any(x => string.Equals(x.Trim(), login, StringComparison.OrdinalIgnoreCase));
+
+    public IActionResult OnPostAdopt(string key)
+    {
+        if (Me() is not { } me) return Redirect("/signin");
+        if (!Maintainer(me.Login)) return NotFound();
+        Problem = Registry.Adopt(me.Id, me.Login, key);
+        Saved = false;
+        return Page();
+    }
+
     public IActionResult OnPost()
     {
         if (Me() is not { } me) return Redirect("/signin");
@@ -44,9 +55,17 @@
 }
 <p class="lead">Signed in as <strong>@me.Value.Login</strong> on GitHub.</p>
 <form method="post" action="/signout"><button class="linklike" type="submit">Sign out</button></form>
-@if (Options.Value.Admins.Split(';', ',').Any(x => string.Equals(x.Trim(), me.Value.Login, StringComparison.OrdinalIgnoreCase)))
+@if (Maintainer(me.Value.Login))
 {
-    <p class="notice">You are a maintainer of this portal: your own keys are in its settings, and there is nothing to register here. <a href="/admin">Maintainers' page</a></p>
+    <p class="notice">You are a maintainer of this portal. <a href="/admin">Maintainers' page</a></p>
+    @foreach (var k in Registry.SettingsKeys().Where(k => Registry.ByKey(k.Key) is null))
+    {
+        <form method="post" asp-page-handler="Adopt" class="form">
+            <p>The portal's settings name the key <code>@k.Key[..16]</code> (<strong>@k.Name</strong>, channels @string.Join(", ", k.Channels), @(k.Files ? "with files" : "links only")). Put it under this GitHub account, as it is: nothing published changes.</p>
+            <input type="hidden" name="key" value="@k.Key" />
+            <button class="button" type="submit">Take this publisher under my account</button>
+        </form>
+    }
 }
 
 @if (mine is { Suspended: true })
@@ -69,16 +88,17 @@
         <tbody>
             <tr><th>Publisher</th><td>@mine.Name</td></tr>
             <tr><th>Signing key</th><td><code>@mine.Key</code></td></tr>
-            <tr><th>Channels</th><td>@string.Join(", ", mine.Channels)</td></tr>
+            <tr><th>Channels</th><td>@(mine.Channels.Contains("*") ? "every channel" : string.Join(", ", mine.Channels))</td></tr>
             <tr><th>Your push carries</th><td>@(mine.Files ? "your files: the portal stores them" : "signed descriptions only: your files stay at an https address, such as a GitHub release (UPSTREAM)")</td></tr>
         </tbody>
     </table>
     <h2>Publish</h2>
-    <div class="cmd lines"><code>pkg PUBLISH "release/mytool-1.0.tar.bz2!/MyTool" CHANNEL @mine.Channels[0] KIND application UPSTREAM https://github.com/@me.Value.Login/mytool/releases/download/v1.0/mytool-1.0.tar.bz2 SIGN my.key
-pkg PUSH CHANNEL @mine.Channels[0] TO @site/@mine.Channels[0] SIGN my.key</code></div>
+    <div class="cmd lines"><code>pkg PUBLISH "release/mytool-1.0.tar.bz2!/MyTool" CHANNEL @(mine.Channels[0] == "*" ? "mychannel" : mine.Channels[0]) KIND application UPSTREAM https://github.com/@me.Value.Login/mytool/releases/download/v1.0/mytool-1.0.tar.bz2 SIGN my.key
+pkg PUSH CHANNEL @(mine.Channels[0] == "*" ? "mychannel" : mine.Channels[0]) TO @site/@(mine.Channels[0] == "*" ? "mychannel" : mine.Channels[0]) SIGN my.key</code></div>
     <p class="muted"><a href="/docs/publishing">Publishing packages</a> says the rest.</p>
 }
 
+@if (mine is { } && mine.Channels.Contains("*")) { return; }
 <h2>@(mine is null ? "Register" : "Add a channel, or change what is registered")</h2>
 <form method="post" class="form">
     <label><span>Publisher name, as people will see it</span>
