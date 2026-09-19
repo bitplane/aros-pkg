@@ -16,42 +16,45 @@ prints a summary.
 
 ## Verbs
 
+Each verb links to its own page: what it does, its keywords, examples
+that run, what it records, its refusals ([all of them](commands/README.md)).
+
 ### Installing and keeping software
 
 | Verb | Form | Does |
 |---|---|---|
-| `INSTALL` | `INSTALL <name> ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. |
-| `UPGRADE` | `UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
-| `UPGRADE ALL` | `UPGRADE ALL ROOT <root> CHANNEL <channel> [ARCH cpu]` | Upgrades every package that has a newer version, as far as it can; never downgrades, never accepts a new key. |
-| `ROLLBACK` | `ROLLBACK <name> ROOT <root> CHANNEL <channel>` | Returns a package to the version installed before its last change. |
-| `STATUS` | `STATUS [<name>] ROOT <root> CHANNEL <channel>` | Compares what is installed with the channel: `current`, `upgradable`, `withdrawn`, `not-offered` or `edited`. Exits 0 whether or not updates exist. |
-| `LIST` | `LIST ROOT <root>` | Lists what is installed. |
-| `VERIFY` | `VERIFY <name>\|ALL ROOT <root>` | Checks each installed file against its package; names what is missing, changed, moved or edited. |
-| `REPAIR` | `REPAIR <name>\|ALL ROOT <root> CHANNEL <channel>` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
-| `REMOVE` | `REMOVE <name> ROOT <root>` | Removes a package, keeping any file that was changed; refuses while another package needs it. |
-| `REMOVE ORPHANS` | `REMOVE ORPHANS ROOT <root>` | Removes the packages installed only as dependencies that nothing needs any more. |
-| `MOUNTLIST` | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
-| `SHOW` | `SHOW [<name>] CHANNEL <channel> [ROOT <root>] [METADATA] [ARCHIVE <archive>]` | Lists and checks what a channel offers; with `ROOT`, marks what is installed. |
-| `RESOLVE` | `RESOLVE <library>\|<program> [VERSION v] [ROOT <root>] [FROM <dir>] [CHANNEL <channel>] [ARCH cpu]` | Shows which copy of a library AROS would give a program, walking the places the loader looks, with a verdict and a next step for each; a program instead of a library checks every library it names. Exits 0, 11 when found nowhere, 18 when the copy taken is too old or unusable. See [Libraries](libraries.md). |
+| [`INSTALL`](commands/install.md) | `INSTALL <name> ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. |
+| [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
+| [`UPGRADE ALL`](commands/upgrade.md) | `UPGRADE ALL ROOT <root> CHANNEL <channel> [ARCH cpu]` | Upgrades every package that has a newer version, as far as it can; never downgrades, never accepts a new key. |
+| [`ROLLBACK`](commands/rollback.md) | `ROLLBACK <name> ROOT <root> CHANNEL <channel>` | Returns a package to the version installed before its last change. |
+| [`STATUS`](commands/status.md) | `STATUS [<name>] ROOT <root> CHANNEL <channel>` | Compares what is installed with the channel: `current`, `upgradable`, `withdrawn`, `not-offered` or `edited`. Exits 0 whether or not updates exist. |
+| [`LIST`](commands/list.md) | `LIST ROOT <root>` | Lists what is installed. |
+| [`VERIFY`](commands/verify.md) | `VERIFY <name>\|ALL ROOT <root>` | Checks each installed file against its package; names what is missing, changed, moved or edited. |
+| [`REPAIR`](commands/repair.md) | `REPAIR <name>\|ALL ROOT <root> CHANNEL <channel>` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
+| [`REMOVE`](commands/remove.md) | `REMOVE <name> ROOT <root>` | Removes a package, keeping any file that was changed; refuses while another package needs it. |
+| [`REMOVE ORPHANS`](commands/remove.md) | `REMOVE ORPHANS ROOT <root>` | Removes the packages installed only as dependencies that nothing needs any more. |
+| [`MOUNTLIST`](commands/mountlist.md) | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
+| [`SHOW`](commands/show.md) | `SHOW [<name>] CHANNEL <channel> [ROOT <root>] [METADATA] [ARCHIVE <archive>]` | Lists and checks what a channel offers; with `ROOT`, marks what is installed. |
+| [`RESOLVE`](commands/resolve.md) | `RESOLVE <library>\|<program> [VERSION v] [ROOT <root>] [FROM <dir>] [CHANNEL <channel>] [ARCH cpu]` | Shows which copy of a library AROS would give a program, walking the places the loader looks, with a verdict and a next step for each; a program instead of a library checks every library it names. Exits 0, 11 when found nowhere, 18 when the copy taken is too old or unusable. See [Libraries](libraries.md). |
 
 ### Publishing
 
 | Verb | Form | Does |
 |---|---|---|
-| `KEYGEN` | `KEYGEN FILE <keyfile>` | Makes a signing key, readable by its owner alone. |
-| `KEYINFO` | `KEYINFO FILE <keyfile>` | Prints the public key a key file holds. |
-| `MANIFEST` | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."]` | Prints the description a publish would sign; writes nothing. |
-| `PUBLISH` | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. |
-| `WITHDRAW` | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>]` | Marks a published version as withdrawn. |
-| `PUSH` | `PUSH CHANNEL <channel> TO <url>` | Uploads a local channel to a portal; the key comes from `PKG_PUSHKEY`. |
-| `IMAGE` | `IMAGE <drawer> OUT <file> [NAME <volume>]` | Writes a drawer as an FFS disk image. |
-| `SIGN` | `SIGN <file> KEY <keyfile> OUT <sigfile>` | Signs any file with a key. |
+| [`KEYGEN`](commands/keygen.md) | `KEYGEN FILE <keyfile>` | Makes a signing key, readable by its owner alone. |
+| [`KEYINFO`](commands/keyinfo.md) | `KEYINFO FILE <keyfile>` | Prints the public key a key file holds. |
+| [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."]` | Prints the description a publish would sign; writes nothing. |
+| [`PUBLISH`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. |
+| [`WITHDRAW`](commands/withdraw.md) | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>]` | Marks a published version as withdrawn. |
+| [`PUSH`](commands/push.md) | `PUSH CHANNEL <channel> TO <url>` | Uploads a local channel to a portal; the key comes from `PKG_PUSHKEY`. |
+| [`IMAGE`](commands/image.md) | `IMAGE <drawer> OUT <file> [NAME <volume>]` | Writes a drawer as an FFS disk image. |
+| [`SIGN`](commands/sign.md) | `SIGN <file> KEY <keyfile> OUT <sigfile>` | Signs any file with a key. |
 
 ### Other
 
 | Verb | Form | Does |
 |---|---|---|
-| `PORT` | `PORT [<portname>]` | On AROS, serves the verbs on an ARexx port, `PKG` by default. |
+| [`PORT`](commands/port.md) | `PORT [<portname>]` | On AROS, serves the verbs on an ARexx port, `PKG` by default. |
 | `HELP` | `HELP` | Prints a summary of the commands. |
 
 ## Keywords
@@ -84,7 +87,7 @@ prints a summary.
 | `README` | an Aminet `.readme`: fills `Short`, `Author`, `Type` and the text | `PUBLISH`, `MANIFEST` |
 | `FROM` | the program's directory, for its current directory and `PROGDIR:` | `RESOLVE` |
 | `ARCHIVE` | the name of an archive in the channel | `SHOW` |
-| `SIGN` | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW` |
+| [`SIGN`](commands/sign.md) | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW` |
 | `ACCEPTKEY` | a public key in full, 64 hexadecimal digits | `INSTALL`, `UPGRADE`, `PUBLISH` |
 | `FILE` | a key file | `KEYGEN`, `KEYINFO` |
 | `KEY` | a key file | `SIGN` |

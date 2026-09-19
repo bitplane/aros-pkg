@@ -6,6 +6,14 @@ update you did not ask for never happens: Pkg refuses and tells you why. The
 same program runs on AROS, where it manages your system, and on macOS, Linux
 and Windows, where you build, publish and test packages.
 
+This page is for using Pkg. If you are here to **publish your own
+programs**, read [Publishing packages](docs/publishing.md); to **run your own
+channel**, [Channels](docs/channels.md); to **ship builds for several
+CPUs**, [Distributing builds](docs/distributing.md); to **move an existing
+distribution, archive or package manager to Pkg**,
+[Moving to Pkg](docs/migrating.md); and if **an AI assistant does the
+typing for you**, [Pkg with an AI assistant](docs/agents.md).
+
 ## Install Pkg
 
 **On AROS.** Get the drawer that carries Pkg for your machine (from the
@@ -37,53 +45,63 @@ channel on a volume, since Pkg does not read channels over the network
 there yet ([Channels](docs/channels.md)).
 
 See what a channel offers. A channel is where packages are published; this
-one holds the contrib programs of the AROS nightly build:
+one holds Pkg itself, built for two CPUs:
 
 ```console
-$ pkg SHOW lua CHANNEL https://aros-pkg.azurewebsites.net/contrib-nightly
-lua                  0+20260918 application x86_64   ok         a974a917b19cfc46
+$ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
+Package  Version  Kind         Arch     Status  Signer
+pkg      0.3      application  aarch64  ok      a974a917b19cfc46
+pkg      0.3      application  x86_64   ok      a974a917b19cfc46
+pkg      0.4      application  aarch64  ok      a974a917b19cfc46
+pkg      0.4      application  x86_64   ok      a974a917b19cfc46
 ```
 
-Install it:
+Every entry was checked on the way: its signature, its description, its
+files. Install the newest into a root:
 
 ```console
-$ pkg INSTALL lua ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/contrib-nightly ARCH x86_64
-installed lua 0+20260918 into aros: 57 files, from AROS-20260918-pc-x86_64-contrib.tar.bz2!/AROS-20260918-pc-x86_64-contrib, signed by a974a917b19cfc46
+$ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg ARCH x86_64
+installed pkg 0.4 into aros: 1 file, payload a767441b7f1b, signed by a974a917b19cfc46
 ```
 
-The contrib packages keep their files in the nightly's archive, which Pkg
-downloads once from SourceForge and keeps in its cache; the next package
-from the same nightly needs no download. `ARCH x86_64` says which machine
-the root is for; on AROS, Pkg knows its own.
-
-See what is installed, and check it:
+`ARCH x86_64` says which machine the root is for, and the root remembers
+it; on AROS, Pkg knows its own. See what is installed, and check it:
 
 ```console
 $ pkg LIST ROOT aros
-lua                      0+20260918 application  57 files
-$ pkg VERIFY lua ROOT aros
-lua 0+20260918: 57 files, all intact
+Package  Version  Kind         Files
+pkg      0.4      application  1 file
+$ pkg VERIFY pkg ROOT aros
+pkg 0.4: 1 file, all intact
 ```
 
 Ask whether anything can be updated, then update everything:
 
 ```console
-$ pkg STATUS ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/contrib-nightly
-lua                      0+20260918   current
-1 package in aros, 0 upgradable from https://aros-pkg.azurewebsites.net/contrib-nightly
-$ pkg UPGRADE ALL ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/contrib-nightly
+$ pkg STATUS ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg
+Package  Installed  State
+pkg      0.4        current
+1 package in aros, all up to date with https://aros-pkg.azurewebsites.net/pkg
+$ pkg UPGRADE ALL ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg
 nothing needs an update: 1 package, none with a newer version in the channel
 ```
 
 Remove it:
 
 ```console
-$ pkg REMOVE lua ROOT aros
-removed lua 0+20260918 from aros: 57 files removed
+$ pkg REMOVE pkg ROOT aros
+removed pkg 0.4 from aros: 1 file removed
 ```
 
 `STATUS` and `UPGRADE ALL` never ask anything, so you can run them from
-`S:User-Startup`, cron or any scheduler.
+`S:User-Startup`, cron or any scheduler. At a terminal the same lines come
+with colour and marks; piped or logged they are the plain text above.
+
+The portal's other channel, `contrib-nightly`, holds the hundred-odd
+programs of the AROS nightly build (`lua`, `wget`, `xadmaster`, ...). Their
+files stay in the nightly's own archive, which Pkg downloads from
+SourceForge once (about 640 MB for x86_64) and keeps in its cache for every
+package from that nightly.
 
 ## When Pkg says no
 
@@ -96,21 +114,41 @@ AROS every refusal is at least 10, so `If ERROR` catches all of them.
 
 ## Guides
 
+Using Pkg
+
 - [Using Pkg](docs/using.md): installing, updating, checking, repairing,
   rolling back and removing software; images; what each refusal means.
+- [Libraries](docs/libraries.md): how AROS finds a library, what that means
+  for packages, and RESOLVE, which shows why a program gets the copy it gets.
+- [Pkg with an AI assistant](docs/agents.md): the skill an agent loads, what
+  to ask it, what it will not decide for you.
+
+Publishing
+
 - [Publishing packages](docs/publishing.md): keys, making a package,
   versions, dependencies, configuration files, withdrawing, uploading to
   the portal.
-- [Libraries](docs/libraries.md): how AROS finds a library, what that means
-  for packages, and RESOLVE, which shows why a program gets the copy it gets.
 - [Channels](docs/channels.md): what a channel holds, serving one over
-  HTTP, the portal.
+  HTTP or a share, the portal.
+- [Distributing builds for several platforms](docs/distributing.md): one
+  version, one build per CPU, how a machine picks its build, Pkg's own
+  channel.
+- [Moving an existing distribution to Pkg](docs/migrating.md): archives,
+  `.readme` files, Installer scripts, machines already set up, another
+  package manager.
+
+Every command
+
+- [Commands](docs/commands/README.md): one page per command, with examples
+  that run, what it prints and records, and its refusals.
 - [Reference](docs/reference.md): every verb, keyword and environment
-  variable; the machine-readable output; the ARexx port.
+  variable on one page; the machine-readable output; the ARexx port.
 
 Pkg is written in C99, with no dependency beyond the C library (bzip2 is
 included). It builds as a command and as a library, `libpkg`, for programs
 that want to install software themselves. MIT licence.
 
-How Pkg is built and tested, and its open questions:
-[docs/development.md](docs/development.md).
+For contributors: [Developing Pkg](docs/development.md) (build, test, the
+library), [the container](docs/container.md), [AROS defects found while
+building Pkg](docs/aros-defects.md), [how Pkg was established](docs/history.md),
+[GOAL.md](GOAL.md) and [OPEN.md](OPEN.md).

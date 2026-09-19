@@ -9,7 +9,7 @@ goal 2.
 
 ## AROS defects not fixed
 
-Details in the README table "AROS defects found along the way".
+Details in [docs/aros-defects.md](docs/aros-defects.md).
 
 | Item | Seen in | What would close it |
 |---|---|---|
@@ -17,7 +17,7 @@ Details in the README table "AROS defects found along the way".
 | posixc `stdout` reaches no shell redirection | first AROS runs | Fix in posixc, or document that CLI tools must write through `Output()` |
 | posixc reports no `EEXIST` or `ENOENT` where POSIX does | first AROS runs | Fix the errno mapping in posixc |
 | A command that cannot load leaves `$RC` unchanged | goal 2, four-case check | Compare with AmigaOS 3.x first; if AmigaOS sets a failure code, set it in the AROS shell too |
-| The AROS Installer cannot install most scripts, nor run unattended, nor report what it wrote or whether it failed | 2026-09-18, the Installer modes | Implement the missing commands, a real unattended mode, exit codes and icon start; details in the README's defects table |
+| The AROS Installer cannot install most scripts, nor run unattended, nor report what it wrote or whether it failed | 2026-09-18, the Installer modes | Implement the missing commands, a real unattended mode, exit codes and icon start; details in [docs/aros-defects.md](docs/aros-defects.md) |
 | collect-aros writes ELF ABI version 1 whatever the ABI, and the loader never checks it | 2026-09-18, the ABI field | Write the real ABI version per target in collect-aros, and have the loader refuse a mismatch; Pkg will not rely on it either way |
 | The darwin hosted build ships no FFS handler | goal 2 | Add `kernel-fs-afs` to the hosted build, or say why it is left out |
 
@@ -36,7 +36,7 @@ step in `tools/build-aros-regina.sh`, decode a dead-end alert in
 
 - **pc-x86_64 in QEMU**: done 2026-09-18, `tests/native-x86_64.sh`, 31
   checks, Pkg bootstrapping itself from a channel named by its root
-  (`DEPOT:`). Two AROS defects found on the way, in the README table: `Lock()`
+  (`DEPOT:`). Two AROS defects found on the way, in [docs/aros-defects.md](docs/aros-defects.md): `Lock()`
   misses later directories of a multi-directory assign, and on the CD-booted
   native system a RAM: directory added to `LIBS:` is not searched by the
   library loader. Worth a look in dos.library before an upstream report.

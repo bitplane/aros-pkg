@@ -7,6 +7,7 @@
 #   $1/channel        a channel: helloworld 1.0 and 1.1, which need hellolib,
 #                     hellolib 1.0, and notes 1.0, a program as an image
 #   $1/portal/contrib-nightly   stands for the portal's channel of that name
+#   $1/portal/pkg     the portal's Pkg channel: 0.3 and 0.4, aarch64 and x86_64
 #   $1/drawers/MyTool, MyTool-1.1   a program's drawer, as a publisher has it
 #
 # All signed with fixture.key, so that every output is the same on every run.
@@ -54,8 +55,28 @@ printf 'lua\n' > "$d/lua/Extras/Developer/Lua/Lua"
 "$PKG" PUBLISH "$d/lua" CHANNEL "$out/portal/contrib-nightly" NAME lua BUILD 20260918 \
     ARCH x86_64 KIND application > /dev/null 2>&1
 
+# the portal's pkg channel: Pkg 0.3 and 0.4 for aarch64 and x86_64
+for v in 0.3 0.4; do
+    for cpu in 62:x86_64 183:aarch64; do
+        rm -rf "$d/pkg"; mkdir -p "$d/pkg/C"
+        python3 -c "
+import sys
+h = bytearray(64); h[0:4] = b'\\x7fELF'; h[4] = 2; h[5] = 1; h[6] = 1; h[18] = int(sys.argv[2])
+open(sys.argv[1], 'wb').write(bytes(h) + ('\\0\$VER: Pkg %s (19.9.2026)\\0' % sys.argv[3]).encode())
+" "$d/pkg/C/Pkg" "${cpu%%:*}" "$v"
+        "$PKG" PUBLISH "$d/pkg" CHANNEL "$out/portal/pkg" NAME pkg KIND application > /dev/null 2>&1
+    done
+done
+
 elf "$out/drawers/MyTool" C/MyTool mytool 1.0
 elf "$out/drawers/MyTool-1.1" C/MyTool mytool 1.1
+# the same 1.0 built for aarch64 (e_machine 183)
+mkdir -p "$out/drawers/MyTool-aarch64/C"
+python3 -c "
+import sys
+h = bytearray(64); h[0:4] = b'\\x7fELF'; h[4] = 2; h[5] = 1; h[6] = 1; h[18] = 183
+open(sys.argv[1], 'wb').write(bytes(h) + b'\\0\$VER: mytool 1.0 (19.9.2026)\\0')
+" "$out/drawers/MyTool-aarch64/C/MyTool"
 mkdir -p "$out/drawers/MyTool-1.1/S"
 printf 'Window=640x480\n' > "$out/drawers/MyTool-1.1/S/MyTool.prefs"
 

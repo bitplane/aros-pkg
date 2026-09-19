@@ -21,9 +21,12 @@ here = os.path.dirname(os.path.abspath(__file__))
 repo = os.path.dirname(os.path.dirname(here))
 pkg = os.path.abspath(sys.argv[1])
 write = "--write" in sys.argv
-files = [a for a in sys.argv[2:] if a != "--write"] or \
-    [os.path.join(repo, "README.md")] + sorted(
-        os.path.join(repo, "docs", f) for f in os.listdir(os.path.join(repo, "docs")) if f.endswith(".md"))
+def md_files():
+    out = [os.path.join(repo, "README.md")]
+    for d, _, fs in sorted(os.walk(os.path.join(repo, "docs"))):
+        out += sorted(os.path.join(d, f) for f in fs if f.endswith(".md"))
+    return out
+files = [a for a in sys.argv[2:] if a != "--write"] or md_files()
 
 def blocks(text):
     """(start line, end line, lang) of each fenced block."""
@@ -69,7 +72,7 @@ for path in files:
             shown += sum(1 for k in range(s, e) if lines[k].strip() and not lines[k].lstrip().startswith(("#", ";")))
     if not cmds:
         continue
-    work = os.path.join(tmp, os.path.basename(path))
+    work = os.path.join(tmp, os.path.relpath(path, repo).replace(os.sep, "_"))
     os.makedirs(work)
     shutil.copytree(os.path.join(fix, "drawers"), work, dirs_exist_ok=True)
     shutil.copytree(os.path.join(fix, "channel"), os.path.join(work, "channel"))
@@ -92,7 +95,7 @@ for path in files:
             print("FAIL %s:%d: exit %d, expected %d: %s" % (os.path.relpath(path, repo), k + 1, rc, expected(c), c))
             for l in outputs[k][:6]:
                 print("       " + l)
-    if write and os.path.basename(os.path.dirname(path)) == "docs":
+    if write and path.startswith(os.path.join(repo, "docs") + os.sep):
         mask = lambda ls: [re.sub(r"[0-9a-f]{12,}", "#", l) for l in ls]
         new, k = [], 0
         while k < len(lines):

@@ -201,12 +201,10 @@ list; publish with `CONFIG` again to change it.
 
 ## Several CPUs
 
-A channel can hold one version built for several CPUs: publish each build
-into the same channel. Pkg reads the CPU from the executables, and an
-install takes the build for the machine it installs on. A drawer with
-executables for two CPUs is refused; a `boot` or `sdk` package, which
-legitimately carries files for other CPUs, is accepted when `ARCH` names
-the machine it is for.
+Publish each build into the same channel; Pkg reads the CPU from the
+executables and a machine installs the build it can run. How that works,
+`ARCH`, `WITHDRAW` of one build and Pkg's own channel:
+[Distributing builds for several platforms](distributing.md).
 
 ## Withdraw a version
 
