@@ -1,3 +1,1 @@
-PUSH works from AROS: to an http:// address, or with no portal key, each request is signed with the publisher's own key, and the portal knows the publisher by its public half. Nothing secret travels, so it needs no TLS. Over https with PKG_PUSHKEY nothing changes.
-CHECKSIG <file> FILE <sigfile> checks a signature SIGN made and says whose it is, with nothing but Pkg: on AROS there is no ssh-keygen.
-A download shows its progress at a terminal or a Shell window: downloading 12.4 of 640.0 MB.
+Pkg names its version to the servers it talks to (User-Agent: Pkg/1.5), and when a portal no longer works with this version it says so in the portal's own words: the version wanted and how to update. The channel Pkg comes from always stays readable, so an old Pkg can update.

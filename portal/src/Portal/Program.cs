@@ -124,6 +124,30 @@ if (!opts.Policy.PlainHttp)
         if (ctx.Request.IsHttps) { await next(); return; }
         ctx.Response.Redirect($"https://{ctx.Request.Host}{ctx.Request.PathBase}{ctx.Request.Path}{ctx.Request.QueryString}", permanent: true, preserveMethod: true);
     });
+// Portal:Policy:MinPkg: an older Pkg is told to update, in its own record form.
+if (opts.Policy.MinPkg.Trim().Length > 0)
+    app.Use(async (ctx, next) =>
+    {
+        var min = opts.Policy.MinPkg.Trim();
+        var path = ctx.Request.Path.Value ?? "/";
+        var ua = ctx.Request.Headers.UserAgent.ToString().Trim();
+        var pkgChannel = "/" + opts.Pinned.Split(',', ';')[0].Split('/')[0].Trim() + "/";
+        var isPush = path.Contains("/_push/", StringComparison.Ordinal);
+        var isPkg = ua == "Pkg" || ua.StartsWith("Pkg/", StringComparison.Ordinal);
+        var version = ua.StartsWith("Pkg/", StringComparison.Ordinal) ? ua[4..].Split(' ')[0] : "0";
+        var old = Portal.Channels.PkgVersion.Order.Compare(version, min) < 0;
+        var judged = isPush ? !ua.StartsWith("Pkg-tools/", StringComparison.Ordinal) && (!isPkg || old)
+                            : opts.Policy.MinPkgReads && isPkg && old
+                              && !path.StartsWith(pkgChannel, StringComparison.OrdinalIgnoreCase);
+        if (!judged) { await next(); return; }
+        var site = opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+        var said = isPkg ? (version == "0" ? "a Pkg older than 1.5" : $"Pkg {version}") : "a program that does not say it is Pkg";
+        var r = opts.Policy.Refuse("MinPkg", min, $"this portal works with Pkg {min} or later, and this is {said}",
+            $"update Pkg: pkg UPGRADE pkg ROOT <root> CHANNEL {site}{pkgChannel.TrimEnd('/')} (http:// on AROS), or {site}/downloads");
+        ctx.Response.StatusCode = 426;
+        ctx.Response.ContentType = "text/plain; charset=utf-8";
+        await ctx.Response.WriteAsync(r.ToString());
+    });
 app.UseStaticFiles();
 // Routing after static files: the channel route would otherwise claim /css/site.css.
 app.UseRouting();

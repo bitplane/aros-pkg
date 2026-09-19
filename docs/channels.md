@@ -122,6 +122,11 @@ What the portal holds and enforces:
 - Every push is checked by the portal running Pkg itself (`SHOW ... METADATA`)
   before anything is published. What that proves and what it cannot:
   [Signatures and trust](signing.md).
+- A portal can name the oldest Pkg it still works with (`Portal:Policy:MinPkg`).
+  An older Pkg is refused when it pushes, and when it reads if the portal
+  says so, with the version to update to; the channel Pkg itself comes
+  from, its bootstraps and the installers stay open to every version. Pkg
+  names its version in `User-Agent` since 1.5.
 - A channel can be **unlisted**: served like any other to whoever has its
   address, and shown nowhere on the site (home page, search, statistics,
   feeds, publishers). The portal's maintainers switch it; it is for

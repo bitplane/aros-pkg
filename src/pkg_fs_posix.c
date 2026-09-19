@@ -923,7 +923,24 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
         snprintf(err, errlen, "curl did not finish");
         return -1;
     }
-    if (WEXITSTATUS(st) == 22) return 1;        /* -f: an HTTP error; Pkg asks for files that may not exist */
+    if (WEXITSTATUS(st) == 22) {                /* -f: an HTTP error; Pkg asks for files that may not exist */
+        char words[400] = "";
+        int c = 0;
+        if (send_https("GET", url, NULL, NULL, tmp, &c, words, sizeof words) == 0 && c == 426) {
+            unsigned char *b; size_t bl;
+            if (pkg_fs_read(tmp, &b, &bl) == 0) {
+                const char *r = strstr((const char *)b, "reason: "), *nx = strstr((const char *)b, "next: ");
+                int rl = r ? (int)strcspn(r + 8, "\r\n") : 0, nl = nx ? (int)strcspn(nx + 6, "\r\n") : 0;
+                snprintf(err, errlen, "%.*s%s%.*s", rl ? rl : 40, rl ? r + 8 : "the server asks for a newer Pkg",
+                         nl ? ". " : "", nl, nl ? nx + 6 : "");
+                free(b);
+            }
+            unlink(tmp);
+            return -1;
+        }
+        unlink(tmp);
+        return 1;
+    }
     if (WEXITSTATUS(st) != 0) {
         snprintf(err, errlen, "curl failed with exit code %d fetching %s", WEXITSTATUS(st), url);
         return -1;
@@ -1100,6 +1117,15 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
             }
             line = eol;
         }
+    }
+    if (code == 426) {
+        /* the portal's own words: "reason: ..." and "next: ..." */
+        const char *r = strstr(body, "reason: "), *nx = strstr(body, "next: ");
+        int rl = r ? (int)strcspn(r + 8, "\r\n") : 0, nl = nx ? (int)strcspn(nx + 6, "\r\n") : 0;
+        net_close(s);
+        snprintf(err, errlen, "%.*s%s%.*s", rl ? rl : 40, rl ? r + 8 : "the server asks for a newer Pkg",
+                 nl ? ". " : "", nl, nl ? nx + 6 : "");
+        return -1;
     }
     if (code == 404 || code == 410) { net_close(s); return 1; }
     if (code >= 300 && code < 400) { net_close(s); return 3; }

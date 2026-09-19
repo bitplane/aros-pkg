@@ -46,6 +46,8 @@ public static class Endpoints
                 admin = p.Admin,
                 plainHttp = p.PlainHttp,
                 signedPush = p.SignedPush,
+                minPkg = p.MinPkg.Trim().Length > 0 ? p.MinPkg.Trim() : null,
+                minPkgReads = p.MinPkgReads,
                 note = p.Note.Length > 0 ? p.Note : null,
                 contact = p.Contact.Length > 0 ? p.Contact : null,
             });

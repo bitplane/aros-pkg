@@ -7868,7 +7868,16 @@ static int push_send(struct push_auth *pa, const char *method, const char *url, 
         snprintf(err, errlen, "cannot write the request's headers where only this user reads them");
         return -1;
     }
-    return pkg_net_send(method, url, body, pa->hdr, out, code, err, errlen);
+    if (pkg_net_send(method, url, body, pa->hdr, out, code, err, errlen) != 0)
+        return -1;
+    if (*code == 426) {           /* the portal no longer takes this Pkg: its words, not a number */
+        char why[500] = "", nx[500] = "";
+        answer_field(out, "reason", why, sizeof why);
+        answer_field(out, "next", nx, sizeof nx);
+        snprintf(err, errlen, "%s%s%s", why[0] ? why : "the portal asks for a newer Pkg", nx[0] ? ". " : "", nx);
+        return -1;
+    }
+    return 0;
 }
 
 static int cmd_push(const struct pkg_options *a)

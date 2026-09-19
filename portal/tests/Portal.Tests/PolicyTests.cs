@@ -116,6 +116,56 @@ public class PolicyTests
     }
 
     [Fact]
+    public async Task An_older_Pkg_is_told_to_update_and_can_always_reach_the_channel_Pkg_comes_from()
+    {
+        using var s = new Site(new() { ["Portal:Policy:MinPkg"] = "1.5", ["Portal:Policy:MinPkgReads"] = "true", ["Portal:Pinned"] = "pkg/pkg" });
+        s.Publish("pkg", "Format: pkg-manifest 1\nName: pkg\nVersion: 1.5\nArchitecture: generic\nKind: data\n", K1);
+        s.Publish("other", "Format: pkg-manifest 1\nName: thing\nVersion: 1.0\nArchitecture: generic\nKind: data\n", K1);
+        async Task<(HttpStatusCode, string)> Get(string url, string agent)
+        {
+            var c = s.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.TryAddWithoutValidation("User-Agent", agent);
+            var r = await c.SendAsync(req);
+            return (r.StatusCode, await r.Content.ReadAsStringAsync());
+        }
+        var (status, body) = await Get("/other/index", "Pkg/1.4");
+        Assert.Equal((HttpStatusCode)426, status);
+        Assert.Contains("policy: MinPkg=1.5", body);
+        Assert.Contains("this is Pkg 1.4", body);
+        Assert.Contains("UPGRADE pkg", body);
+        Assert.Equal((HttpStatusCode)426, (await Get("/other/index", "Pkg")).Item1);          // before 1.5 Pkg gave no version
+        Assert.Equal(HttpStatusCode.OK, (await Get("/other/index", "Pkg/1.5")).Item1);
+        Assert.Equal(HttpStatusCode.OK, (await Get("/other/index", "Pkg/1.10")).Item1);       // 1.10 is after 1.5
+        Assert.Equal(HttpStatusCode.OK, (await Get("/other/index", "Mozilla/5.0")).Item1);    // a browser is not an old Pkg
+        Assert.Equal(HttpStatusCode.OK, (await Get("/pkg/index", "Pkg/1.0")).Item1);          // the way to update stays open
+    }
+
+    [Fact]
+    public async Task A_push_from_an_older_Pkg_is_refused_whoever_holds_the_key()
+    {
+        using var s = new Site(new() { ["Portal:Policy:MinPkg"] = "1.5" });
+        async Task<(HttpStatusCode, string)> Plan(string agent)
+        {
+            var c = s.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            var req = new HttpRequestMessage(HttpMethod.Post, "/any/_push/plan") { Content = new StringContent("") };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", s.Alice);
+            req.Headers.TryAddWithoutValidation("User-Agent", agent);
+            var r = await c.SendAsync(req);
+            return (r.StatusCode, await r.Content.ReadAsStringAsync());
+        }
+        Assert.Equal((HttpStatusCode)426, (await Plan("Pkg/1.4")).Item1);
+        Assert.Equal((HttpStatusCode)426, (await Plan("curl/8.7.1")).Item1);     // Pkg before 1.5 pushed through curl
+        Assert.Equal(HttpStatusCode.OK, (await Plan("Pkg/1.5")).Item1);
+        Assert.Equal(HttpStatusCode.OK, (await Plan("Pkg-tools/1")).Item1);      // portal/tools/push.sh
+        // reads are not judged unless MinPkgReads says so
+        var c2 = s.CreateClient();
+        var get = new HttpRequestMessage(HttpMethod.Get, "/health");
+        get.Headers.TryAddWithoutValidation("User-Agent", "Pkg/1.0");
+        Assert.Equal(HttpStatusCode.OK, (await c2.SendAsync(get)).StatusCode);
+    }
+
+    [Fact]
     public async Task The_policy_is_readable_as_json()
     {
         using var s = new Site(new() { ["Portal:Policy:Binaries"] = "off", ["Portal:Policy:LinkHosts"] = "github.com, sourceforge.net" });

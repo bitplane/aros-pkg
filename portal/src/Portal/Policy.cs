@@ -34,6 +34,18 @@ public sealed class PortalPolicy
     /// Off: every http request is sent to https.
     public bool PlainHttp { get; set; } = true;
 
+    /// The oldest Pkg this portal still works with, "1.5"; empty: any. A push from
+    /// an older Pkg, or from a program that does not say it is Pkg, is refused
+    /// (426) with the version to update to. Pkg names itself in User-Agent,
+    /// "Pkg/1.5", since 1.5; an older one says "Pkg" or nothing and counts as older.
+    public string MinPkg { get; set; } = "";
+
+    /// With MinPkg: channel reads from an older Pkg are refused too. Never the
+    /// channel Pkg itself comes from, its bootstraps or the installers, so that
+    /// an old Pkg can always update; and never a browser or another tool, which
+    /// the portal cannot tell from an old Pkg over https (it fetched with curl).
+    public bool MinPkgReads { get; set; }
+
     /// Signed pushes: requests signed with the publisher's key, which may come
     /// over plain http since nothing secret travels. Off: https and a push key only.
     public bool SignedPush { get; set; } = true;

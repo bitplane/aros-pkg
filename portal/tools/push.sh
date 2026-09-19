@@ -25,7 +25,7 @@ sha() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1;
 size() { wc -c < "$1" | tr -d ' '; }
 call() { # method path [curl args...]: the answer on stdout, the HTTP status in $work/status
     m=$1 p=$2; shift 2
-    curl -sS -X "$m" -H "Authorization: Bearer $key" -w '%{http_code}' -o "$work/answer" "$@" "$url/_push/$p" > "$work/status"
+    curl -sS -A Pkg-tools/1 -X "$m" -H "Authorization: Bearer $key" -w '%{http_code}' -o "$work/answer" "$@" "$url/_push/$p" > "$work/status"
     cat "$work/answer"
 }
 field() { awk -F': ' -v k="$1" '$1==k{print substr($0, length(k)+3)}' "$work/answer" | tail -1; }
