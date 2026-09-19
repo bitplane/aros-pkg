@@ -33,26 +33,32 @@ Execute Work:pkg-x86_64/Install-Pkg Work:pkg-x86_64
 The script picks the build for your CPU and installs Pkg into `SYS:` as a
 signed package, so later versions arrive with `Pkg UPGRADE pkg`.
 
-**On macOS and Linux.** The same page has ready builds. One line downloads
-`pkg` and puts it where your shell finds it, `/usr/local/bin`:
+**On macOS and Linux.** One line downloads the build for your computer,
+checks it runs, puts it where your shell finds it (`/usr/local/bin`, or
+`~/.local/bin` with a PATH line added to your shell's start-up file) and
+says where it went:
 
 ```sh
-curl -fsSLo pkg https://aros-pkg.azurewebsites.net/get/pkg/macos-arm64 && chmod +x pkg && sudo mv pkg /usr/local/bin/
+curl -fsSL https://aros-pkg.azurewebsites.net/install | sh
 ```
 
-with `macos-x86_64`, `linux-x86_64` or `linux-arm64` in place of
-`macos-arm64`. Then `pkg HELP` answers from any directory. Without `sudo`,
-move it into a directory of your own that is on `PATH` instead, such as
-`~/.local/bin`, or run it as `./pkg` from where it is.
+Open a new terminal, and `pkg HELP` answers. The script is plain `sh`,
+[readable before you run it](https://aros-pkg.azurewebsites.net/install);
+run it again to upgrade. To place the file yourself, the downloads page
+has each build: `curl -fsSLo pkg https://aros-pkg.azurewebsites.net/get/pkg/macos-arm64
+&& chmod +x pkg && sudo mv pkg /usr/local/bin/` (or `macos-x86_64`,
+`linux-x86_64`, `linux-arm64`).
 
 **On Windows.** In PowerShell:
 
 ```powershell
-Invoke-WebRequest https://aros-pkg.azurewebsites.net/get/pkg/windows-x86_64 -OutFile pkg.exe
+irm https://aros-pkg.azurewebsites.net/install.ps1 | iex
 ```
 
-then move `pkg.exe` into a directory on your `Path`, or run `.\pkg.exe`
-from where it is.
+which puts `pkg.exe` under `%LOCALAPPDATA%\Programs\pkg` and adds it to
+your `Path`; or download
+`https://aros-pkg.azurewebsites.net/get/pkg/windows-x86_64` as `pkg.exe`
+and put it on your `Path` yourself.
 
 **From source**, on any of them, with a C99 compiler:
 
