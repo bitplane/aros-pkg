@@ -9,3 +9,5 @@ portal/**/obj/
 portal/publish/
 # credentials, never committed
 r2.env
+portal.env
+*.env
