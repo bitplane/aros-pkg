@@ -207,7 +207,9 @@ print it). PUSH sends only what the portal lacks and relays its answer.
 **From someone else's archive** (a nightly contrib `.tar.bz2`):
 `PUBLISH "<archive>!/<top dir>" FILES "Extras/App,Prefs/Env-Archive/SYS/Packages/App"`
 publishes those paths as one package without unpacking anything; copy or
-link the archive into the channel as `archives/<name>` first. Keep the
+link the archive into the channel as `archives/<name>` first. Add
+`UPSTREAM <url>` (the archive's download URL) when the channel will go to a
+portal: installs download the archive from there and PUSH does not upload it. Keep the
 archive's own layout: files install at the paths the archive gives them. A
 nightly's version is the component's `$VER` plus the date: `2.1+20260918`.
 

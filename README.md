@@ -411,6 +411,22 @@ channel); `SHOW CHANNEL <dir> ARCHIVE <name>` checks only the entries whose
 files are in that archive. A portal accepts a push on the first and checks
 archives with the second afterwards.
 
+**An archive downloaded from where its makers publish it.** With
+`UPSTREAM <url>` at publish (for contrib, the nightly's SourceForge
+download), the manifest also records `Archive: <sha256> <size> <url>`,
+signed like the rest; `<archive>.sha256` beside the archive keeps its digest
+so that a hundred packages from one nightly hash it once. The channel then
+needs no copy of the archive: a portal holds only the index and the
+manifests, and PUSH leaves out an archive every package of which has an
+`Archive:` line. INSTALL looks for the archive in a local channel first,
+then in the cache (`upstream/<sha256>/<name>`), then downloads it from the
+URL, once, and keeps it only when its size and SHA-256 are the signed ones
+(12 otherwise, with the archive deleted); each file is still checked against
+its own digest. SHOW without a copy reports `archive: <name> <version>
+upstream <url>` and counts nothing bad. On AROS itself the download waits
+for network channels there. `tests/network.sh`, section `upstream`;
+`tests/push.sh`, section `upstream`.
+
 A version may carry a build after `+`, such as the date of the nightly a
 component was taken from: `41.7+20260918`. It orders after the version, so
 `41.7 < 41.7+20260917 < 41.7+20260918 < 41.8`, and it is not compared with

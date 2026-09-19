@@ -109,7 +109,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "BUILD",     offsetof(struct pkg_options, build) },
         { "ARCHIVE",   offsetof(struct pkg_options, archive) },
         { "TO",        offsetof(struct pkg_options, to) },
-        { "CONFIG",    offsetof(struct pkg_options, config) }
+        { "CONFIG",    offsetof(struct pkg_options, config) },
+        { "UPSTREAM",  offsetof(struct pkg_options, upstream) }
 };
 
 static int takes_value(const char *w)

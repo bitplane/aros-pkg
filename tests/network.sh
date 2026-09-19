@@ -4,8 +4,8 @@
 #
 # Channels over HTTP. A small server on this machine serves a directory
 # channel file for file, the layout the portal serves; Pkg reads it by URL:
-# SHOW, INSTALL, UPGRADE, STATUS, an archive source, a redirect, a chunked
-# reply; and refuses what it must: an unreachable host, a path with no
+# SHOW, INSTALL, UPGRADE, STATUS, an archive source, one downloaded from
+# where its makers publish it, a redirect, a chunked reply; and refuses what it must: an unreachable host, a path with no
 # channel, a file changed on the server, a PUBLISH into a URL.
 
 set -u
@@ -95,6 +95,44 @@ mkdir -p srv/ch/archives && cp night.tar.bz2 srv/ch/archives/
 $PKG PUBLISH "srv/ch/archives/night.tar.bz2!/Top" FILES Extras/Tool CHANNEL srv/ch NAME tool BUILD 20260919 KIND application > /dev/null
 $PKG INSTALL tool ROOT r3 CHANNEL "$U/ch" MACHINE > o7 2>&1
 [ $? -eq 0 ] && cmp -s r3/Extras/Tool/Tool arc/Top/Extras/Tool/Tool;  ok $? "a package whose files stay in an archive installs over HTTP"
+
+echo "upstream"
+# The archive stays where its makers publish it (here /sf/, as on SourceForge);
+# the channel holds only signed manifests saying where it is and what it is.
+mkdir -p up/Top/Extras/Up1 up/Top/Extras/Up2 srv/sf lc/archives
+printf 'x\000$VER: upone 1.0 (1.1.2026)\000' > up/Top/Extras/Up1/Up1
+printf 'x\000$VER: uptwo 2.0 (1.1.2026)\000' > up/Top/Extras/Up2/Up2
+(cd up && tar -cjf ../lc/archives/up.tar.bz2 Top)
+cp lc/archives/up.tar.bz2 srv/sf/up.tar.bz2
+$PKG PUBLISH "lc/archives/up.tar.bz2!/Top" FILES Extras/Up1 CHANNEL lc NAME upone BUILD 20260919 KIND application UPSTREAM "$U/sf/up.tar.bz2" MACHINE > o20 2>&1
+[ $? -eq 0 ] && has o20 "^upstream: $U/sf/up.tar.bz2\$" && grep -q "^Archive: $(shasum -a 256 lc/archives/up.tar.bz2 | cut -d' ' -f1) $(wc -c < lc/archives/up.tar.bz2 | tr -d ' ') $U/sf/up.tar.bz2\$" lc/objects/*.manifest
+                                                      ok $? "UPSTREAM records the archive's URL, size and SHA-256 in the signed manifest"
+$PKG PUBLISH "lc/archives/up.tar.bz2!/Top" FILES Extras/Up2 CHANNEL lc NAME uptwo BUILD 20260919 KIND application UPSTREAM "$U/sf/up.tar.bz2" > /dev/null 2>&1
+[ -s lc/archives/up.tar.bz2.sha256 ];                 ok $? "the archive's digest is kept beside it, read once for every package"
+mkdir -p srv/upch && cp lc/index srv/upch/ && cp -R lc/objects srv/upch/
+: > requests
+$PKG INSTALL upone ROOT r6 CHANNEL "$U/upch" MACHINE > o21 2>&1
+[ $? -eq 0 ] && cmp -s r6/Extras/Up1/Up1 up/Top/Extras/Up1/Up1 && grep -q '^/sf/up.tar.bz2$' requests && ! grep -q '/upch/archives' requests
+                                                      ok $? "a channel with no archive installs from the upstream URL"
+: > requests
+$PKG INSTALL uptwo ROOT r6 CHANNEL "$U/upch" MACHINE > o22 2>&1
+[ $? -eq 0 ] && [ -f r6/Extras/Up2/Up2 ] && ! grep -q '/sf/' requests
+                                                      ok $? "the second package of that archive downloads nothing more"
+$PKG SHOW CHANNEL "$U/upch" MACHINE > o23 2>&1
+[ $? -eq 0 ] && has o23 '^bad: 0$';                   ok $? "SHOW checks the files against the downloaded copy"
+PKG_CACHE="$T/cache2" $PKG SHOW CHANNEL "$U/upch" MACHINE > o24 2>&1
+[ $? -eq 0 ] && has o24 "^archive: upone 1.0+20260919 upstream $U/sf/up.tar.bz2\$" && has o24 '^bad: 0$'
+                                                      ok $? "with no copy, SHOW names where the archive is and counts nothing bad"
+mkdir -p evil/Top/Extras/Up1; printf 'evil' > evil/Top/Extras/Up1/Up1
+(cd evil && tar -cjf ../srv/sf/up.tar.bz2 Top)
+PKG_CACHE="$T/cache3" $PKG INSTALL upone ROOT r7 CHANNEL "$U/upch" MACHINE > o25 2>&1
+[ $? -eq 12 ] && has o25 'is not the one' && [ ! -e r7/Extras/Up1/Up1 ] && [ ! -e "$T/cache3/upstream/"*/up.tar.bz2 ]
+                                                      ok $? "an archive changed upstream is refused with 12, deleted, nothing installed"
+PKG_CACHE="$T/cache4" $PKG INSTALL upone ROOT r8 CHANNEL lc MACHINE > o26 2>&1
+[ $? -eq 0 ] && cmp -s r8/Extras/Up1/Up1 up/Top/Extras/Up1/Up1 && [ ! -d "$T/cache4/upstream" ]
+                                                      ok $? "the publisher's own channel reads its local copy, downloading nothing"
+$PKG PUBLISH d1 CHANNEL lc2 NAME x KIND application UPSTREAM "$U/sf/up.tar.bz2" MACHINE > o27 2>&1
+[ $? -eq 20 ] && has o27 'a drawer has no archive';   ok $? "UPSTREAM on a drawer is refused, saying why"
 
 echo "refusals"
 $PKG SHOW CHANNEL "http://127.0.0.1:1/ch" MACHINE > o8 2>&1

@@ -54,6 +54,9 @@ struct pkg_manifest {
     char            *payload;       /* NULL until the container exists */
     char            *source;        /* "<archive>!/<prefix>": the files come from an
                                        archive someone else published; no payload */
+    char            *archive_sha;   /* "Archive:", with Source: where the archive is */
+    unsigned long long archive_size;/*   published upstream: its SHA-256, its size, */
+    char            *archive_url;   /*   and the http(s) URL it is downloaded from */
     struct pkg_file *files;
     size_t           nfiles;
     size_t           cap;

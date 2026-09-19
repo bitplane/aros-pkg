@@ -1502,6 +1502,43 @@ static int mark_config(struct pkg_manifest *m, const char *list, int strict)
     return 0;
 }
 
+static int file_digest(const char *path, char hex[PKG_SHA256_HEXLEN + 1], unsigned long long *size);
+
+/* An archive's SHA-256 and size, kept in <archive>.sha256 beside it
+ * ("sha256 <hex> <size> <mtime>") so that a hundred packages published from
+ * one nightly read it once. Recomputed when the archive changes. */
+static int archive_digest(const char *archive, char hex[PKG_SHA256_HEXLEN + 1], unsigned long long *size)
+{
+    struct pkg_fs_id id;
+    char *sp, line[200], want[120];
+    unsigned char *buf = NULL;
+    size_t len = 0, k;
+    int n;
+
+    if (pkg_fs_identity(archive, &id) != 0 || !id.exists) return -1;
+    sp = malloc(strlen(archive) + 8);
+    if (sp == NULL) return -1;
+    snprintf(sp, strlen(archive) + 8, "%s.sha256", archive);
+    n = snprintf(want, sizeof want, " %llu %lld\n", id.size, id.mtime_s);
+    if (pkg_fs_read(sp, &buf, &len) == 0 && len == 7 + PKG_SHA256_HEXLEN + (size_t)n
+        && memcmp(buf, "sha256 ", 7) == 0 && memcmp(buf + 7 + PKG_SHA256_HEXLEN, want, (size_t)n) == 0) {
+        for (k = 0; k < PKG_SHA256_HEXLEN; k++) hex[k] = (char)buf[7 + k];
+        hex[PKG_SHA256_HEXLEN] = '\0';
+        *size = id.size;
+        free(buf);
+        free(sp);
+        return 0;
+    }
+    free(buf);
+    tr("hashing %s", archive);
+    if (file_digest(archive, hex, size) != 0) { free(sp); return -1; }
+    n = snprintf(line, sizeof line, "sha256 %s%s", hex, want);
+    if (pkg_fs_write_atomic(sp, line, (size_t)n) != 0)
+        warn("the archive's digest could not be kept in %s; it is computed again next time", sp);
+    free(sp);
+    return 0;
+}
+
 static int build(const struct pkg_options *a, struct built *out)
 {
     struct drawer d;
@@ -1520,6 +1557,10 @@ static int build(const struct pkg_options *a, struct built *out)
     pkg_manifest_init(&out->m);
     if (a->target == NULL)
         return refuse_c(20, "name the drawer to package");
+    if (a->upstream != NULL && !pkg_archive_split(a->target, arch_file, sizeof arch_file, arch_prefix,
+                                                  sizeof arch_prefix))
+        return refuse_c(20, "UPSTREAM says where the archive a package's files stay in is published; "
+                        "a drawer has no archive. Publish from \"<archive>!/<top dir>\"");
     if (pkg_archive_split(a->target, arch_file, sizeof arch_file, arch_prefix, sizeof arch_prefix)) {
         const char *base = strrchr(arch_file, '/');
         char src[2200];
@@ -1534,6 +1575,32 @@ static int build(const struct pkg_options *a, struct built *out)
         }
         snprintf(src, sizeof src, "%s!/%s", base, arch_prefix);
         pkg_manifest_set(&out->m.source, src);
+        if (a->upstream != NULL) {
+            char hex[PKG_SHA256_HEXLEN + 1];
+            unsigned long long asz;
+            size_t q;
+            const char *u = a->upstream;
+            if (strncmp(u, "https://", 8) != 0 && strncmp(u, "http://", 7) != 0) {
+                drawer_free(&d);
+                return refuse_c(20, "UPSTREAM must be the http or https URL the archive is downloaded from");
+            }
+            for (q = 0; u[q]; q++)
+                if ((unsigned char)u[q] <= ' ' || u[q] == 0x7F) {
+                    drawer_free(&d);
+                    return refuse_c(20, "UPSTREAM holds a space or a control character; write spaces in a URL as %%20");
+                }
+            if (archive_digest(arch_file, hex, &asz) != 0) {
+                drawer_free(&d);
+                return refuse_c(17, "cannot read %s to take its SHA-256", arch_file);
+            }
+            out->m.archive_sha = pkg_strdup(hex);
+            out->m.archive_url = pkg_strdup(u);
+            out->m.archive_size = asz;
+            if (out->m.archive_sha == NULL || out->m.archive_url == NULL) {
+                drawer_free(&d);
+                return refuse("out of memory");
+            }
+        }
         tr("drawer from %s: %lu files under %s", arch_file, (unsigned long)d.n,
            arch_prefix[0] ? arch_prefix : "its top");
     } else {
@@ -2326,6 +2393,77 @@ static int af_data(const struct pkg_archive_entry *e, const unsigned char *buf, 
 /* A package whose files are in someone else's archive: take them out of it
  * and assemble the container the rest of the install reads, so every file
  * is checked against the signed manifest the same way. */
+/* Where to read a Source archive. A local channel's own copy first, as its
+ * publisher left it. Then, when the manifest says where the archive is
+ * published upstream: a copy downloaded before, in the cache under its
+ * SHA-256; else a download from that URL, kept only when its size and
+ * SHA-256 are the ones signed. Last, the channel's copy over the network.
+ * Each file is checked against its own digest when it is read, whatever the
+ * archive's origin. NULL with the reason given. */
+static char *locate_archive(const char *channel, const struct pkg_manifest *m, const char *an,
+                            const char *what)
+{
+    char *ap, *cache, *dir, *dest, hex[PKG_SHA256_HEXLEN + 1], rel[1100];
+    unsigned long long size = 0;
+    int rc;
+
+    if (!is_url(channel) || m->archive_sha == NULL) {
+        ap = archive_path(channel, an);
+        if (ap != NULL && pkg_fs_exists(ap))
+            return ap;
+        if (m->archive_sha == NULL) {
+            refuse_c(11, "%s comes from the archive %s, which the channel does not have (expected "
+                     "at %s)", what, an, ap ? ap : "archives/");
+            free(ap);
+            return NULL;
+        }
+        free(ap);
+    }
+    cache = pkg_cache_dir();
+    if (cache == NULL) { refuse("out of memory"); return NULL; }
+    snprintf(rel, sizeof rel, "upstream/%s", m->archive_sha);
+    dir = pkg_join(cache, rel);
+    free(cache);
+    dest = dir ? pkg_join(dir, an) : NULL;
+    if (dest == NULL) { free(dir); refuse("out of memory"); return NULL; }
+    if (pkg_fs_exists(dest)) {
+        tr("%s: the archive %s is in the cache", what, an);
+        free(dir);
+        return dest;
+    }
+    pkg_fs_mkdirs(dir);
+    free(dir);
+    if (!machine)
+        say("downloading %s (%llu MB) from %s, once for every package it holds\n", an,
+            (m->archive_size + 524288ull) / 1048576ull, m->archive_url);
+    rc = pkg_net_get(m->archive_url, dest, net_err, sizeof net_err);
+    if (rc == 0 && file_digest(dest, hex, &size) == 0
+        && size == m->archive_size && strcmp(hex, m->archive_sha) == 0) {
+        tr("%s: downloaded %s, %llu bytes, SHA-256 as signed", what, m->archive_url, size);
+        return dest;
+    }
+    if (rc == 0) {
+        pkg_fs_unlink(dest);
+        refuse_c(12, "the archive downloaded from %s is not the one %s was signed with: %llu bytes "
+                 "and SHA-256 %s, where the manifest says %llu and %s. It was deleted; nothing was "
+                 "installed", m->archive_url, what, size, hex, m->archive_size, m->archive_sha);
+        free(dest);
+        return NULL;
+    }
+    pkg_fs_unlink(dest);
+    tr("%s: %s: %s", what, m->archive_url, rc == 1 ? "not there" : net_err);
+    if (is_url(channel)) {
+        /* the channel may carry a copy of its own */
+        ap = archive_path(channel, an);
+        if (ap != NULL && pkg_fs_exists(ap)) { free(dest); return ap; }
+        free(ap);
+    }
+    refuse_c(rc == 1 ? 11 : 17, "%s comes from the archive %s, which could not be downloaded from %s: %s",
+             what, an, m->archive_url, rc == 1 ? "it is not there any more" : net_err);
+    free(dest);
+    return NULL;
+}
+
 static int fetch_from_archive(const char *channel, struct fetched *f, const char *what)
 {
     char an[1024], prefix[1024], err[300];
@@ -2336,13 +2474,9 @@ static int fetch_from_archive(const char *channel, struct fetched *f, const char
     int rc = 1;
 
     pkg_archive_split(f->m.source, an, sizeof an, prefix, sizeof prefix);
-    ap = archive_path(channel, an);
-    if (ap == NULL || !pkg_fs_exists(ap)) {
-        refuse_c(11, "%s comes from the archive %s, which the channel does not have (expected at %s)",
-                 what, an, ap ? ap : "archives/");
-        free(ap);
+    ap = locate_archive(channel, &f->m, an, what);
+    if (ap == NULL)
         return 1;
-    }
     memset(&af, 0, sizeof af);
     af.m = &f->m;
     af.prefix = prefix;
@@ -3616,6 +3750,7 @@ struct show_row {
     const char    *here;
     int            selected;
     int            archive_checked;
+    int            upstream_only;   /* its archive is only upstream: not read here */
 };
 
 /* One file an archive must hold, for one row. */
@@ -3774,8 +3909,25 @@ static int cmd_show(const struct pkg_options *a)
             ac.n = n;
             qsort(ac.ex, n, sizeof *ac.ex, by_expect);
             path = archive_path(a->channel, an);
+            if ((path == NULL || !pkg_fs_exists(path)) && n > 0 && row[ac.ex[0].row].f.m.archive_sha) {
+                /* published upstream: a copy downloaded before, else nothing to read here */
+                const struct pkg_manifest *um = &row[ac.ex[0].row].f.m;
+                char *cd = pkg_cache_dir(), rel[1200];
+                free(path);
+                snprintf(rel, sizeof rel, "upstream/%s/%s", um->archive_sha, an);
+                path = cd ? pkg_join(cd, rel) : NULL;
+                free(cd);
+                if (path == NULL || !pkg_fs_exists(path)) {
+                    for (fl = 0; fl < n; fl++) {
+                        row[ac.ex[fl].row].upstream_only = 1;
+                        ac.ex[fl].seen = 1;
+                    }
+                }
+            }
             tr("checking %lu files of %s in one read", (unsigned long)n, an);
-            if (path == NULL || !pkg_fs_exists(path)) {
+            if (n > 0 && row[ac.ex[0].row].upstream_only) {
+                tr("%s is published upstream and not downloaded here: not read", an);
+            } else if (path == NULL || !pkg_fs_exists(path)) {
                 for (fl = 0; fl < n; fl++) ac.ex[fl].seen = 3;
             } else if (pkg_archive_walk(path, ac_want, ac_data, &ac, err, sizeof err) != 0) {
                 for (fl = 0; fl < n; fl++) if (ac.ex[fl].seen == 0) ac.ex[fl].seen = 4;
@@ -3848,6 +4000,11 @@ static int cmd_show(const struct pkg_options *a)
                 snprintf(j, sizeof j, "%s %s unchecked", ix.e[i].name, ix.e[i].version);
                 rec_item("archive", j, "package", ix.e[i].name, "version", ix.e[i].version,
                          "state", "unchecked", NULL);
+            } else if (rc == 0 && r->upstream_only) {
+                snprintf(j, sizeof j, "%s %s upstream %s", ix.e[i].name, ix.e[i].version,
+                         fp->m.archive_url);
+                rec_item("archive", j, "package", ix.e[i].name, "version", ix.e[i].version,
+                         "state", "upstream", "url", fp->m.archive_url, NULL);
             }
             if (rc == 0) {
                 size_t d;
@@ -4171,7 +4328,7 @@ static int cmd_publish(const struct pkg_options *a)
     inherit_channel = NULL;
     if (rc != 0) { free(ix.e); built_free(&b); return 1; }
     rc = 1;
-    if (b.m.source != NULL) {
+    if (b.m.source != NULL && b.m.archive_sha == NULL) {
         /* The files stay in the archive; installers find it in the channel. */
         char an[1024], ai[1024], *ap;
         pkg_archive_split(b.m.source, an, sizeof an, ai, sizeof ai);
@@ -4349,6 +4506,7 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
         if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
         if (b.config_from[0]) kv("config-from", "%s", b.config_from);
+        if (b.m.archive_url) kv("upstream", "%s", b.m.archive_url);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
         if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
         for (d = 0; d < b.nleft; d++)
@@ -4428,6 +4586,7 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.kind_from[0]) kv("kind-from", "%s", b.kind_from);
         if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
         if (b.config_from[0]) kv("config-from", "%s", b.config_from);
+        if (b.m.archive_url) kv("upstream", "%s", b.m.archive_url);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
     } else if (b.ver_from[0] || b.name_from[0]) {
         say("  %s taken from $VER: in %s\n", b.ver_from[0] && b.name_from[0] ? "name and version"
@@ -5801,7 +5960,7 @@ static int options_clean(const struct pkg_options *o)
         { "OUT", o->out }, { "ACCEPTKEY", o->acceptkey }, { "UNIT", o->unit },
         { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build },
         { "ARCHIVE", o->archive }, { "TO", o->to }, { "PKG_PUSHKEY", o->pushkey },
-        { "CONFIG", o->config }
+        { "CONFIG", o->config }, { "UPSTREAM", o->upstream }
     };
     size_t i, j;
     for (i = 0; i < sizeof f / sizeof f[0]; i++)
@@ -5956,6 +6115,45 @@ static char *answer_field(const char *path, const char *key, char *out, size_t o
     return NULL;
 }
 
+/* An archive whose every package records where it is published upstream
+ * (Archive:) is downloaded from there by installs: PUSH leaves it out. */
+static void push_drop_upstream(const char *channel, struct push_list *pl)
+{
+    struct index ix;
+    size_t e, i, o;
+    if (read_index(channel, &ix) != 0) { refused_class = 0; return; }
+    for (i = 0, o = 0; i < pl->n; i++) {
+        const char *rel = pl->rel[i];
+        int upstream = 0, local = 0;
+        if (strncmp(rel, "archives/", 9) == 0) {
+            for (e = 0; e < ix.n; e++) {
+                char *mp = object_path(channel, ix.e[e].digest, "manifest"), err[200], an[1024], ap[1024];
+                unsigned char *buf;
+                size_t len;
+                struct pkg_manifest m;
+                if (mp == NULL || pkg_fs_read(mp, &buf, &len) != 0) { free(mp); continue; }
+                free(mp);
+                if (pkg_manifest_parse((const char *)buf, len, &m, err, sizeof err) == 0) {
+                    if (m.source && pkg_archive_split(m.source, an, sizeof an, ap, sizeof ap)
+                        && strcmp(an, rel + 9) == 0) {
+                        if (m.archive_sha) upstream++; else local++;
+                    }
+                    pkg_manifest_free(&m);
+                }
+                free(buf);
+            }
+        }
+        if (upstream > 0 && local == 0) {
+            tr("push leaves out %s: its %d packages download it from upstream", rel, upstream);
+            free(pl->rel[i]);
+            continue;
+        }
+        pl->rel[o++] = pl->rel[i];
+    }
+    pl->n = o;
+    free(ix.e);
+}
+
 static int cmd_push(const struct pkg_options *a)
 {
     struct push_list pl = { NULL, 0, 0 };
@@ -5993,6 +6191,7 @@ static int cmd_push(const struct pkg_options *a)
         refuse_c(17, "cannot read %s: %s", a->channel, err);
         goto out;
     }
+    push_drop_upstream(a->channel, &pl);
     cache = pkg_cache_dir();
     {
         char name[64];

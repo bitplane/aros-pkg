@@ -29,6 +29,7 @@ void pkg_manifest_free(struct pkg_manifest *m)
     size_t i;
     free(m->name); free(m->version); free(m->architecture);
     free(m->kind); free(m->payload); free(m->source);
+    free(m->archive_sha); free(m->archive_url);
     for (i = 0; i < m->nfiles; i++) {
         free(m->files[i].path);
         free(m->files[i].comment);
@@ -397,6 +398,8 @@ int pkg_manifest_emit(const struct pkg_manifest *m, char **out, size_t *out_len)
         sb_printf(&b, "Payload: %s\n", m->payload);
     if (m->source)
         sb_printf(&b, "Source: %s\n", m->source);
+    if (m->archive_sha)
+        sb_printf(&b, "Archive: %s %llu %s\n", m->archive_sha, m->archive_size, m->archive_url);
     for (i = 0; i < m->nfiles; i++)
         sb_printf(&b, "File: %s %llu %s\n", m->files[i].digest,
                   m->files[i].size, m->files[i].path);
@@ -575,6 +578,36 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
                 free(val); goto fail;
             }
             m->source = val;
+        } else if (strcmp(key, "Archive") == 0) {
+            /* "<sha256> <size> <url>": where the Source archive is published */
+            char *s1 = strchr(val, ' '), *s2 = s1 ? strchr(s1 + 1, ' ') : NULL, *endnum;
+            unsigned long long asz = 0;
+            const char *u = s2 ? s2 + 1 : "";
+            size_t q;
+            int bad = m->archive_sha != NULL || s1 == NULL || s2 == NULL
+                      || !is_hex64(val, (size_t)(s1 - val));
+            if (!bad) {
+                *s2 = '\0';
+                asz = strtoull(s1 + 1, &endnum, 10);
+                bad = *endnum != '\0' || s1[1] == '-' || s1[1] == '+' || s1 + 1 == endnum
+                      || (strncmp(u, "https://", 8) != 0 && strncmp(u, "http://", 7) != 0);
+                for (q = 0; !bad && u[q]; q++)
+                    bad = (unsigned char)u[q] <= ' ' || u[q] == 0x7F;
+            }
+            if (bad) {
+                seterr(err, errlen, line, "Archive must appear once, as <sha256> <size> <http or "
+                       "https URL, no spaces>");
+                free(val); goto fail;
+            }
+            *s1 = '\0';
+            m->archive_sha = dupstr(val);
+            m->archive_size = asz;
+            m->archive_url = dupstr(u);
+            free(val);
+            if (m->archive_sha == NULL || m->archive_url == NULL) {
+                seterr(err, errlen, line, "out of memory");
+                goto fail;
+            }
         } else if (strcmp(key, "File") == 0 || strcmp(key, "Content") == 0) {
             /* Content: the files inside an image, the same syntax as File. */
             int is_c = key[0] == 'C';
@@ -672,6 +705,10 @@ int pkg_manifest_parse(const char *text, size_t len, struct pkg_manifest *m,
     if (m->architecture == NULL) { seterr(err, errlen, line, "Architecture is missing"); goto fail; }
     if (m->kind == NULL)    { seterr(err, errlen, line, "Kind is missing"); goto fail; }
     if ((why = pkg_check_deps(m)) != NULL) { seterr(err, errlen, line, "%s", why); goto fail; }
+    if (m->archive_sha != NULL && m->source == NULL) {
+        seterr(err, errlen, line, "Archive says where a Source archive is published, and there is no Source");
+        goto fail;
+    }
     return 0;
 
 fail:

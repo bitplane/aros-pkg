@@ -131,6 +131,10 @@ struct pkg_options {
     const char *build;      /* publish: the build the files come from, such as a nightly's
                                date; the version becomes <version or $VER or 0>+<build>, and
                                a build whose files equal the last version's is not published */
+    const char *upstream;   /* publish from an archive: the http(s) URL the archive is
+                               downloaded from, recorded with its SHA-256 and size in the
+                               signed manifest; installs download it from there, and PUSH
+                               leaves it out */
     const char *config;     /* publish: the configuration files, paths or folders, comma-
                                separated: a person's edit of one survives an upgrade, the new
                                version set down beside it as <file>.pkgnew. Inherited from the

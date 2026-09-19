@@ -63,6 +63,16 @@ $PKG PUSH CHANNEL local TO "$U" MACHINE > o4 2>&1
 [ $? -eq 0 ] && has o4 '^result: unchanged$' && ! grep -q '^PUT' log && has o4 '^uploaded: 0$'
                                                       ok $? "a second push sends no file and changes nothing"
 
+echo "upstream"
+# An archive its packages download from where its makers publish it stays off the portal.
+mkdir -p uparc/Top/Extras/Up && printf 'x\000$VER: up 1.0 (1.1.2026)\000' > uparc/Top/Extras/Up/Up
+(cd uparc && tar -cf ../local/archives/up.tar Top)
+$PKG PUBLISH "local/archives/up.tar!/Top" FILES Extras/Up CHANNEL local NAME up BUILD 20260919 KIND application UPSTREAM "https://downloads.example.org/up.tar" > /dev/null
+: > log
+$PKG PUSH CHANNEL local TO "$U" MACHINE > o4b 2>&1
+[ $? -eq 0 ] && has o4b '^published: up ' && ! grep -q 'archives/up.tar' log && [ ! -e portal/pkg/archives/up.tar ]
+                                                      ok $? "PUSH publishes the package and leaves its upstream archive out"
+
 echo "refusals"
 PKG_PUSHKEY=wrong $PKG PUSH CHANNEL local TO "$U" MACHINE > o5 2>&1
 [ $? -eq 14 ] && has o5 'refused the key';            ok $? "a wrong key is refused with 14"
