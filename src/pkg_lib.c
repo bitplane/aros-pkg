@@ -197,6 +197,21 @@ static void say_kind(int kind, const char *frame, const char *fmt, ...)
 
 /* What the operation did, one sentence, no newline. */
 #define say_result(...) say_kind(PKG_LINE_RESULT, "%s\n", __VA_ARGS__)
+/* A result that is bad news, drawn as such; still the operation's answer. */
+#define say_problem(...) say_kind(PKG_LINE_PROBLEM, "%s\n", __VA_ARGS__)
+/* "1 changed", "2 missing" or "1 changed, 2 missing". */
+static const char *damage(size_t changed, size_t missing)
+{
+    static char text[80];
+    if (changed && missing)
+        snprintf(text, sizeof text, "%lu changed, %lu missing", (unsigned long)changed,
+                 (unsigned long)missing);
+    else if (changed)
+        snprintf(text, sizeof text, "%lu changed", (unsigned long)changed);
+    else
+        snprintf(text, sizeof text, "%lu missing", (unsigned long)missing);
+    return text;
+}
 /* A line under a result: a count, a source, a key. */
 #define say_detail(...) say_kind(PKG_LINE_DETAIL, "  %s\n", __VA_ARGS__)
 /* A file or a package under a result, "kept\tC/Hello (edited)": a word,
@@ -5226,42 +5241,56 @@ static int verify_all(const struct pkg_options *a)
         summary_line("no package is installed in %s", a->root);
         return 0;
     }
+    if (!machine && in.n > 0) {
+        static const int widths[] = { 24, 10, 9, 0 };
+        tbl_head(widths, "Package\tVersion\tFiles\tState");
+    }
     for (p = 0; p < in.n; p++) {
         const struct pkg_manifest *m = &in.m[p];
-        size_t changed = 0, missing = 0;
+        size_t changed = 0, missing = 0, pedited = 0;
+        unsigned char *state = (unsigned char *)calloc(m->nfiles ? m->nfiles : 1, 1);
+        if (state == NULL) { installed_free(&in); return refuse_c(17, "out of memory"); }
+        /* 1. every file's state, so the package's line can come first */
         for (i = 0; i < m->nfiles; i++) {
             int s = file_state(a->root, m->files[i].path, m->files[i].digest, m->files[i].size);
-            if (s == 1 && m->files[i].config) {
-                edited++;
-                if (machine) kv("edited", "%s %s", m->name, m->files[i].path);
-                else say_item("edited", "%s (%s, a configuration file)", m->files[i].path, m->name);
-            } else if (s == 1) {
-                changed++;
-                if (machine) kv("changed", "%s %s", m->name, m->files[i].path);
-                else say_item("changed", "%s (%s)", m->files[i].path, m->name);
-            } else if (s == 2) {
-                missing++;
-                if (machine) kv("missing", "%s %s", m->name, m->files[i].path);
-                else say_item("missing", "%s (%s)", m->files[i].path, m->name);
-            }
+            state[i] = (unsigned char)s;
+            if (s == 1 && m->files[i].config) pedited++;
+            else if (s == 1) changed++;
+            else if (s == 2) missing++;
         }
+        edited += pedited;
         files += m->nfiles;
+        /* 2. the package's line */
         if (changed + missing) {
             if (bad++ == 0)
-                snprintf(first, sizeof first, "%s (%lu changed, %lu missing)", m->name,
-                         (unsigned long)changed, (unsigned long)missing);
+                snprintf(first, sizeof first, "%s: %s", m->name, damage(changed, missing));
             if (machine) kv("package", "%s %s damaged %lu %lu", m->name, m->version,
                             (unsigned long)changed, (unsigned long)missing);
-            else say_result("%s %s: %lu changed, %lu missing, of %lu file%s", m->name, m->version,
-                     (unsigned long)changed, (unsigned long)missing, (unsigned long)m->nfiles,
-                     m->nfiles == 1 ? "" : "s");
+            else tbl_row("%s\t%s\t%lu file%s\t%s", m->name, m->version, (unsigned long)m->nfiles,
+                         m->nfiles == 1 ? "" : "s", damage(changed, missing));
         } else if (machine) {
             kv("package", "%s %s intact", m->name, m->version);
         } else {
-            say_result("%s %s: %lu file%s, all intact", m->name, m->version, (unsigned long)m->nfiles,
-                m->nfiles == 1 ? "" : "s");
+            tbl_row("%s\t%s\t%lu file%s\t%s", m->name, m->version, (unsigned long)m->nfiles,
+                    m->nfiles == 1 ? "" : "s", pedited ? "intact, configuration edited" : "intact");
         }
+        /* 3. its files that are not as installed */
+        for (i = 0; i < m->nfiles; i++) {
+            if (state[i] == 1 && m->files[i].config) {
+                if (machine) kv("edited", "%s %s", m->name, m->files[i].path);
+                else say_item("edited", "%s (a configuration file)", m->files[i].path);
+            } else if (state[i] == 1) {
+                if (machine) kv("changed", "%s %s", m->name, m->files[i].path);
+                else say_item("changed", "%s", m->files[i].path);
+            } else if (state[i] == 2) {
+                if (machine) kv("missing", "%s %s", m->name, m->files[i].path);
+                else say_item("missing", "%s", m->files[i].path);
+            }
+        }
+        free(state);
     }
+    if (!machine && in.n > 0)
+        tbl_end();
     kv("packages", "%lu", (unsigned long)in.n);
     kv("files", "%lu", (unsigned long)files);
     if (bad == 0) {
@@ -5276,10 +5305,17 @@ static int verify_all(const struct pkg_options *a)
     kv("result", "damaged");
     kv("class", "integrity");
     kv("code", "%d", PKGRC_INTEGRITY);
-    summary_line("%lu of %lu package%s damaged, first %s", (unsigned long)bad,
-       (unsigned long)in.n, in.n == 1 ? "" : "s", first);
-    hint("VERIFY <name> also says which missing files were moved by hand. Pkg overwrites no "
-         "changed file: whether the change is damage or someone's work is the requester's call");
+    {
+        char buf[400];
+        snprintf(buf, sizeof buf, "%lu of %lu package%s damaged, first %s", (unsigned long)bad,
+                 (unsigned long)in.n, in.n == 1 ? "" : "s", first);
+        kv("summary", "%s", buf);
+        if (!machine)
+            say_problem("%lu of %lu package%s damaged", (unsigned long)bad,
+                        (unsigned long)in.n, in.n == 1 ? "" : "s");
+    }
+    hint("REPAIR ALL ROOT <dir> CHANNEL <dir> puts missing and changed files back from the channel. "
+         "VERIFY <name> also says which missing files were moved by hand");
     installed_free(&in);
     return 1;
 }
@@ -5362,9 +5398,11 @@ static int cmd_verify(const struct pkg_options *a)
         pkg_manifest_free(&m);
         return 0;
     }
-    if (!machine)
-        say_result("%s %s: %lu changed, %lu missing, of %lu files", m.name, m.version,
-                (unsigned long)changed, (unsigned long)missing, (unsigned long)m.nfiles);
+    if (!machine) {
+        say_problem("%s %s is damaged: %s of %lu file%s", m.name, m.version,
+                    damage(changed, missing), (unsigned long)m.nfiles, m.nfiles == 1 ? "" : "s");
+        hint("REPAIR %s ROOT <dir> CHANNEL <dir> puts the files back from the channel", m.name);
+    }
     refused_class = PKGRC_INTEGRITY;
     kv("result", "damaged");
     kv("class", "integrity");
@@ -5549,7 +5587,7 @@ static int cmd_repair(const struct pkg_options *a)
         total_aside += s;
         if (r) fixed_pk++;
         if (machine) kv("package", "%s %s", name, r ? "repaired" : "intact");
-        else if (r) say_result("%s: %lu file%s put back", name, r, r == 1 ? "" : "s");
+        else if (r) say_pkgline(name, "%lu file%s put back", r, r == 1 ? "" : "s");
     }
     installed_free(&in);
     free(ix.e);
@@ -5653,9 +5691,9 @@ static int remove_orphans(const struct pkg_options *a)
                 rec_item("package", j, "name", m->name, "version", m->version, NULL);
             }
             else
-                say_result("%s %s %s, which nothing needed: %lu files%s",
-                        dryrun ? "would remove" : "removed", m->name,
-                        m->version, (unsigned long)r, k ? ", edited files kept" : "");
+                say_pkgline(m->name, "%s %s, which nothing needed (%lu file%s%s)",
+                        dryrun ? "would remove" : "removed",
+                        m->version, (unsigned long)r, r == 1 ? "" : "s", k ? ", edited files kept" : "");
         }
         if (dryrun) {
             char names[64][65];
@@ -5952,9 +5990,12 @@ static int cmd_status(const struct pkg_options *a)
     if (!machine) {
         if (shown == 0)
             say_result("nothing installed in %s", a->root);
+        else if (upgradable == 0)
+            say_result("%lu package%s in %s, all up to date with %s", (unsigned long)shown,
+                shown == 1 ? "" : "s", a->root, a->channel);
         else
-            say_result("%lu package%s in %s, %lu upgradable from %s", (unsigned long)shown,
-                shown == 1 ? "" : "s", a->root, (unsigned long)upgradable, a->channel);
+            say_result("%lu of %lu package%s in %s can be updated from %s", (unsigned long)upgradable,
+                (unsigned long)shown, shown == 1 ? "" : "s", a->root, a->channel);
     }
     if (upgradable > 0)
         hint("UPGRADE ALL ROOT %s CHANNEL %s upgrades every one of them, a package before what "

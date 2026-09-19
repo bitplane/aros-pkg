@@ -245,8 +245,10 @@ static const char *word_colour(const char *w)
 /* The colour of a table cell that states a condition. */
 static const char *cell_colour(const char *cell)
 {
-    if (strcmp(cell, "ok") == 0 || strcmp(cell, "current") == 0)
+    if (strcmp(cell, "ok") == 0 || strcmp(cell, "current") == 0 || strncmp(cell, "intact", 6) == 0)
         return GREEN;
+    if (strstr(cell, "missing") != NULL || strstr(cell, "changed") != NULL)
+        return RED;
     if (strncmp(cell, "upgradable", 10) == 0)
         return YELLOW;
     if (strncmp(cell, "withdrawn", 9) == 0 || strncmp(cell, "no longer", 9) == 0
@@ -388,11 +390,14 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
     int e = is_error;
 
     switch (kind) {
-    case PKG_LINE_RESULT: {
+    case PKG_LINE_RESULT:
+    case PKG_LINE_PROBLEM: {
         /* Bold up to the first ": ", dim after it: the deed, then its figures. */
         const char *colon = strstr(text, ": ");
         char head[1024];
-        const char *m = mark(e, "\xE2\x9C\x93 ", "+ ");   /* ✓ */
+        int bad = kind == PKG_LINE_PROBLEM;
+        const char *m = bad ? mark(e, "\xE2\x9C\x97 ", "x ")     /* ✗ */
+                            : mark(e, "\xE2\x9C\x93 ", "+ ");    /* ✓ */
         if (colon && colon - text < (long)sizeof head) {
             memcpy(head, text, (size_t)(colon - text));
             head[colon - text] = '\0';
@@ -401,7 +406,7 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
             colon = NULL;
         }
         if (after_table && caps[e].bold) badd(&styled, "\n");
-        badd(&styled, sgr(e, GREEN)); badd(&styled, m); badd(&styled, sgr(e, RESET));
+        badd(&styled, sgr(e, bad ? RED : GREEN)); badd(&styled, m); badd(&styled, sgr(e, RESET));
         badd(&styled, sgr(e, BOLD)); badd(&styled, head); badd(&styled, sgr(e, RESET));
         badd(&styled, "\n");
         if (colon) {
@@ -433,12 +438,12 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
         int wl;
         if (tab == NULL) { snprintf(word, sizeof word, "%s", text); rest = ""; }
         else { wl = (int)(tab - text); if (wl > 39) wl = 39; memcpy(word, text, (size_t)wl); word[wl] = '\0'; }
-        snprintf(lead, sizeof lead, "  %-9s", word);
+        snprintf(lead, sizeof lead, "  %-9s%s", word, strlen(word) < 9 ? "" : " ");
         badd(&styled, "  ");
         badd(&styled, sgr(e, word_colour(word)));
         badd(&styled, word);
         badd(&styled, sgr(e, RESET));
-        pad(&styled, 9 - dwidth(word));
+        pad(&styled, dwidth(word) < 9 ? 9 - dwidth(word) : 1);
         badd(&styled, rest); badd(&styled, "\n");
         badd(&plain, lead); badd(&plain, rest); badd(&plain, "\n");
         break;

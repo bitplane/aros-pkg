@@ -124,6 +124,7 @@ struct pkg_sink {
 enum pkg_line {
     PKG_LINE_TEXT = 0,  /* a line with no particular role */
     PKG_LINE_RESULT,    /* what the operation did: "installed hello 1.2 into SYS:" */
+    PKG_LINE_PROBLEM,   /* a result that is bad news: "2 of 3 packages damaged" */
     PKG_LINE_DETAIL,    /* an item under a result: "3 files, signed by 26ffb2bc" */
     PKG_LINE_ITEM,      /* a file or package under a result: "kept\tC/Hello (edited)" */
     PKG_LINE_NOTE,      /* a remark worth reading, not a warning */

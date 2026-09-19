@@ -118,7 +118,7 @@ $PKG STATUS ROOT "$R" CHANNEL "$CH" > "$T/sth" 2>&1
 [ $? -eq 0 ];                                                        ok $? "STATUS in text exits 0"
 has "$T/sth" '^zlib  *1.0  *upgradable to 2.0$' && has "$T/sth" '^gone  *1.0  *no longer offered'
                                                                      ok $? "one readable line per package"
-has "$T/sth" '^7 packages in .*, 2 upgradable from ';                ok $? "a summary line"
+has "$T/sth" '^2 of 7 packages in .* can be updated from ';        ok $? "a summary line"
 has "$T/sth" 'hint: UPGRADE ALL ROOT .* CHANNEL ';                   ok $? "and a hint naming UPGRADE ALL"
 $PKG STATUS ROOT "$R" CHANNEL "$T/nosuch" MACHINE > "$T/stn" 2>&1
 [ $? -eq 11 ] && has "$T/stn" '^class: not-found$';                  ok $? "a channel that is not there is refused (11), not read as offering nothing"

@@ -317,8 +317,8 @@ static const struct { const char *group, *verb, *args, *what; } usage_lines[] = 
     { "On any verb", NULL, NULL, NULL },
     { NULL, "DRYRUN",    "", "every check, no write" },
     { NULL, "MACHINE",   "", "key: value lines for a program; the exit code names the class of a refusal" },
-    { NULL, "TRACE",     "<file>", "every step, file, check and choice, for finding out why; - for stderr" },
-    { NULL, "LOG",       "<file>", "a copy of the output" },
+    { NULL, "TRACE",     "", "<file>: every step, file, check and choice, for finding out why; - for stderr" },
+    { NULL, "LOG",       "", "<file>: a copy of the output" },
     { NULL, NULL, NULL, NULL }
 };
 
@@ -343,9 +343,15 @@ static int usage(void)
         if (usage_lines[i].group) {
             usage_line("\n%s%s%s\n", b, usage_lines[i].group, r);
         } else {
-            usage_line("  %s%-9s%s %s\n", b, usage_lines[i].verb, r, usage_lines[i].args);
-            if (usage_lines[i].what)
-                usage_line("            %s%s%s\n", d, usage_lines[i].what, r);
+            if (usage_lines[i].args[0] == '\0' && usage_lines[i].what)
+                usage_line("  %s%-9s%s %s%s%s\n", b, usage_lines[i].verb, r, d, usage_lines[i].what, r);
+            else if (usage_lines[i].verb[0] == '\0')
+                usage_line("            %s\n", usage_lines[i].args);
+            else {
+                usage_line("  %s%-9s%s %s\n", b, usage_lines[i].verb, r, usage_lines[i].args);
+                if (usage_lines[i].what)
+                    usage_line("            %s%s%s\n", d, usage_lines[i].what, r);
+            }
         }
     }
     usage_line("\n%sKinds%s     image (a program on one volume to mount), application (loose files), library,\n"
