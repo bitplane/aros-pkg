@@ -16,7 +16,7 @@ being trusted: Pkg checks every signature and every file itself.
   on Windows). On AROS it is the same over `http://`, once the machine's
   network is started (AROSTCP, or a hosted AROS's own sockets); the cache
   is `SYS:.pkg/cache`. AROS reads `https://` as well: the AROS builds carry
-  OpenSSL and a bundle of certificate authorities, and check the
+  a TLS library (Mbed TLS) and a bundle of certificate authorities, and check the
   certificate against the address, with no way to turn that off. A machine
   behind its own authority names its bundle in `PKG_CAFILE`.
 
@@ -99,7 +99,7 @@ $ kill %1
 
 Pkg follows redirects and understands chunked replies. For `https` it uses
 the system's `curl` on macOS, Linux and Windows, and its own client over
-OpenSSL on AROS.
+Mbed TLS on AROS.
 
 ## The portal
 

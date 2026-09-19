@@ -4,7 +4,7 @@
 
 /* TLS for AROS. Every other system Pkg runs on has a program or a library
  * that speaks https already (curl, WinHTTP); AROS has neither, so the AROS
- * builds carry OpenSSL and this is the seam between it and Pkg's own HTTP
+ * builds carry Mbed TLS and this is the seam between it and Pkg's own HTTP
  * client. One session at a time: Pkg opens a connection for one transfer and
  * closes it after. */
 

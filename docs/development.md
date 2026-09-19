@@ -21,12 +21,10 @@ pkg KEYGEN FILE ~/.pkg-dev.key    # the publisher key, once per publisher
 
 To put Pkg on AROS machines, build it for their CPUs (`sh tools/build-aros.sh`
 for aarch64, `sh tools/build-aros-x86_64.sh` for x86_64) and make a channel
-that carries it. Both link OpenSSL, which is what lets AROS read and push over
-`https`: x86_64 takes `Developer/lib/lib{ssl,crypto}.a` and
-`Developer/include/openssl` out of a nightly `pc-x86_64-contrib` archive, and
-aarch64, for which no nightly builds one, comes from
-`sh tools/build-aros-openssl.sh`. Each script says so when the library is
-missing.
+that carries it. Both compile Mbed TLS in, from `third_party/mbedtls` with the
+configuration beside it (`pkg_mbedtls_config.h`: a TLS 1.2 and 1.3 client,
+nothing else), which is what lets AROS read and push over `https`; nothing is
+fetched or built apart, and the same recipe serves every CPU.
 
 ```sh
 PKG_SIGNKEY=~/.pkg-dev.key make aros-channel CHANNEL=<dir>

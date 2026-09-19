@@ -2,13 +2,15 @@
  * Copyright (c) 2026 John Knipper
  */
 
-/* TLS on AROS, over OpenSSL: the library AROS contrib builds, linked into
- * Pkg statically so that a machine reading a channel installs nothing.
+/* TLS on AROS, over Mbed TLS: a small TLS library made to be carried inside
+ * a program, compiled into Pkg from third_party/mbedtls so that a machine
+ * reading a channel installs nothing, on every CPU AROS runs on.
  *
- * The bytes go through a BIO of Pkg's own, which calls bsdsocket's send and
- * recv: OpenSSL's socket BIO reaches for a file descriptor, and a bsdsocket
- * handle is not one. The sockets are blocking, so a short read or write is
- * the end of the connection and never a retry.
+ * Mbed TLS asks for three things of the system, and gets them here: the
+ * bytes go through bsdsocket's send and recv, the randomness comes from
+ * getentropy(), which AROS answers from entropy.resource, and the date, for
+ * a certificate's validity, from time(). The sockets are blocking, so a
+ * short read or write is the end of the connection and never a retry.
  *
  * Verification is on and has no switch: unknown issuer, wrong host and a
  * certificate outside its dates all end the transfer, each with its own
@@ -21,66 +23,125 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <proto/bsdsocket.h>
 #include <sys/socket.h>
 
-#include <openssl/bio.h>
-#include <openssl/err.h>
-#include <openssl/pem.h>
-#include <openssl/ssl.h>
-#include <openssl/x509v3.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/net_sockets.h>        /* the error codes a transport returns */
+#include <mbedtls/platform_time.h>
+#include <psa/crypto.h>
 
-/* The authorities, made by the build scripts from third_party/cacert. */
+/* The authorities, made by the build scripts from third_party/cacert: a C
+ * string, so its terminating NUL is there, as the PEM parser wants. */
 extern const unsigned char pkg_ca_pem[];
 extern const unsigned int pkg_ca_pem_len;
 
-static SSL_CTX *ctx;
-static SSL *ssl;
-static BIO_METHOD *bio_method;
-static int bio_socket;
+static mbedtls_ssl_context ssl;
+static mbedtls_ssl_config conf;
+static mbedtls_x509_crt cas;
+static mbedtls_entropy_context entropy;
+static mbedtls_ctr_drbg_context drbg;
+static int ready;                       /* conf, cas and drbg are set up */
+static int active;                      /* between open and close */
+static int the_socket;
 
-static int sock_write(BIO *b, const char *buf, int len)
+/* ---- what Mbed TLS asks of the system ----------------------------------- */
+
+/* MBEDTLS_ENTROPY_HARDWARE_ALT: the one entropy source. */
+int mbedtls_hardware_poll(void *data, unsigned char *out, size_t len, size_t *olen)
 {
-    int n = (int)send(bio_socket, (APTR)buf, (LONG)len, 0);
-    BIO_clear_retry_flags(b);
-    return n > 0 ? n : -1;
-}
-
-static int sock_read(BIO *b, char *buf, int len)
-{
-    int n = (int)recv(bio_socket, buf, (LONG)len, 0);
-    BIO_clear_retry_flags(b);
-    /* 0 is the server's close, which the caller reads as the end of a
-     * body; only a negative return is a failure. */
-    return n >= 0 ? n : -1;
-}
-
-static long sock_ctrl(BIO *b, int cmd, long larg, void *parg)
-{
-    (void)b; (void)larg; (void)parg;
-    return cmd == BIO_CTRL_FLUSH ? 1 : 0;
-}
-
-/* Every certificate of the built-in bundle into the context's store. */
-static int load_builtin_cas(char *err, size_t errlen)
-{
-    X509_STORE *store = SSL_CTX_get_cert_store(ctx);
-    BIO *mem = BIO_new_mem_buf(pkg_ca_pem, (int)pkg_ca_pem_len);
-    int n = 0;
-    X509 *c;
-
-    if (mem == NULL) { snprintf(err, errlen, "out of memory reading the built-in certificates"); return -1; }
-    while ((c = PEM_read_bio_X509(mem, NULL, NULL, NULL)) != NULL) {
-        if (X509_STORE_add_cert(store, c))
-            n++;
-        X509_free(c);
+    size_t at = 0;
+    (void)data;
+    while (at < len) {                  /* getentropy gives 256 bytes at most */
+        size_t n = len - at > 256 ? 256 : len - at;
+        if (getentropy(out + at, n) != 0)
+            return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+        at += n;
     }
-    ERR_clear_error();                          /* the end of the file is not an error */
-    BIO_free(mem);
-    if (n == 0) {
+    *olen = len;
+    return 0;
+}
+
+/* MBEDTLS_PLATFORM_MS_TIME_ALT: only differences are used, for timeouts
+ * Pkg does not set; seconds are enough. */
+mbedtls_ms_time_t mbedtls_ms_time(void)
+{
+    return (mbedtls_ms_time_t)time(NULL) * 1000;
+}
+
+static int sock_send(void *c, const unsigned char *buf, size_t len)
+{
+    int n;
+    (void)c;
+    n = (int)send(the_socket, (APTR)buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
+    return n > 0 ? n : MBEDTLS_ERR_NET_SEND_FAILED;
+}
+
+static int sock_recv(void *c, unsigned char *buf, size_t len)
+{
+    int n;
+    (void)c;
+    n = (int)recv(the_socket, buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
+    /* 0 is the server's close, which Mbed TLS reports as the end of the
+     * connection; only a negative return is a failure. */
+    return n >= 0 ? n : MBEDTLS_ERR_NET_RECV_FAILED;
+}
+
+/* ---- the authorities ------------------------------------------------------ */
+
+/* A PEM file whole, NUL-terminated as the parser wants. */
+static unsigned char *read_pem(const char *path, size_t *len)
+{
+    FILE *f = fopen(path, "rb");
+    unsigned char *buf = NULL;
+    long size;
+    if (f == NULL) return NULL;
+    if (fseek(f, 0, SEEK_END) == 0 && (size = ftell(f)) > 0 && size < (8l << 20)
+        && fseek(f, 0, SEEK_SET) == 0 && (buf = (unsigned char *)malloc((size_t)size + 1)) != NULL) {
+        if (fread(buf, 1, (size_t)size, f) == (size_t)size) {
+            buf[size] = '\0';
+            *len = (size_t)size + 1;
+        } else {
+            free(buf);
+            buf = NULL;
+        }
+    }
+    fclose(f);
+    return buf;
+}
+
+/* PKG_CAFILE, or the bundle built in. A bundle may hold a certificate this
+ * build cannot read (a curve it leaves out): the others still count, and the
+ * parser's return says how many were skipped. None read at all is a failure. */
+static int load_cas(char *err, size_t errlen)
+{
+    const char *cafile = getenv("PKG_CAFILE");
+    int rc;
+
+    mbedtls_x509_crt_init(&cas);
+    if (cafile != NULL && cafile[0] != '\0') {
+        size_t len = 0;
+        unsigned char *pem = read_pem(cafile, &len);
+        rc = pem != NULL ? mbedtls_x509_crt_parse(&cas, pem, len) : -1;
+        free(pem);
+        if (rc < 0 || cas.version == 0) {
+            snprintf(err, errlen, "cannot read the certificates of PKG_CAFILE (%s): name a file of "
+                     "PEM certificates, or unset it to use the ones built in", cafile);
+            mbedtls_x509_crt_free(&cas);
+            return -1;
+        }
+        return 0;
+    }
+    rc = mbedtls_x509_crt_parse(&cas, pkg_ca_pem, (size_t)pkg_ca_pem_len + 1);
+    if (rc < 0 || cas.version == 0) {
         snprintf(err, errlen, "this Pkg was built without certificate authorities: rebuild it, "
                  "or name a bundle with PKG_CAFILE");
+        mbedtls_x509_crt_free(&cas);
         return -1;
     }
     return 0;
@@ -97,105 +158,97 @@ static void today(char *out, size_t n)
         snprintf(out, n, "an unknown date");
 }
 
-static void verify_words(long v, const char *host, char *err, size_t errlen)
+/* The checks that failed, as one sentence: the authority first, since a
+ * certificate nobody vouches for says nothing true about its name or dates. */
+static void verify_words(unsigned long flags, const char *host, char *err, size_t errlen)
 {
     char now[32];
-    switch (v) {
-    case X509_V_ERR_CERT_HAS_EXPIRED:
+    if (flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED) {
+        snprintf(err, errlen, "%s sends a certificate from an authority this Pkg does not know: if it is "
+                 "your own authority, name its file with PKG_CAFILE", host);
+    } else if (flags & MBEDTLS_X509_BADCERT_CN_MISMATCH) {
+        snprintf(err, errlen, "the certificate %s sends is made out to another name: name the channel with "
+                 "the address the certificate carries", host);
+    } else if (flags & MBEDTLS_X509_BADCERT_EXPIRED) {
         today(now, sizeof now);
         snprintf(err, errlen, "%s sends a certificate that expired: wait for the server to renew it, or, "
                  "if this machine's clock is wrong, set the date, which it believes is %s", host, now);
-        break;
-    case X509_V_ERR_CERT_NOT_YET_VALID:
+    } else if (flags & MBEDTLS_X509_BADCERT_FUTURE) {
         today(now, sizeof now);
         snprintf(err, errlen, "%s sends a certificate that is not valid yet: this machine's clock is "
                  "probably wrong, and it believes the date is %s", host, now);
-        break;
-    case X509_V_ERR_HOSTNAME_MISMATCH:
-    case X509_V_ERR_IP_ADDRESS_MISMATCH:        /* an address written as numbers */
-        snprintf(err, errlen, "the certificate %s sends is made out to another name: name the channel with "
-                 "the address the certificate carries", host);
-        break;
-    case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
-    case X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:
-    case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT:
-    case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY:
-    case X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE:
-        snprintf(err, errlen, "%s sends a certificate from an authority this Pkg does not know: if it is "
-                 "your own authority, name its file with PKG_CAFILE", host);
-        break;
-    default:
-        snprintf(err, errlen, "the certificate %s sends cannot be checked: %s", host,
-                 X509_verify_cert_error_string(v));
-        break;
+    } else {
+        snprintf(err, errlen, "the certificate %s sends cannot be checked (Mbed TLS verification "
+                 "flags 0x%lx)", host, flags);
     }
+}
+
+/* ---- the session ---------------------------------------------------------- */
+
+static int setup_once(char *err, size_t errlen)
+{
+    if (ready) return 0;
+    mbedtls_ssl_config_init(&conf);
+    mbedtls_entropy_init(&entropy);
+    mbedtls_ctr_drbg_init(&drbg);
+    if (psa_crypto_init() != PSA_SUCCESS
+        || mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &entropy,
+                                 (const unsigned char *)"pkg", 3) != 0) {
+        snprintf(err, errlen, "TLS does not start on this machine: it gives no randomness "
+                 "(entropy.resource, in AROS since July 2026)");
+        goto fail;
+    }
+    if (mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+                                    MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
+        snprintf(err, errlen, "TLS does not start on this machine");
+        goto fail;
+    }
+    if (load_cas(err, errlen) != 0)
+        goto fail;
+    mbedtls_ssl_conf_min_tls_version(&conf, MBEDTLS_SSL_VERSION_TLS1_2);
+    mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(&conf, &cas, NULL);
+    mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);
+    ready = 1;
+    return 0;
+fail:
+    mbedtls_ctr_drbg_free(&drbg);
+    mbedtls_entropy_free(&entropy);
+    mbedtls_ssl_config_free(&conf);
+    return -1;
 }
 
 int pkg_tls_open(int sock, const char *host, char *err, size_t errlen)
 {
-    const char *cafile = getenv("PKG_CAFILE");
-    BIO *bio;
-    int ok;
+    int rc;
 
     pkg_tls_close();
-    if (ctx == NULL) {
-        ctx = SSL_CTX_new(TLS_client_method());
-        if (ctx == NULL) { snprintf(err, errlen, "TLS does not start on this machine"); return -1; }
-        SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-        if (cafile != NULL && cafile[0] != '\0') {
-            if (!SSL_CTX_load_verify_file(ctx, cafile)) {
-                snprintf(err, errlen, "cannot read the certificates of PKG_CAFILE (%s): name a file of "
-                         "PEM certificates, or unset it to use the ones built in", cafile);
-                SSL_CTX_free(ctx); ctx = NULL;
-                return -1;
-            }
-        } else if (load_builtin_cas(err, errlen) != 0) {
-            SSL_CTX_free(ctx); ctx = NULL;
-            return -1;
-        }
-    }
-    if (bio_method == NULL) {
-        bio_method = BIO_meth_new(BIO_get_new_index() | BIO_TYPE_SOURCE_SINK, "pkg bsdsocket");
-        if (bio_method == NULL) { snprintf(err, errlen, "TLS does not start on this machine"); return -1; }
-        BIO_meth_set_write(bio_method, sock_write);
-        BIO_meth_set_read(bio_method, sock_read);
-        BIO_meth_set_ctrl(bio_method, sock_ctrl);
-    }
-    ssl = SSL_new(ctx);
-    bio = ssl != NULL ? BIO_new(bio_method) : NULL;
-    if (bio == NULL) {
-        if (ssl) { SSL_free(ssl); ssl = NULL; }
-        snprintf(err, errlen, "out of memory starting TLS with %s", host);
+    if (setup_once(err, errlen) != 0)
         return -1;
-    }
-    bio_socket = sock;
-    BIO_set_init(bio, 1);
-    /* one BIO reads and writes, and SSL_set_bio takes it over */
-    SSL_set_bio(ssl, bio, bio);
+    mbedtls_ssl_init(&ssl);
     /* The name the server is asked for and the name the certificate must
-     * carry: the same one, always. An address written as numbers is no name:
-     * it is not sent as the server name, and the certificate has to hold the
-     * address itself. */
-    if (host[strspn(host, "0123456789.")] == '\0') {
-        ok = SSL_set1_ipaddr(ssl, host);
-    } else {
-        SSL_set_tlsext_host_name(ssl, host);
-        ok = SSL_set1_dnsname(ssl, host);
-    }
-    if (!ok) {
-        snprintf(err, errlen, "%s is not a name a certificate can be checked against", host);
-        pkg_tls_close();
+     * carry: the same one, always. An address written as numbers is matched
+     * against the addresses the certificate holds. */
+    if (mbedtls_ssl_setup(&ssl, &conf) != 0 || mbedtls_ssl_set_hostname(&ssl, host) != 0) {
+        snprintf(err, errlen, "out of memory starting TLS with %s", host);
+        mbedtls_ssl_free(&ssl);
         return -1;
     }
-    if (SSL_connect(ssl) != 1) {
-        long v = SSL_get_verify_result(ssl);
-        if (v != X509_V_OK)
-            verify_words(v, host, err, errlen);
-        else
-            snprintf(err, errlen, "%s does not answer in TLS: check that the address is right, and that "
-                     "nothing on the way is rewriting the connection", host);
-        ERR_clear_error();
+    the_socket = sock;
+    mbedtls_ssl_set_bio(&ssl, NULL, sock_send, sock_recv, NULL);
+    active = 1;
+    while ((rc = mbedtls_ssl_handshake(&ssl)) != 0) {
+        if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE)
+            continue;
+        {
+            unsigned long flags = (unsigned long)mbedtls_ssl_get_verify_result(&ssl);
+            if (rc == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED && flags != 0 && flags != 0xFFFFFFFFul)
+                verify_words(flags, host, err, errlen);
+            else
+                snprintf(err, errlen, "%s does not answer in TLS: check that the address is right, and that "
+                         "nothing on the way is rewriting the connection (Mbed TLS -0x%04x)", host,
+                         (unsigned)-rc);
+        }
         pkg_tls_close();
         return -1;
     }
@@ -205,32 +258,48 @@ int pkg_tls_open(int sock, const char *host, char *err, size_t errlen)
 ssize_t pkg_tls_read(void *buf, size_t n)
 {
     int r;
-    if (ssl == NULL) return -1;
-    r = SSL_read(ssl, buf, (int)(n > 0x7fffffffu ? 0x7fffffffu : n));
+    if (!active) return -1;
+    for (;;) {
+        r = mbedtls_ssl_read(&ssl, (unsigned char *)buf, n);
+        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+            || r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+#endif
+            )
+            continue;                   /* TLS 1.3 housekeeping, not data */
+        break;
+    }
     if (r > 0) return r;
     /* the server's own close is the end of the body, not a failure */
-    return SSL_get_error(ssl, r) == SSL_ERROR_ZERO_RETURN ? 0 : (r == 0 ? 0 : -1);
+    return r == 0 || r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || r == MBEDTLS_ERR_SSL_CONN_EOF ? 0 : -1;
 }
 
+/* All of it, or a failure: a record holds 16 KB at most, so one call to the
+ * library may take less than it was given. */
 ssize_t pkg_tls_write(const void *buf, size_t n)
 {
-    int r;
-    if (ssl == NULL) return -1;
-    r = SSL_write(ssl, buf, (int)(n > 0x7fffffffu ? 0x7fffffffu : n));
-    return r > 0 ? r : -1;
+    size_t at = 0;
+    if (!active) return -1;
+    while (at < n) {
+        int r = mbedtls_ssl_write(&ssl, (const unsigned char *)buf + at, n - at);
+        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE)
+            continue;
+        if (r <= 0) return -1;
+        at += (size_t)r;
+    }
+    return (ssize_t)n;
 }
 
 void pkg_tls_close(void)
 {
-    if (ssl != NULL) {
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-        ssl = NULL;
-        ERR_clear_error();
+    if (active) {
+        mbedtls_ssl_close_notify(&ssl);
+        mbedtls_ssl_free(&ssl);
+        active = 0;
     }
 }
 
 int pkg_tls_active(void)
 {
-    return ssl != NULL;
+    return active;
 }

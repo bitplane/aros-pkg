@@ -24,22 +24,14 @@ aros_src=${AROS_SRC:-"$repo_root/../aros-upstream"}
 hosted_env=${AROS_HOSTED_ENV:-"$HOME/aros-build/bin/darwin-aarch64/gen/tools/collect-aros/env.h"}
 llvm=${LLVM:-/opt/homebrew/opt/llvm}
 sdk=${AROS_X86_64_SDK:-$(ls -d "$HOME"/aros-native/AROS-*-linux-x86_64-system/Developer 2>/dev/null | tail -1)}
-openssl=${PKG_X86_64_OPENSSL:-"$HOME/aros-native/openssl-x86_64"}
+mbedtls="$repo_root/third_party/mbedtls"
 out="$repo_root/build/aros-x86_64"
 tools="$out/tools"
 
 for need in "$llvm/bin/clang" "$sdk/lib/startup.o" "$hosted_env" "$aros_src/tools/collect-aros/collect-aros.c"; do
     [ -e "$need" ] || { echo "build-aros-x86_64: missing $need" >&2; exit 69; }
 done
-for need in "$openssl/lib/libssl.a" "$openssl/lib/libcrypto.a" "$openssl/include/openssl/ssl.h"; do
-    [ -e "$need" ] || { echo "build-aros-x86_64: missing $need, which https needs. AROS contrib" >&2
-                        echo "builds it: take Developer/lib/lib{ssl,crypto}.a and Developer/include/openssl" >&2
-                        echo "out of a nightly AROS-<date>-pc-x86_64-contrib archive into" >&2
-                        echo "  $openssl/{lib,include}" >&2
-                        echo "or point PKG_X86_64_OPENSSL at another copy." >&2
-                        exit 69; }
-done
-mkdir -p "$out/obj" "$tools"
+mkdir -p "$out/obj" "$out/mbedtls" "$tools"
 
 # The certificate authorities Pkg carries.
 sh "$repo_root/tools/ca-bundle-c.sh" "$repo_root/third_party/cacert/cacert.pem" > "$out/pkg_cabundle.c"
@@ -61,12 +53,24 @@ for f in src/pkg_main.c src/pkg_lib.c src/pkg_container.c src/pkg_sha256.c src/p
         -D__AROS__=1 -D__AROS=1 -DAROS=1 -DAMIGA=1 -D_AMIGA=1 \
         -Wall -Wextra -Werror \
         -isystem "$sdk/include" -isystem "$sdk/include/aros/posixc" -isystem "$sdk/include/aros/stdc" \
-        -isystem "$openssl/include" \
+        -DMBEDTLS_CONFIG_FILE='"pkg_mbedtls_config.h"' -isystem "$mbedtls" -isystem "$mbedtls/include" \
         -I include -I third_party/bzip2 -c "$f" -o "$out/obj/$(basename "$f" .c).o"
 done
-"$tools/collect-aros" -o "$out/Pkg" "$sdk/lib/startup.o" "$out"/obj/*.o -L"$sdk/lib" \
+# Mbed TLS, which https runs on: third_party/mbedtls, compiled for size with
+# Pkg's own configuration, rebuilt when an object is older than its source.
+# MBEDTLS_TEST_SW_INET_PTON: AROS's posixc has no inet_pton (it lives in
+# miami.library), so Mbed TLS reads addresses with its own.
+for c in "$mbedtls"/library/*.c; do
+    o="$out/mbedtls/$(basename "$c" .c).o"
+    [ "$o" -nt "$c" ] && [ "$o" -nt "$mbedtls/pkg_mbedtls_config.h" ] && continue
+    "$llvm/bin/clang" --target=x86_64-unknown-aros -mcmodel=large -Os -std=gnu11 \
+        -D__AROS__=1 -D__AROS=1 -DAROS=1 -DAMIGA=1 -D_AMIGA=1 \
+        -isystem "$sdk/include" -isystem "$sdk/include/aros/posixc" -isystem "$sdk/include/aros/stdc" \
+        -DMBEDTLS_CONFIG_FILE='"pkg_mbedtls_config.h"' -DMBEDTLS_TEST_SW_INET_PTON \
+        -I "$mbedtls" -I "$mbedtls/include" -I "$mbedtls/library" -c "$c" -o "$o"
+done
+"$tools/collect-aros" -o "$out/Pkg" "$sdk/lib/startup.o" "$out"/obj/*.o "$out"/mbedtls/*.o -L"$sdk/lib" \
     --allow-multiple-definition --start-group \
-    "$openssl/lib/libssl.a" "$openssl/lib/libcrypto.a" \
     -lrexxsyslib -lpthread -lposixc -lstdc -lstdcio -ldos -lexec -laros \
     -lautoinit -llibinit -lutility -lamiga -larossupport --end-group
 chmod 755 "$out/Pkg"
