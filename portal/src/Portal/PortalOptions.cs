@@ -36,6 +36,11 @@ public sealed class PortalOptions
     /// from then on a push of that package must be signed by that key, whatever
     /// signed its first version. Machines that pinned the old key refuse the new
     /// one once, and their owners decide with ACCEPTKEY.
+    /// Publishers known by the public half of their signing key, for a push
+    /// whose requests are signed instead of carrying a key (plain http, AROS):
+    /// "name:publickey:channels[:files];...". Nothing here is secret.
+    public string SignedKeys { get; set; } = "";
+
     public string Owners { get; set; } = "";
 
     /// Channels served to whoever has the address but shown nowhere: not on the

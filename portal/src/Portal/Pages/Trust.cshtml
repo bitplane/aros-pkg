@@ -60,6 +60,7 @@
         <li>Archives @(pol.Hosts.Count == 0 ? "on any https server" : $"on these hosts only: {string.Join(", ", pol.Hosts)}").</li>
         <li>@(pol.NewChannels ? "A publisher's first push may create its channel." : "Channels are created by the maintainers.")</li>
     }
+    <li>@(pol.SignedPush ? "A publisher may push with requests signed by their own key instead of a key from the portal; such a push may come over plain http, since nothing secret travels (this is how AROS pushes)." : "A push needs https and a key from the portal.")</li>
     <li>@(pol.PlainHttp ? "Channels answer over https and plain http." : "Everything is served over https only.")</li>
 </ul>
 @if (pol.Note.Length > 0)

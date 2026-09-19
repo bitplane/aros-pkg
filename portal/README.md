@@ -61,6 +61,7 @@ PKG_PUSHKEY=<key> sh portal/tools/push.sh <local channel dir> https://<host>/<ch
   dates and download counts move to `state/removed/<stash>/`, nothing is
   destroyed, and a file another version still needs stays.
 - `POST /_admin/restore/<stash>` puts a removal back.
+- `Portal:SignedKeys` (`name:publickey:channels[:files];...`) names publishers by the public half of their signing key, for pushes whose requests are signed instead of carrying a key (`Push/SignedPush.cs` says what is signed and why it may come over plain http). Nothing in it is secret. `Portal:Policy:SignedPush=false` turns it off.
 - `POST /_admin/channels/<channel>/unlist` serves a channel to whoever has its address and shows it nowhere (home page, search, statistics, feeds, publishers); `.../list` shows it again. `Portal:Unlisted` (`a;b`) does the same from the settings. `sh portal/tools/admin.sh <portal> unlist <channel>`.
 - `GET /_admin/log` lists every admin action.
 

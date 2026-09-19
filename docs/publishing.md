@@ -260,6 +260,10 @@ pkg PUSH CHANNEL mychannel TO https://aros-pkg.azurewebsites.net/mychannel
 parts that resume after a failure, and never an archive published with
 `UPSTREAM`. The portal checks every signature before it publishes anything.
 
+From AROS, or from any machine without a portal key, push to the `http://`
+address instead: Pkg signs each request with your publisher key, and the
+portal knows you by its public half ([PUSH](commands/push.md)).
+
 **What your key may send.** A portal decides per key whether it takes your
 files. On the AROS portal a key publishes *by link* unless its maintainers
 gave it the *files* right: your push carries the signed manifests and

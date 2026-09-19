@@ -86,10 +86,12 @@ $PKG PUSH CHANNEL local TO "$U" MACHINE > o4c 2>&1
 echo "refusals"
 PKG_PUSHKEY=wrong $PKG PUSH CHANNEL local TO "$U" MACHINE > o5 2>&1
 [ $? -eq 14 ] && has o5 'refused the key';            ok $? "a wrong key is refused with 14"
-env -u PKG_PUSHKEY $PKG PUSH CHANNEL local TO "$U" MACHINE > o6 2>&1
-[ $? -eq 14 ] && has o6 'PKG_PUSHKEY';               ok $? "no key: refused, naming where the key goes"
-$PKG PUSH CHANNEL local TO "http://example.com/pkg" MACHINE > o7 2>&1
-[ $? -eq 20 ] && has o7 'only over https';            ok $? "a key never goes over plain http to another machine"
+env -u PKG_PUSHKEY -u PKG_SIGNKEY $PKG PUSH CHANNEL local TO "$U" MACHINE > o6 2>&1
+[ $? -eq 14 ] && has o6 'PKG_PUSHKEY' && has o6 'PKG_SIGNKEY';  ok $? "no key of either kind: refused, naming both"
+# over plain http to another machine the portal's key is never sent: the push
+# is signed instead, and without a signing key nothing leaves this machine
+env -u PKG_SIGNKEY PKG_PUSHKEY=secret $PKG PUSH CHANNEL local TO "http://example.com/pkg" MACHINE > o7 2>&1
+[ $? -eq 14 ] && has o7 'sign' && ! has o7 'secret';  ok $? "a portal key never goes over plain http to another machine"
 mkdir -p d2/C; printf 'x\000$VER: hello 1.1 (1.1.2026)\000' > d2/C/Hello
 $PKG PUBLISH d2 CHANNEL local KIND application > /dev/null
 m=$(ls -t local/objects/*.manifest | head -1)

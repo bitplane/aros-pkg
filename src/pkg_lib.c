@@ -1013,6 +1013,51 @@ static int cmd_sign(const struct pkg_options *a)
     return 0;
 }
 
+static int ascii_casecmp(const char *x, const char *y);
+
+/* CHECKSIG <file> FILE <sigfile> [KEY <public key>]: the counterpart of SIGN
+ * for a machine without ssh-keygen, and what a portal runs to check a signed
+ * push request. */
+static int cmd_checksig(const struct pkg_options *a)
+{
+    unsigned char *buf;
+    size_t len;
+    char signer[65];
+    if (a->target == NULL || a->file == NULL)
+        return refuse_c(20, "usage: CHECKSIG <file> FILE <sigfile> [KEY <the signer's public key>]");
+    if (pkg_fs_read(a->target, &buf, &len) != 0)
+        return refuse_c(17, "cannot read \"%s\"", a->target);
+    {
+        unsigned char *sb, pk[PKG_ED25519_PUBLIC], sig[PKG_ED25519_SIG];
+        size_t sl;
+        char sighex[129];
+        if (pkg_fs_read(a->file, &sb, &sl) != 0) {
+            free(buf);
+            return refuse_c(17, "cannot read the signature \"%s\"", a->file);
+        }
+        if (sl > 512u || sscanf((const char *)sb, "Signer: %64s\nSignature: %128s", signer, sighex) != 2
+            || fromhex(pk, sizeof pk, signer) != 0 || fromhex(sig, sizeof sig, sighex) != 0) {
+            free(sb); free(buf);
+            return refuse_c(13, "\"%s\" is not a signature SIGN wrote: a Signer: line and a Signature: line", a->file);
+        }
+        free(sb);
+        if (pkg_ed25519_verify(sig, buf, len, pk) != 0) {
+            free(buf);
+            return refuse_c(13, "the signature does not check: %s or %s was changed after signing, "
+                            "or the signature is for another file", a->target, a->file);
+        }
+    }
+    free(buf);
+    if (a->key != NULL && ascii_casecmp(a->key, signer) != 0)
+        return refuse_c(14, "%s is signed, by %s and not by the key given, %s", a->target, signer, a->key);
+    kv("result", "good");
+    kv("file", "%s", a->target);
+    kv("signer", "%s", signer);
+    if (!machine)
+        say_result("%s is signed by %s%s", a->target, signer, a->key ? ", the key given" : "");
+    return 0;
+}
+
 /* ---- building a package from a drawer --------------------------------- */
 
 struct loaded {
@@ -7605,6 +7650,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
 
 int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "keygen", cmd_keygen, o); }
 int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "sign", cmd_sign, o); }
+int pkg_checksig (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "checksig", cmd_checksig, o); }
 int pkg_keyinfo  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "keyinfo", cmd_keyinfo, o); }
 int pkg_withdraw (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "withdraw", cmd_withdraw, o); }
 int pkg_manifest (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "manifest", cmd_manifest, o); }
@@ -7778,8 +7824,57 @@ static void push_drop_upstream(const char *channel, struct push_list *pl)
     free(ix.e);
 }
 
+/* How a push proves who sends it. Over https: the portal's key, a secret, in
+ * each request. Over plain http (AROS has no TLS) nothing secret may travel,
+ * so each request is signed with the publisher's own key instead: the portal
+ * gives a session, and the signature covers the method, the path, the session,
+ * a number that only grows and the SHA-256 of the body, so a request cannot be
+ * altered, replayed or moved to another address. */
+struct push_auth {
+    const char *bearer;         /* https: PKG_PUSHKEY */
+    struct key  k;              /* http: the signing key */
+    char        session[80];
+    unsigned long seq;
+    const char *hdr;            /* the header file each request is sent with */
+};
+
+static int push_send(struct push_auth *pa, const char *method, const char *url, const char *body,
+                     const char *range, const char *out, int *code, char *err, size_t errlen)
+{
+    char h[3200];
+    if (pa->bearer != NULL) {
+        snprintf(h, sizeof h, "Authorization: Bearer %s\n%s%s%s", pa->bearer,
+                 range ? "Content-Range: " : "", range ? range : "", range ? "\n" : "");
+    } else {
+        char digest[PKG_SHA256_HEXLEN + 1], text[2800], sighex[2 * PKG_ED25519_SIG + 1];
+        unsigned char sig[PKG_ED25519_SIG];
+        unsigned long long size;
+        const char *path = strstr(url, "://");
+        path = path ? strchr(path + 3, '/') : NULL;
+        if (path == NULL || file_digest(body, digest, &size) != 0) {
+            snprintf(err, errlen, "cannot read %s to sign the request", body);
+            return -1;
+        }
+        pa->seq++;
+        snprintf(text, sizeof text, "pkg-push-1\n%s\n%s\n%s\n%lu\n%s\n%s\n", method, path, pa->session,
+                 pa->seq, digest, range ? range : "-");
+        pkg_ed25519_sign(sig, (const unsigned char *)text, strlen(text), pa->k.sk);
+        tohex(sig, sizeof sig, sighex);
+        snprintf(h, sizeof h, "Authorization: Pkg-Signature key=%s,session=%s,seq=%lu,sha256=%s,sig=%s\n%s%s%s",
+                 pa->k.pkhex, pa->session, pa->seq, digest, sighex,
+                 range ? "Content-Range: " : "", range ? range : "", range ? "\n" : "");
+    }
+    if (pkg_fs_write_private(pa->hdr, h, strlen(h)) != 0) {
+        snprintf(err, errlen, "cannot write the request's headers where only this user reads them");
+        return -1;
+    }
+    return pkg_net_send(method, url, body, pa->hdr, out, code, err, errlen);
+}
+
 static int cmd_push(const struct pkg_options *a)
 {
+    struct push_auth pa;
+    int signed_push;
     struct push_list pl = { NULL, 0, 0 };
     char *cache = NULL, *tmp = NULL, *hdr = NULL, *plan = NULL, *out = NULL, *part = NULL, *ix = NULL;
     char url[2300], err[400], line[2200];
@@ -7795,13 +7890,28 @@ static int cmd_push(const struct pkg_options *a)
     if (a->to == NULL) return refuse_c(20, "name the portal's channel with TO <url>");
     if (is_url(a->channel))
         return refuse_c(20, "CHANNEL is the channel on this machine that PUSH sends; the portal's is TO");
-    if (strncmp(a->to, "https://", 8) != 0
-        && strncmp(a->to, "http://127.0.0.1", 16) != 0 && strncmp(a->to, "http://localhost", 16) != 0)
-        return refuse_c(20, "PUSH sends a key, so only over https (http is accepted to this "
-                        "machine alone, for tests): %s", a->to);
-    if (a->pushkey == NULL || a->pushkey[0] == '\0')
-        return refuse_n(14, "ask-requester", "no portal key: set PKG_PUSHKEY to the key the portal "
-                        "gave the publisher. Ask whoever requested this for it; never make one up");
+    if (strncmp(a->to, "https://", 8) != 0 && strncmp(a->to, "http://", 7) != 0)
+        return refuse_c(20, "TO is the portal's channel, an https:// or http:// address: %s", a->to);
+    memset(&pa, 0, sizeof pa);
+    /* The portal's key where it is safe to send: https, or a test portal on this
+     * machine. Anywhere else, and whenever there is no such key, each request is
+     * signed with the publisher's own key. */
+    {
+        int has_key = a->pushkey != NULL && a->pushkey[0] != '\0';
+        int local = strncmp(a->to, "http://127.0.0.1", 16) == 0 || strncmp(a->to, "http://localhost", 16) == 0;
+        signed_push = !(has_key && (strncmp(a->to, "https://", 8) == 0 || local));
+    }
+    if (signed_push) {
+        if (a->sign == NULL || a->sign[0] == '\0')
+            return refuse_n(14, "ask-requester", "no key to sign the push with: give SIGN <keyfile> or set "
+                            "PKG_SIGNKEY to the publisher's key, the one the portal knows them by; or, to an "
+                            "https address, set PKG_PUSHKEY to the key the portal gave. Ask whoever requested "
+                            "this which; never make a key up");
+        if (load_key(a->sign, &pa.k) != 0)
+            return 1;
+    } else {
+        pa.bearer = a->pushkey;
+    }
     ix = pkg_join(a->channel, "index");
     if (ix == NULL || !pkg_fs_exists(ix)) {
         free(ix);
@@ -7827,10 +7937,23 @@ static int cmd_push(const struct pkg_options *a)
     plan = pkg_join(tmp, "plan");
     out = pkg_join(tmp, "answer");
     part = pkg_join(tmp, "part");
-    snprintf(line, sizeof line, "Authorization: Bearer %s\n", a->pushkey);
-    if (hdr == NULL || pkg_fs_write_private(hdr, line, strlen(line)) != 0) {
-        refuse_c(17, "cannot write the key where only this user reads it");
-        goto out;
+    if (hdr == NULL || plan == NULL || out == NULL || part == NULL) { refuse_c(17, "out of memory"); goto out; }
+    pa.hdr = hdr;
+    if (signed_push) {
+        /* the session: asked for by public key, answered with a number to sign against */
+        snprintf(line, sizeof line, "key: %s\n", pa.k.pkhex);
+        snprintf(url, sizeof url, "%s/_push/session", base);
+        if (pkg_fs_write_private(plan, line, strlen(line)) != 0 || pkg_fs_write_private(hdr, "", 0) != 0
+            || pkg_net_send("POST", url, plan, hdr, out, &code, err, sizeof err) != 0) {
+            refuse_c(17, "cannot reach %s: %s", base, err);
+            goto out;
+        }
+        if (code != 200 || answer_field(out, "session", pa.session, sizeof pa.session) == NULL) {
+            char why[600];
+            refuse_n(14, "ask-requester", "the portal gave no session for the key %.16s (HTTP %d)%s%s", pa.k.pkhex, code,
+                     answer_field(out, "reason", why, sizeof why) ? ": " : "", answer_field(out, "reason", why, sizeof why) ? why : "");
+            goto out;
+        }
     }
 
     /* 1. plan: every file, its digest and size; the portal says what it needs */
@@ -7849,7 +7972,7 @@ static int cmd_push(const struct pkg_options *a)
     }
     fclose(f);
     snprintf(url, sizeof url, "%s/_push/plan", base);
-    if (pkg_net_send("POST", url, plan, hdr, out, &code, err, sizeof err) != 0) {
+    if (push_send(&pa, "POST", url, plan, NULL, out, &code, err, sizeof err) != 0) {
         refuse_c(17, "cannot reach %s: %s", base, err);
         goto out;
     }
@@ -7894,7 +8017,7 @@ static int cmd_push(const struct pkg_options *a)
             }
             snprintf(url, sizeof url, "%s/_push/files/%s", base, need[i]);
             if (size <= partsz) {
-                if (pkg_net_send("PUT", url, full, hdr, out, &code, err, sizeof err) == 0 && code == 200
+                if (push_send(&pa, "PUT", url, full, NULL, out, &code, err, sizeof err) == 0 && code == 200
                     && answer_field(out, "result", result, sizeof result)
                     && (strcmp(result, "received") == 0 || strcmp(result, "unchanged") == 0))
                     ok_file = 1;
@@ -7915,10 +8038,8 @@ static int cmd_push(const struct pkg_options *a)
                         left -= k;
                     }
                     fclose(pf);
-                    snprintf(ph, sizeof ph, "Authorization: Bearer %s\nContent-Range: bytes %llu-%llu/%llu\n",
-                             a->pushkey, off, end2 - 1, size);
-                    if (pkg_fs_write_private(hdr, ph, strlen(ph)) != 0) break;
-                    if (pkg_net_send("PUT", url, part, hdr, out, &code, err, sizeof err) != 0 || code != 200
+                    snprintf(ph, sizeof ph, "bytes %llu-%llu/%llu", off, end2 - 1, size);
+                    if (push_send(&pa, "PUT", url, part, ph, out, &code, err, sizeof err) != 0 || code != 200
                         || answer_field(out, "result", result, sizeof result) == NULL)
                         break;
                     if (strcmp(result, "received") == 0 || strcmp(result, "unchanged") == 0) { ok_file = 1; break; }
@@ -7927,8 +8048,6 @@ static int cmd_push(const struct pkg_options *a)
                     off = strtoull(rec, NULL, 10);         /* the portal's count, so a resume skips */
                 }
                 if (src) fclose(src);
-                snprintf(line, sizeof line, "Authorization: Bearer %s\n", a->pushkey);
-                pkg_fs_write_private(hdr, line, strlen(line));
             }
             if (!ok_file) {
                 char why[600];
@@ -7949,7 +8068,7 @@ static int cmd_push(const struct pkg_options *a)
 
     /* 3. commit: the local index; the portal merges, checks and answers */
     snprintf(url, sizeof url, "%s/_push/commit", base);
-    if (pkg_net_send("POST", url, ix, hdr, out, &code, err, sizeof err) != 0) {
+    if (push_send(&pa, "POST", url, ix, NULL, out, &code, err, sizeof err) != 0) {
         refuse_c(17, "cannot reach %s to commit: %s", base, err);
         goto out;
     }
@@ -8002,6 +8121,7 @@ static int cmd_push(const struct pkg_options *a)
         }
     }
 out:
+    memset(&pa, 0, sizeof pa);
     if (hdr) pkg_fs_unlink(hdr);
     if (tmp) pkg_fs_rmtree(tmp);
     for (i = 0; i < pl.n; i++) free(pl.rel[i]);

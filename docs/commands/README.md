@@ -29,6 +29,7 @@ in the [reference](../reference.md#verbs); `pkg HELP` prints it.
 - [`PUBLISH`](publish.md): publish a drawer as a version of a package
 - [`WITHDRAW`](withdraw.md): a version nothing installs any more
 - [`SIGN`](sign.md): a detached signature for any file
+- [`CHECKSIG`](checksig.md): whether such a signature is good, and whose it is
 - [`IMAGE`](image.md): an FFS volume image of a drawer
 - [`PUSH`](push.md): send a channel to the portal
 

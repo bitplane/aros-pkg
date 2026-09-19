@@ -739,15 +739,6 @@ void pkg_fs_unlock_dir(void *lock)
 /* ---- the network ------------------------------------------------------ */
 
 #if defined(__AROS__)
-int pkg_net_send(const char *method, const char *url, const char *body_file,
-                 const char *header_file, const char *out_file, int *code,
-                 char *err, size_t errlen)
-{
-    (void)method; (void)url; (void)body_file; (void)header_file; (void)out_file; (void)code;
-    snprintf(err, errlen, "PUSH runs on the machine that publishes, not on AROS yet");
-    return -1;
-}
-
 /* The network on AROS is bsdsocket.library, which a TCP/IP stack provides
  * once it is started (AROSTCP; on a hosted AROS, the host's own sockets). It
  * is opened for one transfer and closed after it: Pkg holds nothing open. */
@@ -802,6 +793,16 @@ static void net_close(int s)
     SocketBase = NULL;
 }
 
+static int send_https(const char *method, const char *url, const char *body_file,
+                      const char *header_file, const char *out_file, int *code,
+                      char *err, size_t errlen)
+{
+    (void)method; (void)body_file; (void)header_file; (void)out_file; (void)code;
+    snprintf(err, errlen, "%s is https, and AROS has no TLS: PUSH to the http:// address, where each "
+             "request is signed with the publisher's key instead of carrying the portal's", url);
+    return -1;
+}
+
 static int get_https(const char *url, const char *tmp, char *err, size_t errlen)
 {
     (void)tmp;
@@ -845,9 +846,9 @@ char *pkg_cache_dir(void)
     return p;
 }
 
-int pkg_net_send(const char *method, const char *url, const char *body_file,
-                 const char *header_file, const char *out_file, int *code,
-                 char *err, size_t errlen)
+static int send_https(const char *method, const char *url, const char *body_file,
+                      const char *header_file, const char *out_file, int *code,
+                      char *err, size_t errlen)
 {
     char data[1100], hdr[1100], codebuf[32];
     char *argv[20];
@@ -954,6 +955,96 @@ static void net_close(int s) { close(s); }
 #endif
 
 /* ---- the HTTP client, the same on every system ------------------------ */
+
+/* One request with a body, for PUSH: the headers of header_file, the body
+ * of body_file, the answer's body in out_file and its status in *code. */
+int pkg_net_send(const char *method, const char *url, const char *body_file,
+                 const char *header_file, const char *out_file, int *code,
+                 char *err, size_t errlen)
+{
+    char host[256], port[8] = "80", head[8192], buf[65536];
+    const char *p, *slash, *colon, *path;
+    unsigned char *hdrs = NULL;
+    size_t hl, hlen = 0, hdrlen = 0;
+    struct stat sb;
+    char *body;
+    FILE *bf = NULL, *of = NULL;
+    ssize_t n;
+    int s, rc = -1;
+
+    if (strncmp(url, "https://", 8) == 0)
+        return send_https(method, url, body_file, header_file, out_file, code, err, errlen);
+    if (strncmp(url, "http://", 7) != 0) { snprintf(err, errlen, "cannot send to %s: only http:// and https://", url); return -1; }
+    p = url + 7; slash = strchr(p, '/'); path = slash ? slash : "/";
+    hl = slash ? (size_t)(slash - p) : strlen(p);
+    colon = memchr(p, ':', hl);
+    if (hl == 0 || hl >= sizeof host) { snprintf(err, errlen, "no host in %s", url); return -1; }
+    if (colon) { snprintf(port, sizeof port, "%.*s", (int)(hl - (size_t)(colon - p) - 1), colon + 1); hl = (size_t)(colon - p); }
+    snprintf(host, sizeof host, "%.*s", (int)hl, p);
+    if (stat(body_file, &sb) != 0 || (bf = fopen(body_file, "rb")) == NULL) { snprintf(err, errlen, "cannot read %s", body_file); return -1; }
+    if (header_file != NULL) pkg_fs_read(header_file, &hdrs, &hdrlen);
+    s = net_open(host, port, err, errlen);
+    if (s < 0) { fclose(bf); free(hdrs); return -1; }
+    {
+        /* header_file holds "Name: value\n" lines; the wire wants \r\n */
+        char req[8192];
+        size_t at = (size_t)snprintf(req, sizeof req, "%s %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Pkg\r\nConnection: close\r\n"
+                                     "Content-Type: application/octet-stream\r\nContent-Length: %lld\r\n",
+                                     method, path, host, (long long)sb.st_size), i;
+        for (i = 0; i < hdrlen && at + 4 < sizeof req; i++) {
+            if (hdrs[i] == '\n') { req[at++] = '\r'; req[at++] = '\n'; }
+            else if (hdrs[i] != '\r') req[at++] = (char)hdrs[i];
+        }
+        if (at + 2 >= sizeof req) { snprintf(err, errlen, "the request's headers are too long"); goto done; }
+        req[at++] = '\r'; req[at++] = '\n';
+        if (net_write(s, req, at) != (ssize_t)at) { snprintf(err, errlen, "cannot send to %s", host); goto done; }
+    }
+    for (;;) {
+        size_t k = fread(buf, 1, sizeof buf, bf), sent = 0;
+        if (k == 0) break;
+        while (sent < k) {
+            n = net_write(s, buf + sent, k - sent);
+            if (n <= 0) { snprintf(err, errlen, "%s stopped taking the upload", host); goto done; }
+            sent += (size_t)n;
+        }
+    }
+    /* the whole answer: these are short records */
+    for (;;) {
+        if (hlen + 1 >= sizeof head) break;
+        n = net_read(s, head + hlen, sizeof head - 1 - hlen);
+        if (n <= 0) break;
+        hlen += (size_t)n;
+    }
+    head[hlen] = '\0';
+    if (sscanf(head, "HTTP/%*s %d", code) != 1 || (body = strstr(head, "\r\n\r\n")) == NULL) {
+        snprintf(err, errlen, "%s did not answer HTTP", host);
+        goto done;
+    }
+    body += 4;
+    if (strstr(head, "chunked") != NULL && strstr(head, "chunked") < body) {
+        /* a short chunked answer: drop the size lines */
+        char *w = body, *r = body;
+        for (;;) {
+            unsigned long size = strtoul(r, NULL, 16);
+            char *eol = strstr(r, "\r\n");
+            if (eol == NULL || size == 0 || eol + 2 + size > head + hlen) break;
+            memmove(w, eol + 2, size);
+            w += size;
+            r = eol + 2 + size + 2;
+        }
+        *w = '\0';
+    }
+    of = fopen(out_file, "wb");
+    if (of == NULL) { snprintf(err, errlen, "cannot write %s", out_file); goto done; }
+    fwrite(body, 1, strlen(body), of);
+    fclose(of);
+    rc = 0;
+done:
+    net_close(s);
+    fclose(bf);
+    free(hdrs);
+    return rc;
+}
 
 static int http_get_once(const char *url, int fd, char *location, size_t ll, char *err, size_t errlen)
 {

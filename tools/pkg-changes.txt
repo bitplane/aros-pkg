@@ -1,3 +1,3 @@
-Pkg on AROS reads channels over the network: CHANNEL http://aros-pkg.azurewebsites.net/pkg works for INSTALL, STATUS, UPGRADE and SHOW once the network is started (AROSTCP, or a hosted AROS's own sockets). https is refused with the reason: AROS has no TLS, and Pkg checks every signature and file itself whatever the connection.
-Downloads are kept in SYS:.pkg/cache on AROS, so a reboot does not fetch them again.
-Install-Pkg names the network channel for later upgrades.
+PUSH works from AROS: to an http:// address, or with no portal key, each request is signed with the publisher's own key, and the portal knows the publisher by its public half. Nothing secret travels, so it needs no TLS. Over https with PKG_PUSHKEY nothing changes.
+CHECKSIG <file> FILE <sigfile> checks a signature SIGN made and says whose it is, with nothing but Pkg: on AROS there is no ssh-keygen.
+A download shows its progress at a terminal or a Shell window: downloading 12.4 of 640.0 MB.

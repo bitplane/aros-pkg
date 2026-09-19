@@ -46,9 +46,10 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."]` | Prints the description a publish would sign; writes nothing. |
 | [`PUBLISH`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. |
 | [`WITHDRAW`](commands/withdraw.md) | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>]` | Marks a published version as withdrawn. |
-| [`PUSH`](commands/push.md) | `PUSH CHANNEL <channel> TO <url>` | Uploads a local channel to a portal; the key comes from `PKG_PUSHKEY`. |
+| [`PUSH`](commands/push.md) | `PUSH CHANNEL <channel> TO <url> [SIGN <keyfile>]` | Uploads a local channel to a portal: over `https` with the key in `PKG_PUSHKEY`, or, over `http` too, with requests signed by the publisher's key. |
 | [`IMAGE`](commands/image.md) | `IMAGE <drawer> OUT <file> [NAME <volume>]` | Writes a drawer as an FFS disk image. |
 | [`SIGN`](commands/sign.md) | `SIGN <file> KEY <keyfile> OUT <sigfile> [SSH NAMESPACE <ns>]` | Signs any file with a key; `SSH` writes a signature `ssh-keygen -Y verify` checks. |
+| [`CHECKSIG`](commands/checksig.md) | `CHECKSIG <file> FILE <sigfile> [KEY <public key>]` | Checks a signature `SIGN` made, and says whose it is. |
 
 ### Other
 
@@ -87,10 +88,10 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | `README` | an Aminet `.readme`: fills `Short`, `Author`, `Type` and the text | `PUBLISH`, `MANIFEST` |
 | `FROM` | the program's directory, for its current directory and `PROGDIR:` | `RESOLVE` |
 | `ARCHIVE` | the name of an archive in the channel | `SHOW` |
-| [`SIGN`](commands/sign.md) | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW` |
+| [`SIGN`](commands/sign.md) | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW`, `PUSH` |
 | `ACCEPTKEY` | a public key in full, 64 hexadecimal digits | `INSTALL`, `UPGRADE`, `PUBLISH` |
 | `FILE` | a key file | `KEYGEN`, `KEYINFO` |
-| `KEY` | a key file | `SIGN` |
+| `KEY` | a key file; for `CHECKSIG`, the public key expected | `SIGN`, `CHECKSIG` |
 | `SSH` | OpenSSH's formats instead of Pkg's | `SIGN`, `KEYINFO` |
 | `NAMESPACE` | what an SSH signature is for, the word `ssh-keygen -Y verify -n` names | `SIGN` with `SSH` |
 | `OUT` | a file to write | `SIGN`, `IMAGE`, `MOUNTLIST` |

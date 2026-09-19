@@ -40,6 +40,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
 builder.Services.AddSingleton<Catalogue>();
 builder.Services.AddSingleton<PublisherKeys>();
+builder.Services.AddSingleton<SignedPush>();
 builder.Services.AddSingleton<PkgRunner>();
 builder.Services.AddSingleton<PushService>();
 builder.Services.AddSingleton<ArchiveChecker>();
@@ -174,12 +175,30 @@ var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpo
     if (!opts.Policy.Push)
         return Results2.Text(opts.Policy.Refuse("Push", "off", "this portal accepts no uploads: it serves its channels read-only",
             "ask the portal's operators where to publish"), 403);
-    var loopback = http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
-    if (!http.Request.IsHttps && !(opts.AllowLoopbackHttpPush && loopback))
-        return Results2.Text(Record.Refused(20, "a push needs https: its key must never travel in clear", "use the https address"), 403);
     if (!ChannelPaths.IsChannelName(channel))
         return Results2.Text(Record.Refused(20, $"'{channel}' is not a channel name: lowercase letters, digits and '-'", "check the address"), 400);
-    var who = http.RequestServices.GetRequiredService<PublisherKeys>().Find(http.Request.Headers.Authorization);
+    var signed = http.RequestServices.GetRequiredService<SignedPush>();
+    var opening = http.Request.Path.Value!.EndsWith("/_push/session", StringComparison.Ordinal);
+    Publisher? who;
+    if (opening || SignedPush.IsSigned(http.Request.Headers.Authorization))
+    {
+        // Signed requests carry nothing secret, so they may come over plain http.
+        if (!opts.Policy.SignedPush)
+            return Results2.Text(opts.Policy.Refuse("SignedPush", "off", "this portal takes no signed pushes", "push over https with the key the portal gave you"), 403);
+        if (opening) return await next(ctx);
+        var (publisher, refusal, body) = await signed.Check(http, http.RequestAborted);
+        if (refusal is not null) return Results2.Text(refusal, 401);
+        http.Response.RegisterForDisposeAsync(body!);
+        http.Request.Body = body!;
+        who = publisher;
+    }
+    else
+    {
+        var loopback = http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
+        if (!http.Request.IsHttps && !(opts.AllowLoopbackHttpPush && loopback))
+            return Results2.Text(Record.Refused(20, "a push key must never travel in clear: over http, sign the push with your own key instead (pkg PUSH ... SIGN <keyfile>)", "use the https address, or a signed push"), 403);
+        who = http.RequestServices.GetRequiredService<PublisherKeys>().Find(http.Request.Headers.Authorization);
+    }
     if (who is null)
         return Results2.Text(Record.Refused(14, "no push key, or one the portal does not know", "set PKG_PUSHKEY to the key you were given"), 401);
     if (!who.MayPush(channel))
@@ -189,6 +208,12 @@ var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpo
             "push to an existing channel, or ask the operators to create this one"), 403);
     http.Items["publisher"] = who;
     return await next(ctx);
+});
+
+push.MapPost("/session", async (HttpContext http, SignedPush s) =>
+{
+    var answer = s.Open(await ReadBody(http));
+    return Results2.Text(answer, answer.Get("result") == "session" ? 200 : 401);
 });
 
 push.MapPost("/plan", async (HttpContext http, string channel, PushService s) =>

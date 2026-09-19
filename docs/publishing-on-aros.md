@@ -296,12 +296,19 @@ served over plain `http` reaches every AROS machine:
 `Pkg INSTALL greet ROOT SYS: CHANNEL http://example.org/mychannel`
 ([Channels](channels.md) shows how to serve one).
 
-The portal is where people look first. `PUSH`, which sends a channel to
-it, runs on a Mac or a PC, not on AROS yet: copy `Work:mychannel` there and
-follow *Upload to the portal* in [Publishing packages](publishing.md).
-The upload key the portal's maintainers give you decides whether your
-push carries the files or only links to them; the portal's rules are on
-its [trust page](https://aros-pkg.azurewebsites.net/trust).
+The portal is where people look first, and `PUSH` sends a channel to it
+from AROS too, over plain `http`, signed with your key instead of a secret
+from the portal. Send the portal's maintainers your public key once
+(`Pkg KEYINFO FILE Work:keys/my.key`); when they have added it:
+
+```amigados
+Pkg PUSH CHANNEL Work:mychannel TO http://aros-pkg.azurewebsites.net/mychannel
+```
+
+Whether your push carries the files or only links to them is the portal's
+rule for your key; its rules are on its
+[trust page](https://aros-pkg.azurewebsites.net/trust), and
+[PUSH](commands/push.md) says how the signing works.
 
 ## When something is refused
 

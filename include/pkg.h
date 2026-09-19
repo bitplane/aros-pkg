@@ -62,7 +62,7 @@
 #define PKG_H
 
 #define PKG_API_VERSION 1   /* stays 1 until the first official release */
-#define PKG_VERSION_STRING "1.3"   /* the tool's own version, as in its $VER */
+#define PKG_VERSION_STRING "1.4"   /* the tool's own version, as in its $VER */
 
 enum {
     PKG_RC_OK         = 0,
@@ -321,6 +321,7 @@ struct pkg_options {
 
 int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_sign     (const struct pkg_sink *s, const struct pkg_options *o);
+int pkg_checksig (const struct pkg_sink *s, const struct pkg_options *o);  /* target, file: the .sig; key: the signer expected */
 int pkg_keyinfo  (const struct pkg_sink *s, const struct pkg_options *o);  /* file: the public key it holds */
 int pkg_manifest (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_publish  (const struct pkg_sink *s, const struct pkg_options *o);

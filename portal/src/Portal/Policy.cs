@@ -34,6 +34,10 @@ public sealed class PortalPolicy
     /// Off: every http request is sent to https.
     public bool PlainHttp { get; set; } = true;
 
+    /// Signed pushes: requests signed with the publisher's key, which may come
+    /// over plain http since nothing secret travels. Off: https and a push key only.
+    public bool SignedPush { get; set; } = true;
+
     /// The operators' own sentence, added to every refusal and shown on /trust.
     public string Note { get; set; } = "";
 
