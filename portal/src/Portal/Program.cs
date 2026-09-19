@@ -134,6 +134,10 @@ foreach (var (route, file) in new[] { ("/install", "install.sh"), ("/install.sh"
         return Results.Text(text, "text/plain; charset=utf-8");
     });
 
+// The second opinion on a signature, from the repository's tools/, as /trust uses it.
+app.MapGet("/verify-manifest.py", () =>
+    Results.Text(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", "verify-manifest.py")), "text/plain; charset=utf-8"));
+
 // Pkg for a host, by platform, for curl and PowerShell one-liners.
 app.MapGet("/get/{channel}/{platform}", (string channel, string platform, Portal.Channels.Downloads d) =>
 {

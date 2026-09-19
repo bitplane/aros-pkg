@@ -1,0 +1,60 @@
+@page "/trust"
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@inject Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
+@{
+    ViewData["Title"] = "Trust and signatures";
+    // The project's key: the one that signed the first published version of Pkg.
+    var pkgHome = Catalogue.Pinned().FirstOrDefault(p => p.Name == "pkg")?.Channel ?? "pkg";
+    var pkg = Catalogue.Package(pkgHome, "pkg");
+    var projectKey = pkg?.Versions.OrderBy(v => v.Published).FirstOrDefault()?.Signer;
+    var url = Site.ChannelUrl(Request, Options.Value, pkgHome);
+    var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
+    var example = pkg?.Latest;
+    var keyLine = projectKey ?? "";
+}
+<h1>Trust and signatures</h1>
+<p class="lead">Every package here is signed by its publisher. Pkg checks the signature and every file on your machine, before it writes anything. This site holds no signing key: it cannot sign, change or replace a package, only refuse to publish one.</p>
+
+@if (projectKey is not null)
+{
+    <h2>The project's key</h2>
+    <p>Pkg itself, and the packages this project publishes, are signed with this Ed25519 key. If it matters to you that what you install comes from this project, compare it with the <em>Signer</em> that Pkg shows:</p>
+    <div class="cmd wrapcode"><code>@keyLine</code><button class="copy" data-copy="@keyLine">Copy</button></div>
+}
+
+<h2>What is signed</h2>
+<p>A package version is described by its manifest: its name, version, CPU, dependencies, and every file with its size and SHA-256. The publisher signs the manifest. Since the manifest lists every file's SHA-256, one valid signature vouches for every byte of the package.</p>
+
+<h2>What this site checks before it publishes</h2>
+<ol>
+    <li><strong>Pkg's own checks.</strong> Every upload is checked by Pkg itself: each signature, each digest, each withdrawal.</li>
+    <li><strong>A package keeps the key of its first version.</strong> A new version signed by another key is refused.</li>
+    <li><strong>A published file never changes.</strong> An upload that would replace one is refused; a version can only be withdrawn by its publisher.</li>
+</ol>
+<p>What the site cannot tell you is who a publisher <em>is</em>: the key is the identity. The name shown beside it is a label the maintainers attached when they gave that publisher an upload key.</p>
+
+<h2>What Pkg checks on your machine</h2>
+<p>At every install, upgrade, verify and repair: the manifest's signature, every file against the manifest, and that the signer is the key remembered for that package on your machine. The first version you install pins its key. A later version signed by another key is refused, with both keys printed. It may be a publisher who changed keys, or someone replacing a program under you; only you can tell, by asking the publisher somewhere you trust. If the new key is theirs, <code>ACCEPTKEY</code> followed by the new key accepts it, once. Pkg never decides that for you.</p>
+<p>The connection proves nothing and does not need to: a channel read over plain http, from a USB stick or a shared drawer is checked the same way.</p>
+
+<h2>Check a package yourself, without Pkg</h2>
+<p>Three downloads and a verifier of about sixty lines of plain Python 3, following RFC 8032, that you can read first:</p>
+@if (example is not null)
+{
+    var cmds = $"B={url}\n" +
+               "curl -fsSO $B/index\n" +
+               $"d=$(awk '$1==\"{example.Name}\" && $2==\"{example.Version}\" && $3==\"{example.Arch}\" {{print $4}}' index)\n" +
+               "curl -fsSO $B/objects/$d.manifest\n" +
+               "curl -fsSO $B/objects/$d.sig\n" +
+               $"curl -fsSO {site}/verify-manifest.py\n" +
+               $"python3 verify-manifest.py $d.manifest $d.sig {keyLine}";
+    <pre><code>@cmds</code></pre>
+    <p class="muted small">It says <code>the manifest is what its publisher signed</code>, or <code>do not trust this package</code> when a single byte differs. The manifest's <code>File:</code> lines then give each file's SHA-256 to compare with <code>shasum -a 256</code>.</p>
+}
+
+<h2>When a publisher loses a key</h2>
+<p>There is no recovery, and this site cannot re-sign anything. The publisher makes a new key, says so where their users can see it, and signs the next version with it; the maintainers move that publisher's upload permission to the new key. Every machine that has the package refuses the new key once, and its owner accepts it with <code>ACCEPTKEY</code>. Nothing already installed is affected.</p>
+
+<p>The full document, with the exact records and exit codes: <a href="/docs/signing">Signatures and trust</a>.</p>

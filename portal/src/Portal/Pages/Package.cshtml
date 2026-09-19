@@ -183,7 +183,7 @@ else if (!isLatest)
             }
         </dd>
         <dt>Published</dt><dd>@Site.Date(v.Published)</dd>
-        <dt>Signed by</dt><dd><code title="@v.Signer">@Site.Short(v.Signer)</code> <span class="muted small">Ed25519; Pkg pins this key at the first install</span></dd>
+        <dt>Signed by</dt><dd><code title="@v.Signer">@Site.Short(v.Signer)</code> <span class="muted small">Ed25519; Pkg pins this key at the first install · <a href="/trust">what this means</a></span></dd>
         <dt>Manifest</dt><dd><a href="/@ch.Name/objects/@(v.Line.Digest).manifest">@Site.Short(v.Line.Digest)</a> · <a href="/@ch.Name/objects/@(v.Line.Digest).sig">signature</a></dd>
     </dl>
 </section>
