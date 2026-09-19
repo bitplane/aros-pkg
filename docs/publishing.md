@@ -60,7 +60,7 @@ name and version come from the program's `$VER:` string (`$VER: mytool 1.0
 
 ```console
 $ pkg PUBLISH MyTool CHANNEL mychannel KIND application
-published mytool 1.0 to mychannel: 1 files, payload bf9bc6edcb45, signed by 04170cad8093a394
+published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by d883101f27f48e16
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
   hint: the channel mychannel did not exist and was created: machines install from it with INSTALL mytool ROOT <root> CHANNEL <this channel, as the machine names it>
@@ -178,7 +178,7 @@ copied:
 ```console
 $ mkdir -p nightly/archives && cp nightly.tar.bz2 nightly/archives/
 $ pkg PUBLISH "nightly/archives/nightly.tar.bz2!/Top" FILES Extras/Tool CHANNEL nightly NAME tool BUILD 20260918 KIND application UPSTREAM https://example.org/nightly.tar.bz2
-published tool 2.1+20260918 to nightly: 1 files, from nightly.tar.bz2!/Top, signed by 04170cad8093a394
+published tool 2.1+20260918 to nightly: 1 file, from nightly.tar.bz2!/Top, signed by d883101f27f48e16
   architecture x86_64, read from Extras/Tool/Tool
   version taken from $VER: in Extras/Tool/Tool
 ```

@@ -4855,8 +4855,9 @@ static int cmd_publish(const struct pkg_options *a)
     kv("signer", "%s", k.pkhex);
     kv("files", "%lu", (unsigned long)b.m.nfiles);
     if (!machine)
-    say_result("published %s %s to %s: %lu files, %s%s, signed by %.16s", b.m.name,
-           b.m.version, a->channel, (unsigned long)b.m.nfiles, b.m.payload ? "payload " : "from ",
+    say_result("published %s %s to %s: %lu file%s, %s%s, signed by %.16s", b.m.name,
+           b.m.version, a->channel, (unsigned long)b.m.nfiles, b.m.nfiles == 1 ? "" : "s",
+           b.m.payload ? "payload " : "from ",
            b.m.payload ? s12 : b.m.source, k.pkhex);
     if (b.arch_from[0] && machine)
         kv("arch-from", "%s", b.arch_from);
@@ -4982,9 +4983,10 @@ static int cmd_install(const struct pkg_options *a)
         else kv("source", "%s", f.m.source);
         kv("signer", "%s", f.signer);
         if (!machine)
-        say_result("%s %s %s into %s: %lu files, %s%s, signed by %.16s",
+        say_result("%s %s %s into %s: %lu file%s, %s%s, signed by %.16s",
                dryrun ? "would install" : "installed",
-               f.m.name, f.m.version, a->root, placed, f.m.payload ? "payload " : "from ",
+               f.m.name, f.m.version, a->root, placed, placed == 1 ? "" : "s",
+               f.m.payload ? "payload " : "from ",
                f.m.payload ? s12 : f.m.source, f.signer);
         if (strcmp(f.m.kind, "image") == 0 && f.m.nfiles == 1) {
             kv("image", "%s", f.m.files[0].path);
@@ -5393,8 +5395,8 @@ static int cmd_verify(const struct pkg_options *a)
         kv("result", "intact");
         if (edited) kv("edited-config", "%lu", (unsigned long)edited);
         if (!machine)
-            say_result("%s %s: %lu files, all intact%s", m.name, m.version, (unsigned long)m.nfiles,
-                edited ? ", configuration files edited as people do" : "");
+            say_result("%s %s: %lu file%s, all intact%s", m.name, m.version, (unsigned long)m.nfiles,
+                m.nfiles == 1 ? "" : "s", edited ? ", configuration files edited as people do" : "");
         pkg_manifest_free(&m);
         return 0;
     }
@@ -5777,8 +5779,9 @@ static int cmd_remove(const struct pkg_options *a)
     tail[0] = '\0';
     if (kept) at += snprintf(tail + at, sizeof tail - (size_t)at, ", %lu kept", (unsigned long)kept);
     if (gone) snprintf(tail + at, sizeof tail - (size_t)at, ", %lu already gone", (unsigned long)gone);
-    say_result("%s %s %s from %s: %lu files %s%s", dryrun ? "would remove" : "removed", m.name,
-           m.version, a->root, (unsigned long)removed, dryrun ? "to remove" : "removed", tail);
+    say_result("%s %s %s from %s: %lu file%s %s%s", dryrun ? "would remove" : "removed", m.name,
+           m.version, a->root, (unsigned long)removed, removed == 1 ? "" : "s",
+           dryrun ? "to remove" : "removed", tail);
     }
     }
     /* Say what this leaves behind; removing it is a separate, explicit act. */

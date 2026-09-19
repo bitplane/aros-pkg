@@ -180,7 +180,7 @@ edit on purpose, the declared ones above, are left as they are.
 ```console
 $ pkg REMOVE helloworld ROOT aros
   kept     S/HelloWorld.prefs (changed since install, so it is yours now)
-removed helloworld 1.0 from aros: 1 files removed, 1 kept
+removed helloworld 1.0 from aros: 1 file removed, 1 kept
   hellolib 1.0 is no longer needed by anything; REMOVE ORPHANS takes it out
 ```
 
@@ -206,7 +206,7 @@ and removing the package removes the program entirely.
 
 ```console
 $ pkg INSTALL notes ROOT aros CHANNEL channel
-installed notes 1.0 into aros: 1 files, payload cfac33cc9d05, signed by 5ff18d3fe14e383e
+installed notes 1.0 into aros: 1 file, payload cfac33cc9d05, signed by 5ff18d3fe14e383e
   image    notes.hdf, 32 blocks
   hint: to run it, mount the image: MOUNTLIST notes ROOT aros OUT <file> writes the mount entry and lists the steps
 $ pkg MOUNTLIST notes ROOT aros OUT aros/Devs/DOSDrivers/NOTES
