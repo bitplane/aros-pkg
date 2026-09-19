@@ -15,7 +15,7 @@
        documentation always matches the Pkg built from the same commit. -->
   <ItemGroup>
     <Content Include="../../../README.md" Link="userdocs/README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../../../docs/using.md;../../../docs/publishing.md;../../../docs/channels.md;../../../docs/reference.md" LinkBase="userdocs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../../docs/*.md" Exclude="../../../docs/development*.md" LinkBase="userdocs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

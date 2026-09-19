@@ -19,14 +19,29 @@ public static partial class UserDocs
     public sealed record Page(string Slug, string Title, string File);
     public sealed record Rendered(string Title, string Html, List<(int Level, string Id, string Text)> Headings);
 
-    public static readonly Page[] Pages =
-    [
-        new("", "Getting started", "README.md"),
-        new("using", "Using Pkg", "using.md"),
-        new("publishing", "Publishing", "publishing.md"),
-        new("channels", "Channels", "channels.md"),
-        new("reference", "Reference", "reference.md"),
-    ];
+    /// The README first, then every bundled guide in the order the README
+    /// links them, each titled by its own first heading. Nothing to update
+    /// here when guides are added, renamed or split.
+    public static readonly Page[] Pages = Discover();
+
+    static Page[] Discover()
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "userdocs");
+        if (!Directory.Exists(dir)) return [];
+        var readme = File.Exists(Path.Combine(dir, "README.md")) ? File.ReadAllText(Path.Combine(dir, "README.md")) : "";
+        // The README's own list of guides gives the order, when it has one.
+        int list = readme.IndexOf("\n## Guides", StringComparison.Ordinal);
+        if (list >= 0) readme = readme[list..];
+        int Rank(string file) { int i = readme.IndexOf("docs/" + file, StringComparison.Ordinal); return i < 0 ? int.MaxValue : i; }
+        var guides = Directory.EnumerateFiles(dir, "*.md").Select(Path.GetFileName).OfType<string>()
+            .Where(f => f != "README.md" && !f.StartsWith("development", StringComparison.Ordinal))
+            .OrderBy(Rank).ThenBy(f => f, StringComparer.Ordinal)
+            .Select(f => new Page(f[..^3], TitleOf(Path.Combine(dir, f)) ?? f[..^3], f));
+        return [new Page("", "Getting started", "README.md"), .. guides];
+    }
+
+    static string? TitleOf(string path) =>
+        File.ReadLines(path).FirstOrDefault(l => l.StartsWith("# ", StringComparison.Ordinal))?[2..].Trim();
 
     static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UseAutoIdentifiers(Markdig.Extensions.AutoIdentifiers.AutoIdentifierOptions.GitHub)

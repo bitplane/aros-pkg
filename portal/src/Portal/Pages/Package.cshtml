@@ -154,6 +154,16 @@ else if (!isLatest)
             <dt>Source code</dt><dd><a href="@repo" rel="nofollow noopener">@repo</a></dd>
         }
         <dt>CPU</dt><dd>@Site.ArchLabel(v.Arch)</dd>
+        @if (m.Provides.Count > 0)
+        {
+            <dt>Provides</dt>
+            <dd class="tags">
+                @foreach (var lib in m.Provides)
+                {
+                    <a class="tag" href="/search?q=@Uri.EscapeDataString(lib)"><code>@lib</code></a>
+                }
+            </dd>
+        }
         <dt>Installed size</dt><dd>@Site.Size(m.InstalledSize) in @m.Files.Count file@(m.Files.Count == 1 ? "" : "s")</dd>
         <dt>Download</dt>
         <dd>

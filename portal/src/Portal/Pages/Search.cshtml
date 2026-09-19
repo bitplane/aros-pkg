@@ -18,7 +18,8 @@
         return p.Name.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0
              : p.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 1
              : Has(p.Name) ? 2
-             : Has(m.Short) || m.Tags.Any(Has) || Has(m.Category) ? 3
+             : m.Provides.Any(l => l.Equals(q, StringComparison.OrdinalIgnoreCase)) ? 1
+             : Has(m.Short) || m.Tags.Any(Has) || Has(m.Category) || m.Provides.Any(Has) ? 3
              : m.Description.Any(Has) || m.Authors.Any(Has) ? 4
              : m.Files.Any(f => Has(f.Path)) ? 5 : 9;
     }

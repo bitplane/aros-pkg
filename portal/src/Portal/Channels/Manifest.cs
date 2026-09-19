@@ -35,6 +35,8 @@ public sealed class Manifest
     public List<string> Changes { get; } = [];
     public string? Icon { get; private set; }
     public List<string> Screenshots { get; } = [];
+    /// Libraries and devices the package installs, e.g. "SDL2.library".
+    public List<string> Provides { get; } = [];
 
     /// The long text as paragraphs: blank Description lines separate them.
     public IEnumerable<string> Paragraphs()
@@ -111,6 +113,7 @@ public sealed class Manifest
                 case "Changes": m.Changes.Add(val.Trim()); break;
                 case "Icon": m.Icon = val.Trim(); break;
                 case "Screenshot": m.Screenshots.Add(val.Trim()); break;
+                case "Provides": m.Provides.Add(val.Trim()); break;
                 case "Protect":
                 case "Comment":
                     attrs.Add((key, val));
