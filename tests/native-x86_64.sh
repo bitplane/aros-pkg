@@ -36,7 +36,8 @@ cleanup() {
     fi
     rm -rf "$work"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
 for need in "$host_pkg" "$aros_pkg" "$iso"; do
     [ -e "$need" ] || { echo "native-x86_64: missing $need" >&2; exit 69; }

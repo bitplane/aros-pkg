@@ -35,7 +35,8 @@ cleanup() {
     [ "${PKG_KEEP:-0}" = 1 ] && { echo "native-contrib: keeping $work" >&2; return; }
     rm -rf "$work"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
 for need in "$aros_pkg" "$iso" "$W/channel/index"; do
     [ -e "$need" ] || { echo "native-contrib: missing $need" >&2; exit 69; }

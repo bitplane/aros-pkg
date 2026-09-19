@@ -202,6 +202,20 @@ static void kv(const char *key, const char *fmt, ...)
     sink->record(sink->user, key, buf);
 }
 
+/* The closing sentence: a summary record for a program, the sentence
+ * itself for a person. */
+static void summary_line(const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    kv("summary", "%s", buf);
+    if (!machine)
+        say("%s\n", buf);
+}
+
 /* A record with several fields: the joined value goes to `record`, as the
  * command line prints it, and the fields one by one to `item`, for a program
  * that should not have to split strings. Key/value pairs, NULL-terminated. */
@@ -4966,7 +4980,7 @@ static int verify_all(const struct pkg_options *a)
     if (in.n == 0) {
         installed_free(&in);
         kv("result", "empty");
-        kv("summary", "no package is installed in %s", a->root);
+        summary_line("no package is installed in %s", a->root);
         return 0;
     }
     for (p = 0; p < in.n; p++) {
@@ -4995,20 +5009,23 @@ static int verify_all(const struct pkg_options *a)
                          (unsigned long)changed, (unsigned long)missing);
             if (machine) kv("package", "%s %s damaged %lu %lu", m->name, m->version,
                             (unsigned long)changed, (unsigned long)missing);
-            else say("%s %s: %lu changed, %lu missing, of %lu files\n", m->name, m->version,
-                     (unsigned long)changed, (unsigned long)missing, (unsigned long)m->nfiles);
+            else say("%s %s: %lu changed, %lu missing, of %lu file%s\n", m->name, m->version,
+                     (unsigned long)changed, (unsigned long)missing, (unsigned long)m->nfiles,
+                     m->nfiles == 1 ? "" : "s");
         } else if (machine) {
             kv("package", "%s %s intact", m->name, m->version);
         } else {
-            say("%s %s: %lu files, all intact\n", m->name, m->version, (unsigned long)m->nfiles);
+            say("%s %s: %lu file%s, all intact\n", m->name, m->version, (unsigned long)m->nfiles,
+                m->nfiles == 1 ? "" : "s");
         }
     }
     kv("packages", "%lu", (unsigned long)in.n);
     kv("files", "%lu", (unsigned long)files);
     if (bad == 0) {
         kv("result", "intact");
-        kv("summary", "%lu packages, %lu files, all intact%s", (unsigned long)in.n,
-           (unsigned long)files, edited ? "; configuration files edited, as people do" : "");
+        summary_line("%lu package%s, %lu file%s, all intact%s", (unsigned long)in.n,
+           in.n == 1 ? "" : "s", (unsigned long)files, files == 1 ? "" : "s",
+           edited ? "; configuration files edited, as people do" : "");
         installed_free(&in);
         return 0;
     }
@@ -5016,8 +5033,8 @@ static int verify_all(const struct pkg_options *a)
     kv("result", "damaged");
     kv("class", "integrity");
     kv("code", "%d", PKGRC_INTEGRITY);
-    kv("summary", "%lu of %lu packages damaged, first %s", (unsigned long)bad,
-       (unsigned long)in.n, first);
+    summary_line("%lu of %lu package%s damaged, first %s", (unsigned long)bad,
+       (unsigned long)in.n, in.n == 1 ? "" : "s", first);
     hint("VERIFY <name> also says which missing files were moved by hand. Pkg overwrites no "
          "changed file: whether the change is damage or someone's work is the requester's call");
     installed_free(&in);
@@ -5298,17 +5315,17 @@ static int cmd_repair(const struct pkg_options *a)
     if (refused) {
         refused_class = first;
         kv("result", "refused");
-        kv("summary", "%lu file%s put back in %lu package%s; %lu package%s could not be repaired, "
+        summary_line("%lu file%s put back in %lu package%s; %lu package%s could not be repaired, "
            "first %s", total, total == 1 ? "" : "s", fixed_pk, fixed_pk == 1 ? "" : "s",
            (unsigned long)refused, refused == 1 ? "" : "s", firstwhy);
         return 1;
     }
     kv("result", total ? (dryrun ? "would-repair" : "repaired") : "unchanged");
     if (total == 0)
-        kv("summary", "nothing needed repair: every file is the one installed, or a configuration "
+        summary_line("nothing needed repair: every file is the one installed, or a configuration "
            "file someone edited");
     else
-        kv("summary", "%lu file%s %sput back in %lu package%s%s", total, total == 1 ? "" : "s",
+        summary_line("%lu file%s %sput back in %lu package%s%s", total, total == 1 ? "" : "s",
            dryrun ? "would be " : "", fixed_pk, fixed_pk == 1 ? "" : "s",
            total_aside ? "; the changed ones kept beside as <file>.pkgold" : "");
     return 0;
