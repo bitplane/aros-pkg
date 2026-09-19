@@ -57,10 +57,11 @@ package, and says which entries are sound:
 
 ```console
 $ pkg SHOW CHANNEL channel
-hellolib             1.0      library     generic  ok         5ff18d3fe14e383e
-helloworld           1.0      application generic  ok         5ff18d3fe14e383e
-helloworld           1.1      application generic  ok         5ff18d3fe14e383e
-notes                1.0      image       generic  ok         5ff18d3fe14e383e
+Package     Version  Kind         Arch     Status  Signer
+hellolib    1.0      library      generic  ok      5ff18d3fe14e383e
+helloworld  1.0      application  generic  ok      5ff18d3fe14e383e
+helloworld  1.1      application  generic  ok      5ff18d3fe14e383e
+notes       1.0      image        generic  ok      5ff18d3fe14e383e
 $ pkg SHOW CHANNEL channel MACHINE | tail -2
 count: 4
 bad: 0
@@ -79,7 +80,8 @@ machine:
 ```console
 $ python3 -m http.server --bind 127.0.0.1 --directory channel 8765 > /dev/null 2>&1 &
 $ sleep 1; pkg SHOW notes CHANNEL http://127.0.0.1:8765
-notes                1.0      image       generic  ok         5ff18d3fe14e383e
+Package  Version  Kind   Arch     Status  Signer
+notes    1.0      image  generic  ok      5ff18d3fe14e383e
 $ kill %1
 ```
 

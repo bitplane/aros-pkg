@@ -13,7 +13,7 @@ here=$(dirname "$0")
 # every verb, keyword and switch the command knows is in the reference
 missing=
 for w in $("$PKG" HELP | grep -o '\b[A-Z][A-Z]*[A-Z]\b' | sort -u) LOG UPSTREAM ORPHANS ARCHIVE; do
-    case $w in AROS|FFS|ARG) continue ;; esac   # words of the prose, not of the command
+    case $w in AROS|FFS|ARG|VERB|KEYWORD) continue ;; esac   # words of the prose, not of the command
     grep -q "\`$w\`" "$here/../docs/reference.md" || missing="$missing $w"
 done
 [ -z "$missing" ] || { echo "docs-examples: not in docs/reference.md:$missing"; exit 1; }

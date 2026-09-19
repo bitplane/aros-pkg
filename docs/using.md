@@ -17,10 +17,11 @@ AmigaDOS command.
 
 ```console
 $ pkg SHOW CHANNEL channel
-hellolib             1.0      library     generic  ok         5ff18d3fe14e383e
-helloworld           1.0      application generic  ok         5ff18d3fe14e383e
-helloworld           1.1      application generic  ok         5ff18d3fe14e383e
-notes                1.0      image       generic  ok         5ff18d3fe14e383e
+Package     Version  Kind         Arch     Status  Signer
+hellolib    1.0      library      generic  ok      5ff18d3fe14e383e
+helloworld  1.0      application  generic  ok      5ff18d3fe14e383e
+helloworld  1.1      application  generic  ok      5ff18d3fe14e383e
+notes       1.0      image        generic  ok      5ff18d3fe14e383e
 ```
 
 Each line is a package version: its name, version, kind, the CPU it is built
@@ -29,8 +30,9 @@ only its versions:
 
 ```console
 $ pkg SHOW helloworld CHANNEL channel
-helloworld           1.0      application generic  ok         5ff18d3fe14e383e
-helloworld           1.1      application generic  ok         5ff18d3fe14e383e
+Package     Version  Kind         Arch     Status  Signer
+helloworld  1.0      application  generic  ok      5ff18d3fe14e383e
+helloworld  1.1      application  generic  ok      5ff18d3fe14e383e
 ```
 
 ## Install
@@ -55,8 +57,9 @@ See what is installed:
 
 ```console
 $ pkg LIST ROOT aros
-hellolib                 1.0        library      1 files, a dependency
-helloworld               1.0        application  2 files
+Package     Version  Kind         Files
+hellolib    1.0      library      1 file, a dependency
+helloworld  1.0      application  2 files
 ```
 
 ## Keep it current
@@ -65,9 +68,10 @@ Ask what can be updated:
 
 ```console
 $ pkg STATUS ROOT aros CHANNEL channel
-hellolib                 1.0          current
-helloworld               1.0          upgradable to 1.1
-2 packages in aros, 1 upgradable from channel
+Package     Installed  State
+hellolib    1.0        current
+helloworld  1.0        upgradable to 1.1
+1 of 2 packages in aros can be updated from channel
   hint: UPGRADE ALL ROOT aros CHANNEL channel upgrades every one of them, a package before what depends on it; with DRYRUN it only says what it would do
 ```
 
@@ -127,8 +131,9 @@ $ pkg ROLLBACK helloworld ROOT aros CHANNEL channel
   kept     S/HelloWorld.prefs (edited; helloworld 1.0's version is beside it as S/HelloWorld.prefs.pkgnew)
 rolled back helloworld from 1.1 to 1.0 in aros: 1 placed, 0 removed, 1 kept
 $ pkg LIST ROOT aros
-hellolib                 1.0        library      1 files, a dependency
-helloworld               1.0        application  2 files
+Package     Version  Kind         Files
+hellolib    1.0      library      1 file, a dependency
+helloworld  1.0      application  2 files
 ```
 
 To install an older version on purpose, name it and add `DOWNGRADE`:
@@ -140,9 +145,10 @@ without it, an older version is refused (exit 18).
 
 ```console
 $ pkg VERIFY ALL ROOT aros
-hellolib 1.0: 1 file, all intact
-  edited   S/HelloWorld.prefs (helloworld, a configuration file)
-helloworld 1.0: 2 files, all intact
+Package     Version  Files    State
+hellolib    1.0      1 file   intact
+helloworld  1.0      2 files  intact, configuration edited
+  edited   S/HelloWorld.prefs (a configuration file)
 2 packages, 3 files, all intact; configuration files edited, as people do
 ```
 
@@ -152,15 +158,16 @@ from the channel:
 ```console
 $ rm aros/C/HelloWorld
 $ pkg VERIFY ALL ROOT aros    # exits 12
-hellolib 1.0: 1 file, all intact
-  missing  C/HelloWorld (helloworld)
-  edited   S/HelloWorld.prefs (helloworld, a configuration file)
-helloworld 1.0: 0 changed, 1 missing, of 2 files
-1 of 2 packages damaged, first helloworld (0 changed, 1 missing)
-  hint: VERIFY <name> also says which missing files were moved by hand. Pkg overwrites no changed file: whether the change is damage or someone's work is the requester's call
+Package     Version  Files    State
+hellolib    1.0      1 file   intact
+helloworld  1.0      2 files  1 missing
+  missing  C/HelloWorld
+  edited   S/HelloWorld.prefs (a configuration file)
+1 of 2 packages damaged
+  hint: REPAIR ALL ROOT <dir> CHANNEL <dir> puts missing and changed files back from the channel. VERIFY <name> also says which missing files were moved by hand
 $ pkg REPAIR ALL ROOT aros CHANNEL channel
   restored C/HelloWorld
-helloworld: 1 file put back
+  helloworld 1 file put back
 1 file put back in 1 package
 ```
 
@@ -184,7 +191,7 @@ one go:
 
 ```console
 $ pkg REMOVE ORPHANS ROOT aros
-removed hellolib 1.0, which nothing needed: 1 files
+  hellolib 1.0 removed, which nothing needed (1 file)
 removed 1 package nothing needed any more
 ```
 
@@ -200,17 +207,16 @@ and removing the package removes the program entirely.
 ```console
 $ pkg INSTALL notes ROOT aros CHANNEL channel
 installed notes 1.0 into aros: 1 files, payload cfac33cc9d05, signed by 5ff18d3fe14e383e
-  image notes.hdf, 32 blocks
+  image    notes.hdf, 32 blocks
   hint: to run it, mount the image: MOUNTLIST notes ROOT aros OUT <file> writes the mount entry and lists the steps
 $ pkg MOUNTLIST notes ROOT aros OUT aros/Devs/DOSDrivers/NOTES
 wrote aros/Devs/DOSDrivers/NOTES, the mount entry for notes (32 blocks)
-
-On AROS, the device is named after the mountlist file:
-  MakeDir RAM:fdsk
-  Assign FDSK: RAM:fdsk
-  MakeLink RAM:fdsk/Unit20 aros/notes.hdf
-  Protect aros/notes.hdf w SUB
-  Mount aros/Devs/DOSDrivers/NOTES
+  On AROS, the device is named after the mountlist file:
+    MakeDir RAM:fdsk
+    Assign FDSK: RAM:fdsk
+    MakeLink RAM:fdsk/Unit20 aros/notes.hdf
+    Protect aros/notes.hdf w SUB
+    Mount aros/Devs/DOSDrivers/NOTES
   hint: no FFS handler is installed in this root, so the entry relies on the system's. Native AROS has one; hosted AROS built on macOS has none: there, install one into the root as a device package, or name one with HANDLER <path>
 ```
 

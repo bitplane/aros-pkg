@@ -15,7 +15,7 @@ Every package is signed; there is no unsigned mode. Make a key once:
 ```console
 $ pkg KEYGEN FILE my.key
 key written to my.key, readable by you alone
-public key d0186fe935f2b7fdd2a929478a9f484d00456722774450dfb50bf4b5c7985506
+  public key 9f4314e9f88233c4cf8c4c47420b2ac35d526cb713dc3f26d97cde75b3ff3fc8
   hint: every later version of what this key publishes must be signed with it: keep the file with the person's secrets, outside any channel or repository, and back it up. Use it with SIGN <file> or PKG_SIGNKEY; only the public key may be shared
 ```
 
@@ -87,8 +87,9 @@ published mytool 1.1 to mychannel: 2 files, payload 4606917aa7ca, signed by 0417
   name and version taken from $VER: in C/MyTool
   kind and dependencies from mytool 1.0, published before
 $ pkg SHOW CHANNEL mychannel
-mytool               1.0      application x86_64   ok         04170cad8093a394
-mytool               1.1      application x86_64   ok         04170cad8093a394
+Package  Version  Kind         Arch    Status  Signer
+mytool   1.0      application  x86_64  ok      9f4314e9f88233c4
+mytool   1.1      application  x86_64  ok      9f4314e9f88233c4
 ```
 
 A version, once published, never changes: publishing different files under
@@ -162,8 +163,9 @@ and `STATUS` tells the people who have it:
 $ pkg WITHDRAW mytool VERSION 1.1 CHANNEL mychannel
 withdrew mytool 1.1 from mychannel: it stays in the channel, and nothing installs it any more
 $ pkg SHOW mytool CHANNEL mychannel
-mytool               1.0      application x86_64   ok         04170cad8093a394
-mytool               1.1      application x86_64   withdrawn  04170cad8093a394
+Package  Version  Kind         Arch    Status     Signer
+mytool   1.0      application  x86_64  ok         9f4314e9f88233c4
+mytool   1.1      application  x86_64  withdrawn  9f4314e9f88233c4
 ```
 
 ## Packages from someone else's archive

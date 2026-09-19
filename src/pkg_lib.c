@@ -5692,8 +5692,8 @@ static int remove_orphans(const struct pkg_options *a)
             }
             else
                 say_pkgline(m->name, "%s %s, which nothing needed (%lu file%s%s)",
-                        dryrun ? "would remove" : "removed",
-                        m->version, (unsigned long)r, r == 1 ? "" : "s", k ? ", edited files kept" : "");
+                        m->version, dryrun ? "would be removed" : "removed",
+                        (unsigned long)r, r == 1 ? "" : "s", k ? ", edited files kept" : "");
         }
         if (dryrun) {
             char names[64][65];
