@@ -42,13 +42,13 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | Verb | Form | Does |
 |---|---|---|
 | [`KEYGEN`](commands/keygen.md) | `KEYGEN FILE <keyfile>` | Makes a signing key, readable by its owner alone. |
-| [`KEYINFO`](commands/keyinfo.md) | `KEYINFO FILE <keyfile>` | Prints the public key a key file holds. |
+| [`KEYINFO`](commands/keyinfo.md) | `KEYINFO FILE <keyfile> [SSH]` | Prints the public key a key file holds; `SSH` prints it as an `ssh-ed25519` line. |
 | [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."]` | Prints the description a publish would sign; writes nothing. |
 | [`PUBLISH`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. |
 | [`WITHDRAW`](commands/withdraw.md) | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>]` | Marks a published version as withdrawn. |
 | [`PUSH`](commands/push.md) | `PUSH CHANNEL <channel> TO <url>` | Uploads a local channel to a portal; the key comes from `PKG_PUSHKEY`. |
 | [`IMAGE`](commands/image.md) | `IMAGE <drawer> OUT <file> [NAME <volume>]` | Writes a drawer as an FFS disk image. |
-| [`SIGN`](commands/sign.md) | `SIGN <file> KEY <keyfile> OUT <sigfile>` | Signs any file with a key. |
+| [`SIGN`](commands/sign.md) | `SIGN <file> KEY <keyfile> OUT <sigfile> [SSH NAMESPACE <ns>]` | Signs any file with a key; `SSH` writes a signature `ssh-keygen -Y verify` checks. |
 
 ### Other
 
@@ -91,6 +91,8 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | `ACCEPTKEY` | a public key in full, 64 hexadecimal digits | `INSTALL`, `UPGRADE`, `PUBLISH` |
 | `FILE` | a key file | `KEYGEN`, `KEYINFO` |
 | `KEY` | a key file | `SIGN` |
+| `SSH` | OpenSSH's formats instead of Pkg's | `SIGN`, `KEYINFO` |
+| `NAMESPACE` | what an SSH signature is for, the word `ssh-keygen -Y verify -n` names | `SIGN` with `SSH` |
 | `OUT` | a file to write | `SIGN`, `IMAGE`, `MOUNTLIST` |
 | `TO` | the portal channel's address | `PUSH` |
 | `UNIT` | the unit number of the image device | `MOUNTLIST` |

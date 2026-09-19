@@ -150,6 +150,7 @@ struct pkg_options {
     const char *sign;       /* publish: the signing key file */
     const char *file;       /* keygen: the key file to create */
     const char *key;        /* sign: the key file */
+    const char *nspace;     /* sign SSH: the namespace the signature is made for */
     const char *out;        /* sign, image, mountlist: the file to write */
     const char *acceptkey;  /* the publisher key, in full, the person confirmed: install
                                from a new key, trust one of several, or publish with a new one */
@@ -190,6 +191,7 @@ struct pkg_options {
     int downgrade;          /* upgrade: moving to an older version was asked for */
     int orphans;            /* remove: remove what nothing needs, instead of target */
     int dryrun;             /* every check, no write; results read would-... */
+    int ssh;                /* sign, keyinfo: OpenSSH's formats, for ssh-keygen -Y verify */
     int all;                /* upgrade: every package a newer version is offered for,
                                target NULL; refused (20) with version, downgrade or
                                acceptkey, which are decisions about one package */

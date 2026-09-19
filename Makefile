@@ -113,6 +113,8 @@ test:
 	@PKG=./build/pkg sh tests/resolve.sh
 	@echo "== catalogue"
 	@PKG=./build/pkg sh tests/catalogue.sh
+	@echo "== ssh-sign"
+	@sh tests/ssh-sign.sh
 	@echo "== docs-links"
 	@sh tests/docs-links.sh
 	@echo "== docs-examples"

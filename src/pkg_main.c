@@ -139,6 +139,7 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "FILE",      offsetof(struct pkg_options, file) },
         { "SIGN",      offsetof(struct pkg_options, sign) },
         { "KEY",       offsetof(struct pkg_options, key) },
+        { "NAMESPACE", offsetof(struct pkg_options, nspace) },
         { "OUT",       offsetof(struct pkg_options, out) },
         { "ACCEPTKEY", offsetof(struct pkg_options, acceptkey) },
         { "DEPENDS",   offsetof(struct pkg_options, depends) },
@@ -229,6 +230,11 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
             a->dryrun = 1;
             continue;
         }
+        if ((strcmp(verb_name, "sign") == 0 || strcmp(verb_name, "keyinfo") == 0)
+            && ieq(argv[i], "SSH")) {
+            a->ssh = 1;
+            continue;
+        }
         if (strcmp(verb_name, "show") == 0 && ieq(argv[i], "METADATA")) {
             a->metadata = 1;
             continue;
@@ -316,7 +322,7 @@ static const struct { const char *group, *verb, *args, *what; } usage_lines[] = 
                          "the Mount entry for an installed image" },
     { "Publishing", NULL, NULL, NULL },
     { NULL, "KEYGEN",    "FILE <keyfile>", "a signing key, readable by you alone" },
-    { NULL, "KEYINFO",   "FILE <keyfile>", "the public key a key file holds" },
+    { NULL, "KEYINFO",   "FILE <keyfile> [SSH]", "the public key a key file holds; SSH: as ssh-ed25519" },
     { NULL, "MANIFEST",  "<drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]",
                          "the manifest PUBLISH would sign, to read before publishing" },
     { NULL, "PUBLISH",   "<drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a]",
@@ -325,7 +331,8 @@ static const struct { const char *group, *verb, *args, *what; } usage_lines[] = 
                          "publish a drawer as a version; the channel is created when missing" },
     { NULL, "WITHDRAW",  "<name> VERSION v CHANNEL <dir> [SIGN <keyfile>]",
                          "a version nothing installs any more" },
-    { NULL, "SIGN",      "<file> KEY <keyfile> OUT <sigfile>", "a detached signature" },
+    { NULL, "SIGN",      "<file> KEY <keyfile> OUT <sigfile> [SSH NAMESPACE <ns>]",
+      "a detached signature; SSH: one ssh-keygen -Y verify checks" },
     { NULL, "IMAGE",     "<drawer> OUT <file> [NAME <volume>]", "an FFS volume image of a drawer" },
     { NULL, "PUSH",      "CHANNEL <dir> TO <https url>", "a channel to the portal; the key in PKG_PUSHKEY" },
     { "On any verb", NULL, NULL, NULL },

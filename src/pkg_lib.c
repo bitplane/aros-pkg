@@ -30,6 +30,7 @@
 #include "pkg.h"
 #include "pkg_container.h"
 #include "pkg_ed25519.h"
+#include "pkg_sha512.h"
 #include "pkg_fs.h"
 #include "pkg_image.h"
 #include "pkg_manifest.h"
@@ -804,10 +805,125 @@ static int check_sig(const char *sigpath, const unsigned char *msg, size_t len,
     return 0;
 }
 
+/* ---- OpenSSH's formats, for machines that have ssh-keygen and no Pkg ---- *
+ * The same Ed25519 key, written as OpenSSH writes it: the public key as an
+ * "ssh-ed25519" line, and a signature in the SSHSIG format (PROTOCOL.sshsig
+ * in OpenSSH's sources) that `ssh-keygen -Y verify` checks. */
+
+struct sshbuf { unsigned char b[512]; size_t n; };
+
+static void ssh_put(struct sshbuf *s, const void *p, size_t len)   /* a string: length, bytes */
+{
+    s->b[s->n++] = (unsigned char)(len >> 24);
+    s->b[s->n++] = (unsigned char)(len >> 16);
+    s->b[s->n++] = (unsigned char)(len >> 8);
+    s->b[s->n++] = (unsigned char)len;
+    memcpy(s->b + s->n, p, len);
+    s->n += len;
+}
+
+static void ssh_put_str(struct sshbuf *s, const char *str) { ssh_put(s, str, strlen(str)); }
+
+static void ssh_pubkey_blob(struct sshbuf *s, const unsigned char pk[PKG_ED25519_PUBLIC])
+{
+    s->n = 0;
+    ssh_put_str(s, "ssh-ed25519");
+    ssh_put(s, pk, PKG_ED25519_PUBLIC);
+}
+
+/* Base64 of len bytes into out, a line break every wrap characters when wrap
+ * is not 0; out needs 4 * len / 3 + len / wrap + 8 bytes. */
+static void base64(const unsigned char *in, size_t len, char *out, size_t wrap)
+{
+    static const char t[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i, col = 0;
+    for (i = 0; i < len; i += 3) {
+        unsigned long v = (unsigned long)in[i] << 16
+                        | (i + 1 < len ? (unsigned long)in[i + 1] << 8 : 0)
+                        | (i + 2 < len ? in[i + 2] : 0);
+        char q[4];
+        int k;
+        q[0] = t[v >> 18 & 63];
+        q[1] = t[v >> 12 & 63];
+        q[2] = i + 1 < len ? t[v >> 6 & 63] : '=';
+        q[3] = i + 2 < len ? t[v & 63] : '=';
+        for (k = 0; k < 4; k++) {
+            if (wrap && col == wrap) { *out++ = '\n'; col = 0; }
+            *out++ = q[k];
+            col++;
+        }
+    }
+    *out = '\0';
+}
+
+/* "ssh-ed25519 AAAA... <comment>", the comment the key file's name without
+ * its directory and extension: jkn for ~/.config/aros-pkg/jkn.key. */
+static void ssh_pubkey_line(const struct key *k, const char *path, char *out, size_t outsz)
+{
+    struct sshbuf s;
+    char b64[128], comment[64];
+    const char *base = path, *p;
+    size_t cl;
+    for (p = path; *p; p++)
+        if (*p == '/' || *p == ':')
+            base = p + 1;
+    p = strrchr(base, '.');
+    cl = p != NULL && p != base ? (size_t)(p - base) : strlen(base);
+    if (cl >= sizeof comment) cl = sizeof comment - 1;
+    memcpy(comment, base, cl);
+    comment[cl] = '\0';
+    for (p = comment; *p; p++)
+        if (*p == ' ' || (unsigned char)*p < 0x21)
+            comment[p - comment] = '-';
+    ssh_pubkey_blob(&s, k->pk);
+    base64(s.b, s.n, b64, 0);
+    snprintf(out, outsz, "ssh-ed25519 %s %s", b64, comment);
+}
+
+/* An SSHSIG signature over msg for namespace ns, armored, as ssh-keygen -Y
+ * sign writes it: Ed25519 over "SSHSIG", the namespace, an empty reserved
+ * string, "sha512" and the SHA-512 of the message. */
+static int ssh_sign(const char *path, const struct key *k, const char *ns,
+                    const unsigned char *msg, size_t len)
+{
+    struct sshbuf tosign, out, pub, sigb;
+    unsigned char h[PKG_SHA512_LEN], sig[PKG_ED25519_SIG];
+    char text[1024], b64[700];
+    int n;
+
+    pkg_sha512(h, msg, len);
+    tosign.n = 0;
+    memcpy(tosign.b, "SSHSIG", 6);
+    tosign.n = 6;
+    ssh_put_str(&tosign, ns);
+    ssh_put_str(&tosign, "");
+    ssh_put_str(&tosign, "sha512");
+    ssh_put(&tosign, h, sizeof h);
+    pkg_ed25519_sign(sig, tosign.b, tosign.n, k->sk);
+
+    ssh_pubkey_blob(&pub, k->pk);
+    sigb.n = 0;
+    ssh_put_str(&sigb, "ssh-ed25519");
+    ssh_put(&sigb, sig, sizeof sig);
+    memcpy(out.b, "SSHSIG", 6);
+    out.n = 6;
+    out.b[out.n++] = 0; out.b[out.n++] = 0; out.b[out.n++] = 0; out.b[out.n++] = 1;
+    ssh_put(&out, pub.b, pub.n);
+    ssh_put_str(&out, ns);
+    ssh_put_str(&out, "");
+    ssh_put_str(&out, "sha512");
+    ssh_put(&out, sigb.b, sigb.n);
+    base64(out.b, out.n, b64, 70);
+    n = snprintf(text, sizeof text,
+                 "-----BEGIN SSH SIGNATURE-----\n%s\n-----END SSH SIGNATURE-----\n", b64);
+    return pkg_fs_write_atomic(path, text, (size_t)n);
+}
+
 /* Which public key a key file holds, without showing its secret. */
 static int cmd_keyinfo(const struct pkg_options *a)
 {
     struct key k;
+    char line[200];
     const char *path = a->file ? a->file : a->target ? a->target : a->sign;
     if (path == NULL)
         return refuse_c(20, "name the key file with FILE <keyfile>");
@@ -816,7 +932,12 @@ static int cmd_keyinfo(const struct pkg_options *a)
     kv("result", "shown");
     kv("file", "%s", path);
     kv("public", "%s", k.pkhex);
-    if (!machine)
+    if (a->ssh) {
+        ssh_pubkey_line(&k, path, line, sizeof line);
+        kv("ssh", "%s", line);
+        if (!machine)
+            printf("%s\n", line);     /* alone on its line, for an allowed_signers file */
+    } else if (!machine)
         say_result("%s holds the public key %s", path, k.pkhex);
     memset(&k, 0, sizeof k);
     return 0;
@@ -828,12 +949,18 @@ static int cmd_sign(const struct pkg_options *a)
     unsigned char *buf;
     size_t len;
     if (a->target == NULL || a->key == NULL || a->out == NULL)
-        return refuse_c(20, "usage: SIGN <file> KEY <keyfile> OUT <sigfile>");
+        return refuse_c(20, "usage: SIGN <file> KEY <keyfile> OUT <sigfile> [SSH NAMESPACE <ns>]");
+    if (a->ssh && (a->nspace == NULL || a->nspace[0] == '\0' || strlen(a->nspace) > 64))
+        return refuse_c(20, "SSH signs for a namespace, the word the verifier names with -n: "
+                        "give NAMESPACE <ns>, at most 64 characters");
+    if (!a->ssh && a->nspace != NULL)
+        return refuse_c(20, "NAMESPACE belongs to an SSH signature: add SSH, or leave NAMESPACE out");
     if (load_key(a->key, &k) != 0)
         return 1;
     if (pkg_fs_read(a->target, &buf, &len) != 0)
         return refuse_c(17, "cannot read \"%s\"", a->target);
-    if (write_sig(a->out, &k, buf, len) != 0) {
+    if ((a->ssh ? ssh_sign(a->out, &k, a->nspace, buf, len)
+                : write_sig(a->out, &k, buf, len)) != 0) {
         free(buf);
         return refuse_c(17, "cannot write \"%s\"", a->out);
     }
@@ -7394,6 +7521,7 @@ static int options_clean(const struct pkg_options *o)
         { "the name", o->target }, { "ROOT", o->root }, { "CHANNEL", o->channel },
         { "NAME", o->name }, { "VERSION", o->version }, { "ARCH", o->arch }, { "KIND", o->kind },
         { "DEPENDS", o->depends }, { "SIGN", o->sign }, { "FILE", o->file }, { "KEY", o->key },
+        { "NAMESPACE", o->nspace },
         { "OUT", o->out }, { "ACCEPTKEY", o->acceptkey }, { "UNIT", o->unit },
         { "HANDLER", o->handler }, { "FILES", o->files }, { "BUILD", o->build },
         { "ARCHIVE", o->archive }, { "TO", o->to }, { "PKG_PUSHKEY", o->pushkey },
@@ -7495,6 +7623,8 @@ static int push_path_ok(const char *rel)
         return 1;
     if (strncmp(rel, "archives/", 9) == 0)
         return !(n > 7 && strcmp(rel + n - 7, ".pkgidx") == 0) && !(n > 7 && strcmp(rel + n - 7, ".sha256") == 0);
+    if (strcmp(rel, "Bootstrap/SHA256SUMS") == 0 || strcmp(rel, "Bootstrap/SHA256SUMS.sig") == 0)
+        return 1;   /* the bootstraps' digests, signed for ssh-keygen -Y verify */
     if (strncmp(rel, "Bootstrap/", 10) == 0) {
         /* Bootstrap/<cpu>/Pkg for AROS, Bootstrap/<platform>/pkg or pkg.exe for a host */
         const char *plat = rel + 10, *slash = strchr(plat, '/');

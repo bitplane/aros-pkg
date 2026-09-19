@@ -11,6 +11,11 @@
 #   Bootstrap/<cpu>/Pkg   the same binaries, to start from
 #   Install-Pkg           the AmigaDOS script that uses them
 #   ReadMe                what to do on AROS
+#   Bootstrap/SHA256SUMS  every file above in `shasum -a 256 -c` form, and
+#   Bootstrap/SHA256SUMS.sig  its signature by the same key in OpenSSH's
+#                         format, namespace aros-pkg-bootstrap: installers
+#                         check the programs they fetch with ssh-keygen -Y
+#                         verify before Pkg is there to check anything
 #
 # On AROS, one line:   Execute <channel>/Install-Pkg <channel> [<root>]
 # tries each bootstrap binary until one runs on that machine, and that one
@@ -132,6 +137,22 @@ This is a Pkg channel. To put Pkg on an AROS machine that can reach it:
 itself from this channel as a signed package; `Pkg UPGRADE pkg ROOT SYS:
 CHANNEL <this directory>` keeps it up to date.
 EOF
+# The bootstraps are programs a machine runs before Pkg can check anything:
+# their digests, signed so that ssh-keygen, which every host has, verifies them.
+(
+    cd "$ch"
+    # each drawer's entries as they are named, not a pattern per name: on a
+    # file system that ignores case, Bootstrap/*/Pkg also matches .../pkg
+    for f in Bootstrap/*/* Install-Pkg ReadMe; do
+        case $f in Bootstrap/*/Pkg|Bootstrap/*/pkg|Bootstrap/*/pkg.exe|Install-Pkg|ReadMe) ;; *) continue ;; esac
+        [ -f "$f" ] || continue
+        if command -v shasum > /dev/null; then shasum -a 256 "$f"; else sha256sum "$f"; fi
+    done
+) > "$work/sums"
+mv "$work/sums" "$ch/Bootstrap/SHA256SUMS"
+"$pkg" SIGN "$ch/Bootstrap/SHA256SUMS" KEY "$PKG_SIGNKEY" OUT "$ch/Bootstrap/SHA256SUMS.sig" \
+    SSH NAMESPACE aros-pkg-bootstrap MACHINE > "$work/out" || { cat "$work/out" >&2; exit 1; }
+echo "make-aros-channel: Bootstrap/SHA256SUMS, $(wc -l < "$ch/Bootstrap/SHA256SUMS" | tr -d ' ') files, signed for ssh-keygen -Y verify"
 echo "make-aros-channel: $ch is ready."
 echo "  On each AROS machine, with <ch> the name that machine gives this directory"
 echo "  (a volume such as DEPOT:, or a drawer such as Work:channel):"
