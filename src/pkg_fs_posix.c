@@ -746,19 +746,81 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     return -1;
 }
 
-int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
+/* The network on AROS is bsdsocket.library, which a TCP/IP stack provides
+ * once it is started (AROSTCP; on a hosted AROS, the host's own sockets). It
+ * is opened for one transfer and closed after it: Pkg holds nothing open. */
+#include <proto/bsdsocket.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
+struct Library *SocketBase;
+
+static int net_open(const char *host, const char *port, char *err, size_t errlen)
 {
-    (void)url; (void)dest;
-    snprintf(err, errlen, "network channels are not built for AROS yet; copy the channel to a "
-             "volume this machine reads, and name that directory");
+    struct sockaddr_in sa;
+    struct hostent *he;
+    int s;
+
+    SocketBase = OpenLibrary((CONST_STRPTR)"bsdsocket.library", 3);
+    if (SocketBase == NULL) {
+        snprintf(err, errlen, "this machine's network is not started: bsdsocket.library does not open. "
+                 "Start the network (AROSTCP), or copy the channel to a volume and name that drawer");
+        return -1;
+    }
+    memset(&sa, 0, sizeof sa);
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((unsigned short)atoi(port));
+    sa.sin_addr.s_addr = inet_addr((char *)host);
+    if (sa.sin_addr.s_addr == INADDR_NONE) {
+        he = gethostbyname((char *)host);
+        if (he == NULL || he->h_addr_list == NULL || he->h_addr_list[0] == NULL) {
+            snprintf(err, errlen, "cannot find the host %s: check the network's name servers", host);
+            CloseLibrary(SocketBase); SocketBase = NULL;
+            return -1;
+        }
+        memcpy(&sa.sin_addr, he->h_addr_list[0], sizeof sa.sin_addr);
+    }
+    s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0 || connect(s, (struct sockaddr *)&sa, sizeof sa) != 0) {
+        if (s >= 0) CloseSocket(s);
+        snprintf(err, errlen, "cannot connect to %s:%s", host, port);
+        CloseLibrary(SocketBase); SocketBase = NULL;
+        return -1;
+    }
+    return s;
+}
+static ssize_t net_read(int s, void *buf, size_t n) { return (ssize_t)recv(s, buf, (LONG)n, 0); }
+static ssize_t net_write(int s, const void *buf, size_t n) { return (ssize_t)send(s, (APTR)buf, (LONG)n, 0); }
+static void net_close(int s)
+{
+    if (SocketBase == NULL) return;
+    CloseSocket(s);
+    CloseLibrary(SocketBase);
+    SocketBase = NULL;
+}
+
+static int get_https(const char *url, const char *tmp, char *err, size_t errlen)
+{
+    (void)tmp;
+    snprintf(err, errlen, "%s is https, and AROS has no TLS: name the channel with http://. Nothing is lost: "
+             "Pkg checks every signature and every file itself, whatever the connection", url);
     return -1;
 }
 
+/* Downloads are kept on the system volume so that a reboot does not fetch
+ * them again; RAM: when that volume cannot be written (a CD, a full disk). */
 char *pkg_cache_dir(void)
 {
     const char *e = getenv("PKG_CACHE");
     char *p = (char *)malloc(64 + (e ? strlen(e) : 0));
-    if (p) strcpy(p, e ? e : "T:pkg-cache");
+    if (p == NULL) return NULL;
+    if (e && *e) { strcpy(p, e); return p; }
+    mkdir("SYS:.pkg", 0755);
+    if (mkdir("SYS:.pkg/cache", 0755) == 0 || pkg_fs_is_dir("SYS:.pkg/cache"))
+        strcpy(p, "SYS:.pkg/cache");
+    else
+        strcpy(p, "RAM:pkg-cache");
     return p;
 }
 #else
@@ -854,13 +916,40 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
     return 0;
 }
 
+/* The socket under the HTTP client: a name and a port in, a stream out. */
+static int net_open(const char *host, const char *port, char *err, size_t errlen)
+{
+    struct addrinfo hints, *ai = NULL, *a;
+    int s = -1;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, port, &hints, &ai) != 0) {
+        snprintf(err, errlen, "cannot find the host %s", host);
+        return -1;
+    }
+    for (a = ai; a && s < 0; a = a->ai_next) {
+        s = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (s >= 0 && connect(s, a->ai_addr, a->ai_addrlen) != 0) { close(s); s = -1; }
+    }
+    freeaddrinfo(ai);
+    if (s < 0) snprintf(err, errlen, "cannot connect to %s:%s", host, port);
+    return s;
+}
+static ssize_t net_read(int s, void *buf, size_t n) { return read(s, buf, n); }
+static ssize_t net_write(int s, const void *buf, size_t n) { return write(s, buf, n); }
+static void net_close(int s) { close(s); }
+#define get_https get_with_curl
+
+#endif
+
+/* ---- the HTTP client, the same on every system ------------------------ */
+
 static int http_get_once(const char *url, int fd, char *location, size_t ll, char *err, size_t errlen)
 {
     char host[256], port[8] = "80", req[2300], head[8192];
     const char *p = url + 7, *slash = strchr(p, '/'), *colon;
     const char *path = slash ? slash : "/";
     size_t hl = slash ? (size_t)(slash - p) : strlen(p), hlen = 0;
-    struct addrinfo hints, *ai = NULL, *a;
     int s = -1, code = 0, chunked = 0;
     long long clen = -1;
     char *body;
@@ -873,33 +962,23 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
         hl = (size_t)(colon - p);
     }
     snprintf(host, sizeof host, "%.*s", (int)hl, p);
-    memset(&hints, 0, sizeof hints);
-    hints.ai_socktype = SOCK_STREAM;
-    if (getaddrinfo(host, port, &hints, &ai) != 0) {
-        snprintf(err, errlen, "cannot find the host %s", host);
-        return -1;
-    }
-    for (a = ai; a && s < 0; a = a->ai_next) {
-        s = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
-        if (s >= 0 && connect(s, a->ai_addr, a->ai_addrlen) != 0) { close(s); s = -1; }
-    }
-    freeaddrinfo(ai);
-    if (s < 0) { snprintf(err, errlen, "cannot connect to %s:%s", host, port); return -1; }
+    s = net_open(host, port, err, errlen);
+    if (s < 0) return -1;
     snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Pkg\r\nConnection: close\r\n\r\n",
              path, host);
-    if (write(s, req, strlen(req)) != (ssize_t)strlen(req)) {
-        close(s); snprintf(err, errlen, "cannot send to %s", host); return -1;
+    if (net_write(s, req, strlen(req)) != (ssize_t)strlen(req)) {
+        net_close(s); snprintf(err, errlen, "cannot send to %s", host); return -1;
     }
     /* the head, up to the blank line */
     for (;;) {
-        if (hlen + 1 >= sizeof head) { close(s); snprintf(err, errlen, "an oversized reply from %s", host); return -1; }
-        n = read(s, head + hlen, sizeof head - 1 - hlen);
-        if (n <= 0) { close(s); snprintf(err, errlen, "%s closed the connection early", host); return -1; }
+        if (hlen + 1 >= sizeof head) { net_close(s); snprintf(err, errlen, "an oversized reply from %s", host); return -1; }
+        n = net_read(s, head + hlen, sizeof head - 1 - hlen);
+        if (n <= 0) { net_close(s); snprintf(err, errlen, "%s closed the connection early", host); return -1; }
         hlen += (size_t)n;
         head[hlen] = '\0';
         if ((body = strstr(head, "\r\n\r\n")) != NULL) { body += 4; break; }
     }
-    if (sscanf(head, "HTTP/%*s %d", &code) != 1) { close(s); snprintf(err, errlen, "%s did not answer HTTP", host); return -1; }
+    if (sscanf(head, "HTTP/%*s %d", &code) != 1) { net_close(s); snprintf(err, errlen, "%s did not answer HTTP", host); return -1; }
     {
         char *line = strstr(head, "\r\n");
         while (line && line + 2 < body - 2) {
@@ -917,9 +996,9 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
             line = eol;
         }
     }
-    if (code == 404 || code == 410) { close(s); return 1; }
-    if (code >= 300 && code < 400) { close(s); return 3; }
-    if (code != 200) { close(s); snprintf(err, errlen, "%s answered HTTP %d for %s", host, code, path); return -1; }
+    if (code == 404 || code == 410) { net_close(s); return 1; }
+    if (code >= 300 && code < 400) { net_close(s); return 3; }
+    if (code != 200) { net_close(s); snprintf(err, errlen, "%s answered HTTP %d for %s", host, code, path); return -1; }
     {
         /* the body: what followed the head, then the rest of the stream */
         size_t have = hlen - (size_t)(body - head);
@@ -929,32 +1008,32 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
             if (have && write(fd, body, have) != (ssize_t)have) goto werr;
             got = (long long)have;
             while (clen < 0 || got < clen) {
-                n = read(s, buf, sizeof buf);
+                n = net_read(s, buf, sizeof buf);
                 if (n <= 0) break;
                 if (write(fd, buf, (size_t)n) != n) goto werr;
                 got += n;
             }
-            close(s);
+            net_close(s);
             if (clen >= 0 && got != clen) { snprintf(err, errlen, "%s sent %lld of %lld bytes", host, got, clen); return -1; }
             return 0;
         } else {
             /* chunked: collect everything, then decode */
             size_t cap = have + 65536, len = have, at = 0;
             char *all = (char *)malloc(cap + 1);
-            if (all == NULL) { close(s); snprintf(err, errlen, "out of memory"); return -1; }
+            if (all == NULL) { net_close(s); snprintf(err, errlen, "out of memory"); return -1; }
             memcpy(all, body, have);
-            while ((n = read(s, buf, sizeof buf)) > 0) {
+            while ((n = net_read(s, buf, sizeof buf)) > 0) {
                 if (len + (size_t)n + 1 > cap) {
                     char *g;
                     cap = (len + (size_t)n) * 2;
                     g = (char *)realloc(all, cap + 1);
-                    if (g == NULL) { free(all); close(s); snprintf(err, errlen, "out of memory"); return -1; }
+                    if (g == NULL) { free(all); net_close(s); snprintf(err, errlen, "out of memory"); return -1; }
                     all = g;
                 }
                 memcpy(all + len, buf, (size_t)n);
                 len += (size_t)n;
             }
-            close(s);
+            net_close(s);
             all[len] = '\0';
             for (;;) {
                 unsigned long size = strtoul(all + at, NULL, 16);
@@ -973,7 +1052,7 @@ static int http_get_once(const char *url, int fd, char *location, size_t ll, cha
         }
     }
 werr:
-    close(s);
+    net_close(s);
     snprintf(err, errlen, "cannot write the download: %s", strerror(errno));
     return -1;
 }
@@ -989,7 +1068,7 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
     snprintf(cur, sizeof cur, "%s", url);
     for (hops = 0; hops < 6; hops++) {
         if (strncmp(cur, "https://", 8) == 0) {
-            rc = get_with_curl(cur, tmp, err, errlen);
+            rc = get_https(cur, tmp, err, errlen);
             break;
         }
         if (strncmp(cur, "http://", 7) != 0) {
@@ -1018,4 +1097,3 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
     free(tmp);
     return rc;
 }
-#endif
