@@ -33,17 +33,28 @@ Execute Work:pkg-x86_64/Install-Pkg Work:pkg-x86_64
 The script picks the build for your CPU and installs Pkg into `SYS:` as a
 signed package, so later versions arrive with `Pkg UPGRADE pkg`.
 
-**On macOS, Linux and Windows.** The same page has ready builds; one
-command puts `pkg` in the current directory:
+**On macOS and Linux.** The same page has ready builds. One line downloads
+`pkg` and puts it where your shell finds it, `/usr/local/bin`:
 
 ```sh
-curl -fsSLo pkg https://aros-pkg.azurewebsites.net/get/pkg/macos-arm64 && chmod +x pkg
+curl -fsSLo pkg https://aros-pkg.azurewebsites.net/get/pkg/macos-arm64 && chmod +x pkg && sudo mv pkg /usr/local/bin/
 ```
 
 with `macos-x86_64`, `linux-x86_64` or `linux-arm64` in place of
-`macos-arm64`; on Windows, `Invoke-WebRequest
-https://aros-pkg.azurewebsites.net/get/pkg/windows-x86_64 -OutFile pkg.exe`.
-Or build it from this repository with a C99 compiler:
+`macos-arm64`. Then `pkg HELP` answers from any directory. Without `sudo`,
+move it into a directory of your own that is on `PATH` instead, such as
+`~/.local/bin`, or run it as `./pkg` from where it is.
+
+**On Windows.** In PowerShell:
+
+```powershell
+Invoke-WebRequest https://aros-pkg.azurewebsites.net/get/pkg/windows-x86_64 -OutFile pkg.exe
+```
+
+then move `pkg.exe` into a directory on your `Path`, or run `.\pkg.exe`
+from where it is.
+
+**From source**, on any of them, with a C99 compiler:
 
 ```sh
 make                    # build/pkg
