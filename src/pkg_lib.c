@@ -1919,7 +1919,7 @@ static int aminet_readme(const char *path, struct pkg_about *a)
             int rule = l[0] != '\0';
             for (i2 = 0; l[i2] && rule; i2++) rule = l[i2] == '=' || l[i2] == '-' || l[i2] == '*';
             if (!(ascii_casecmp(l, "description") == 0 || ascii_casecmp(l, "description:") == 0
-                  || rule || (l[0] == '\0' && k == 0)))
+                  || rule || l[0] == '\0'))
                 break;
             k++;
         }

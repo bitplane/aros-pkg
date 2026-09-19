@@ -26,7 +26,7 @@ printf 'png' > d/Docs/shot.png
 printf 'Tool does things.\n\n\n\tIndented, and    \nkept in one paragraph.\n' > desc.txt
 printf 'First version.\n' > changes.txt
 # an Aminet readme, in Latin-1 as many are
-printf 'Short:        Does things well\nAuthor:       Jane Roe, Joe Bloggs\nType:         util/misc\nVersion:      1.0\nArchitecture: m68k-amigaos\n\nDescription\n===========\nThe readme text, caf\351.\n' > tool.readme
+printf 'Short:        Does things well\nAuthor:       Jane Roe, Joe Bloggs\nType:         util/misc\nVersion:      1.0\nArchitecture: m68k-amigaos\n\nDescription\n===========\n\nThe readme text, caf\351.\n' > tool.readme
 
 echo "keywords"
 $PKG PUBLISH d CHANNEL ch KIND application SHORT "A tool that does things" DESCRIPTION desc.txt \
