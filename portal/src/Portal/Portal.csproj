@@ -8,6 +8,14 @@
 
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="4.0.103.3" />
+    <PackageReference Include="Markdig" Version="1.3.2" />
+  </ItemGroup>
+
+  <!-- The user guides of this repository, rendered by /docs: the site's
+       documentation always matches the Pkg built from the same commit. -->
+  <ItemGroup>
+    <Content Include="../../../README.md" Link="userdocs/README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../../docs/using.md;../../../docs/publishing.md;../../../docs/channels.md;../../../docs/reference.md" LinkBase="userdocs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

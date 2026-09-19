@@ -144,6 +144,12 @@ a.button:hover { text-decoration: none; filter: brightness(1.1); }
 .docs { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 32px; align-items: start; }
 .toc { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 6px; font-size: 0.92rem; }
 .docs .prose { max-width: 72ch; }
+.toc a.on { font-weight: 650; color: var(--fg); }
+.toc a.sub { font-size: 0.85rem; padding-left: 10px; color: var(--muted); }
+.docs .prose h3 { font-size: 1rem; margin: 1.4rem 0 0.4rem; scroll-margin-top: 16px; }
+.docs .prose table { border-collapse: collapse; font-size: 0.92rem; margin: 0.6rem 0 1rem; }
+.docs .prose th, .docs .prose td { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+.docs .prose :not(pre) > code { background: var(--code); padding: 1px 4px; border-radius: 4px; }
 .docs .prose h2 { scroll-margin-top: 16px; }
 .docs .prose ul { padding-left: 1.2em; }
 .docs .prose li { margin: 0.3em 0; }

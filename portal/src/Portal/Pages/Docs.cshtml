@@ -1,85 +1,34 @@
-@page "/docs"
-@using Microsoft.Extensions.Options
-@inject IOptions<PortalOptions> Options
+@page "/docs/{slug?}"
+@using Portal.Docs
 @{
-    ViewData["Title"] = "Documentation";
-    var contrib = Site.ChannelUrl(Request, Options.Value, "contrib-nightly");
-    var pkgch = Site.ChannelUrl(Request, Options.Value, "pkg");
+    var slug = (string?)RouteData.Values["slug"] ?? "";
+    var doc = UserDocs.Render(slug);
+    if (doc is null) { Response.StatusCode = 404; ViewData["Title"] = "No such page"; }
+    else ViewData["Title"] = doc.Title;
 }
-<h1>Documentation</h1>
+@if (doc is null)
+{
+    <h1>No such page</h1>
+    <p><a href="/docs">The documentation starts here.</a></p>
+    return;
+}
+<h1>@doc.Title</h1>
 <div class="docs">
-<nav class="toc" aria-label="Contents">
-    <a href="#start">Getting started</a>
-    <a href="#install">Installing</a>
-    <a href="#update">Keeping up to date</a>
-    <a href="#channels">Channels</a>
-    <a href="#trust">What Pkg checks</a>
-    <a href="#publish">Publishing</a>
-    <a href="#scripts">Scripts and agents</a>
+<nav class="toc" aria-label="Documentation">
+    @foreach (var p in UserDocs.Pages)
+    {
+        var current = p.Slug == slug;
+        <a class="@(current ? "on" : "")" href="/docs@(p.Slug.Length > 0 ? "/" + p.Slug : "")">@p.Title</a>
+        @if (current)
+        {
+            @foreach (var h in doc.Headings.Where(h => h.Level == 2))
+            {
+                <a class="sub" href="#@h.Id">@h.Text</a>
+            }
+        }
+    }
 </nav>
-<div class="prose">
-
-<h2 id="start">Getting started</h2>
-<p>Pkg is one program. It installs, checks, updates and removes packages, and it is itself a package. Get it from <a href="/downloads">Downloads</a>:</p>
-<ul>
-    <li><strong>On AROS</strong>, the zip for your CPU holds a drawer that is a small channel. Unzip it on the computer next to your AROS machine, copy the drawer across, and run <code>Execute Pkg-x86_64/Install-Pkg Pkg-x86_64</code>. Pkg installs itself into <code>SYS:</code> through its own checks.</li>
-    <li><strong>On macOS, Linux or Windows</strong>, one command fetches Pkg for your system, to manage a hosted AROS, a drawer or a disk image from there.</li>
-</ul>
-
-<h2 id="install">Installing</h2>
-<p>Every command names where to install, <code>ROOT</code>, and where packages come from, <code>CHANNEL</code>:</p>
-<pre><code>Pkg INSTALL lua ROOT SYS: CHANNEL @contrib</code></pre>
-<ul>
-    <li><strong>ROOT</strong> is the AROS system: <code>SYS:</code> on AROS itself, or the system drawer of a hosted AROS when you run Pkg on its host.</li>
-    <li><strong>CHANNEL</strong> is a drawer or an address. Pkg on macOS, Linux and Windows reads addresses today; Pkg on AROS reads a drawer for now, and addresses in a coming version.</li>
-    <li>Dependencies come along, each checked before anything is written. <code>DRYRUN</code> shows what would happen and changes nothing.</li>
-    <li>A package built for several CPUs picks the one of your system; <code>ARCH x86_64</code> chooses when Pkg cannot tell.</li>
-</ul>
-<pre><code>Pkg LIST ROOT SYS:
-Pkg REMOVE lua ROOT SYS:
-Pkg REMOVE ORPHANS ROOT SYS:        dependencies nothing needs any more</code></pre>
-
-<h2 id="update">Keeping up to date</h2>
-<pre><code>Pkg STATUS ROOT SYS: CHANNEL @contrib
-Pkg UPGRADE ALL ROOT SYS: CHANNEL @contrib</code></pre>
-<p><code>STATUS</code> says, for each installed package, whether it is current, can be upgraded, was withdrawn by its publisher, or has files you edited. <code>UPGRADE ALL</code> goes as far as it can and names every package it left alone, and why. Neither ever asks a question, so both can run from <code>S:User-Startup</code> or any scheduler. Pkg never runs in the background by itself.</p>
-<pre><code>Pkg VERIFY ALL ROOT SYS:            every installed file against its signed manifest
-Pkg REPAIR ALL ROOT SYS: CHANNEL …  puts damaged files back
-Pkg ROLLBACK lua ROOT SYS: CHANNEL …  the version installed before the last change</code></pre>
-<p>A file you edited, such as a preferences file, survives an upgrade.</p>
-
-<h2 id="channels">Channels</h2>
-<p>A channel is a list of signed packages: a drawer on a disk, or the same drawer served at an address. This site serves:</p>
-<ul>
-    <li><code>@pkgch</code>, Pkg itself.</li>
-    <li><code>@contrib</code>, the AROS contrib collection from the nightly builds. A version such as <code>3.5+20260918</code> is the program's own version and the nightly it came from; a component that did not change is not republished.</li>
-</ul>
-<p>Every address answers over <code>https</code> and over plain <code>http</code>, for machines without TLS. The connection is not what makes an install safe: the signatures are.</p>
-<p>Contrib packages keep their files in the nightly archive, which Pkg downloads once from SourceForge, where AROS publishes it, and keeps in its cache. The archive's size and SHA-256 are in each signed manifest.</p>
-
-<h2 id="trust">What Pkg checks</h2>
-<ul>
-    <li>Each package has a manifest listing every file with its size and SHA-256, and the manifest is signed with Ed25519. Pkg checks the signature, then each file, before placing anything.</li>
-    <li>The first install of a package remembers the key that signed it. A later version signed by another key is refused, both keys printed; <code>ACCEPTKEY</code> followed by the new key accepts it on purpose.</li>
-    <li>A published version never changes. Its publisher can withdraw it: Pkg then stops offering it, and <code>STATUS</code> says so.</li>
-    <li>Refusals say why and what to do next. The exit code is 0 when done, 10 to 18 when refused (the number names the kind of refusal), 20 for a mistyped command.</li>
-</ul>
-
-<h2 id="publish">Publishing</h2>
-<p>You sign on your own machine; this site never holds a signing key.</p>
-<pre><code>pkg KEYGEN FILE ~/my.key
-pkg PUBLISH MyTool CHANNEL mychannel KIND application SIGN ~/my.key
-PKG_PUSHKEY=… pkg PUSH CHANNEL mychannel TO https://…/&lt;channel&gt;</code></pre>
-<ul>
-    <li><code>KIND</code> is <code>image</code> (a program people run, as one volume to mount), <code>application</code> (a program as loose files), <code>library</code>, <code>device</code>, <code>class</code>, <code>font</code>, <code>catalog</code>, <code>startup</code>, <code>boot</code>, <code>data</code>, <code>sdk</code> or <code>slave</code>.</li>
-    <li>Name and version come from the program's <code>$VER</code> unless you give them; <code>DEPENDS "lib >= 1.2"</code> names what it needs.</li>
-    <li>A package keeps the key of its first version: on this site, a version signed by another key is refused.</li>
-    <li><code>PUSH</code> sends only what the site lacks, resumes an interrupted upload, and publishes nothing that Pkg's own checks refuse. Push keys are given by the site's maintainers for now.</li>
-    <li>Descriptions, categories, tags, authors, licences and links arrive with the next version of Pkg (<code>SHORT</code>, <code>DESCRIPTION</code>, <code>CATEGORY</code>, <code>TAGS</code>, or an Aminet <code>.readme</code>).</li>
-</ul>
-
-<h2 id="scripts">Scripts and agents</h2>
-<p><code>MACHINE</code>, or <code>PKG_OUTPUT=machine</code>, turns every answer into <code>key: value</code> lines, closed by a plain <code>summary:</code> sentence. <code>TRACE &lt;file&gt;</code> records each step, file and check. On AROS, <code>Pkg PORT</code> serves every command on the ARexx port <code>PKG</code>: RESULT on success, the refusal class in RC.</p>
-
-</div>
+<article class="prose">
+    @Html.Raw(doc.Html)
+</article>
 </div>
