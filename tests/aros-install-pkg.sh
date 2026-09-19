@@ -54,7 +54,7 @@ ok $? "Install-Pkg names no host build"
 grep -q 'Bootstrap/aarch64/Pkg' "$share/full/Install-Pkg";   ok $? "and probes the aarch64 bootstrap"
 ! grep -q 'UPGRADE pkg ROOT <ROOT> CHANNEL <CHANNEL>' "$share/full/Install-Pkg"
 ok $? "its closing hint no longer names the channel it was run from"
-grep -q 'UPGRADE pkg ROOT <ROOT> CHANNEL http://' "$share/full/Install-Pkg";  ok $? "it names the channel newer versions come from"
+grep -q 'UPGRADE pkg ROOT <ROOT> CHANNEL https://' "$share/full/Install-Pkg"; ok $? "it names the https channel newer versions come from"
 has "$share/full/Bootstrap/SHA256SUMS" '  Install-Pkg$';        ok $? "SHA256SUMS lists this Install-Pkg"
 (cd "$share/full" && shasum -a 256 -c Bootstrap/SHA256SUMS > /dev/null)
 ok $? "and matches it"
