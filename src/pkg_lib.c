@@ -8114,6 +8114,13 @@ static int cmd_push(const struct pkg_options *a)
             p2 = nl ? nl + 1 : end;
         }
         free(ans);
+        if (result[0] == '\0' && code != 200) {
+            /* no record at all: the portal itself failed, or something in front of it answered */
+            refuse_c(17, "%s answered the commit with HTTP %d and no record of what it did: nothing says "
+                     "the push was published. Read the channel with SHOW, and push again: what was "
+                     "sent is not sent twice", base, code);
+            goto out;
+        }
         kv("uploaded", "%lu", (unsigned long)sent);
         kv("uploaded-bytes", "%llu", sent_bytes);
         if (!machine)
