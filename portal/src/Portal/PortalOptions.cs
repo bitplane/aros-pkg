@@ -48,6 +48,11 @@ public sealed class PortalOptions
     /// API adds to this list without a restart (state/<channel>/unlisted).
     public string Unlisted { get; set; } = "";
 
+    /// Who sees unlisted channels on the site: "name:sha256 of their view key;...".
+    /// /see/<key> sets a cookie in that browser, /see/off removes it. A view key
+    /// shows what is unlisted and does nothing else: it is no push or admin key.
+    public string ViewKeys { get; set; } = "";
+
     /// Packages shown first, as "channel/name" separated by commas, e.g.
     /// "pkg/pkg,contrib-nightly/regina". Pkg itself belongs here: people
     /// need it before anything else.

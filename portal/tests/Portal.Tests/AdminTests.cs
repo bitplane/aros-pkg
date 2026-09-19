@@ -141,6 +141,24 @@ public class AdminTests
     }
 
     [Fact]
+    public async Task A_view_key_in_the_browser_shows_what_is_unlisted_and_nothing_else_does()
+    {
+        var key = "view-key-for-the-test";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
+        using var f = new Factory();
+        using var g = f.WithWebHostBuilder(b => b.UseSetting("Portal:ViewKeys", $"owner:{hash}").UseSetting("Portal:Unlisted", "demo"));
+        var plain = g.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        Assert.DoesNotContain("demo", await plain.GetStringAsync("/"));
+        Assert.Equal(HttpStatusCode.NotFound, (await plain.GetAsync("/see/not-the-key")).StatusCode);
+        var mine = g.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true });
+        var home = await mine.GetStringAsync($"/see/{key}");                 // sets the cookie, lands on the home page
+        Assert.Contains("demo (unlisted)", home);
+        Assert.Contains("\"name\":\"tool\"", await mine.GetStringAsync("/api/search?q=tool"));
+        Assert.DoesNotContain("demo", await plain.GetStringAsync("/"));      // another browser still sees nothing
+        Assert.DoesNotContain("demo (unlisted)", await mine.GetStringAsync("/see/off"));
+    }
+
+    [Fact]
     public async Task A_name_that_matches_nothing_is_refused_and_nothing_moves()
     {
         using var f = new Factory();

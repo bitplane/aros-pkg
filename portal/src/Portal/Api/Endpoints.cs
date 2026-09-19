@@ -34,7 +34,7 @@ public static class Endpoints
         });
 
         // This instance's rules, for publishers and tools deciding before they push.
-        api.MapGet("/policy", (IOptions<PortalOptions> o) =>
+        api.MapGet("/policy", (HttpContext http, IOptions<PortalOptions> o) =>
         {
             var p = o.Value.Policy;
             return Results.Json(new
@@ -46,6 +46,7 @@ public static class Endpoints
                 admin = p.Admin,
                 plainHttp = p.PlainHttp,
                 signedPush = p.SignedPush,
+                publish = $"{Site(http, o.Value)}/publish",
                 minPkg = p.MinPkg.Trim().Length > 0 ? p.MinPkg.Trim() : null,
                 minPkgReads = p.MinPkgReads,
                 note = p.Note.Length > 0 ? p.Note : null,

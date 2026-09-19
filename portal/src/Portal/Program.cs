@@ -23,6 +23,14 @@ if (args.Length is 3 or 4 && args[0] == "key" && (args.Length == 3 || args[3] ==
     return;
 }
 
+// `Portal viewkey <name>`: a key that shows unlisted channels in a browser, and its config line.
+if (args is ["viewkey", var viewer])
+{
+    var k = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+    var h = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(k))).ToLowerInvariant();
+    Console.WriteLine($"key (shown once; open <portal>/see/<key> in the browser): {k}\nPortal:ViewKeys entry: {viewer}:{h}");
+    return;
+}
 // `Portal adminkey <name>`: a maintainer's key for /_admin, and its config line.
 if (args is ["adminkey", var maintainer])
 {
@@ -41,6 +49,7 @@ builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Port
 builder.Services.AddSingleton<Catalogue>();
 builder.Services.AddSingleton<PublisherKeys>();
 builder.Services.AddSingleton<SignedPush>();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<PkgRunner>();
 builder.Services.AddSingleton<PushService>();
 builder.Services.AddSingleton<ArchiveChecker>();
@@ -192,6 +201,10 @@ admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog())
 
 // ---- the push API, under each channel ---------------------------------------
 
+// Who may push is decided by people, and a refusal says where to ask them.
+string SiteOf(HttpContext http) => opts.PublicUrl.Length > 0 ? opts.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";
+string Ask(HttpContext http) => $"Publishers are registered by this portal's maintainers, and nobody can register themselves yet: {SiteOf(http)}/publish says how to ask";
+
 var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpointFilter(async (ctx, next) =>
 {
     var http = ctx.HttpContext;
@@ -210,7 +223,7 @@ var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpo
         if (!opts.Policy.SignedPush)
             return Results2.Text(opts.Policy.Refuse("SignedPush", "off", "this portal takes no signed pushes", "push over https with the key the portal gave you"), 403);
         if (opening) return await next(ctx);
-        var (publisher, refusal, body) = await signed.Check(http, http.RequestAborted);
+        var (publisher, refusal, body) = await signed.Check(http, Ask(http), http.RequestAborted);
         if (refusal is not null) return Results2.Text(refusal, 401);
         http.Response.RegisterForDisposeAsync(body!);
         http.Request.Body = body!;
@@ -224,9 +237,9 @@ var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpo
         who = http.RequestServices.GetRequiredService<PublisherKeys>().Find(http.Request.Headers.Authorization);
     }
     if (who is null)
-        return Results2.Text(Record.Refused(14, "no push key, or one the portal does not know", "set PKG_PUSHKEY to the key you were given"), 401);
+        return Results2.Text(Record.Refused(14, "no push key, or one the portal does not know. " + Ask(http), "ask the maintainers; once registered, sign the push with SIGN <keyfile>, or set PKG_PUSHKEY to the key you were given"), 401);
     if (!who.MayPush(channel))
-        return Results2.Text(Record.Refused(14, $"the key of {who.Name} may not push to {channel}", "ask for the channel to be added to your key"), 403);
+        return Results2.Text(Record.Refused(14, $"the key of {who.Name} may not push to {channel}. " + Ask(http), "ask the maintainers for the channel to be added to your key"), 403);
     if (!opts.Policy.NewChannels && !Directory.Exists(Path.Combine(opts.ChannelsDir, channel)))
         return Results2.Text(opts.Policy.Refuse("NewChannels", "off", $"there is no channel {channel}, and this portal does not create channels on a push",
             "push to an existing channel, or ask the operators to create this one"), 403);
@@ -236,7 +249,7 @@ var push = app.MapGroup("/{channel}/_push").RequireRateLimiting("push").AddEndpo
 
 push.MapPost("/session", async (HttpContext http, SignedPush s) =>
 {
-    var answer = s.Open(await ReadBody(http));
+    var answer = s.Open(await ReadBody(http), Ask(http));
     return Results2.Text(answer, answer.Get("result") == "session" ? 200 : 401);
 });
 
@@ -283,6 +296,20 @@ foreach (var (route, file) in new[] { ("/install", "install.sh"), ("/install.sh"
         http.Response.Headers.CacheControl = "no-cache";
         return Results.Text(text, "text/plain; charset=utf-8");
     });
+
+// A view key in this browser: its holder sees the unlisted channels too. Rate-limited
+// like the admin API; the key is shown once by `Portal viewkey <name>`.
+app.MapGet("/see/{key}", (HttpContext http, string key, Portal.Channels.Catalogue c) =>
+{
+    if (key == "off") { http.Response.Cookies.Delete(Portal.Channels.Catalogue.ViewCookie); return Results.Redirect("/"); }
+    if (!c.IsViewKey(key)) return Results.NotFound();
+    http.Response.Cookies.Append(Portal.Channels.Catalogue.ViewCookie, key, new CookieOptions
+        { HttpOnly = true, Secure = http.Request.IsHttps, SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax, MaxAge = TimeSpan.FromDays(365), IsEssential = true });
+    return Results.Redirect("/");
+}).RequireRateLimiting("admin");
+
+// /publish is the address Pkg's refusals name: how to become a publisher, on the publishers' page.
+app.MapGet("/publish", () => Results.Redirect("/publishers#publish"));
 
 // Get-Pkg: the same for an AROS machine with a network and wget, over plain
 // http since AROS has no TLS. An AmigaDOS script, Latin-1 like the Shell.

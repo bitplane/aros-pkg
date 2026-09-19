@@ -1,3 +1,4 @@
+@inject Portal.Channels.Catalogue Catalogue
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,7 +20,7 @@
         <nav class="nav" aria-label="Main">
             <a class="@On("/")" href="/">Packages</a>
             <a class="@On("/downloads")" href="/downloads">Downloads</a>
-            <a class="@On("/publishers")" href="/publishers">Publishers</a>
+            <a class="@(here.StartsWith("/publishers") ? "on" : "")" href="/publishers">Publishers</a>
             <a class="@On("/statistics")" href="/statistics">Statistics</a>
             <a class="@On("/trust")" href="/trust">Trust</a>
             <a class="@On("/docs")" href="/docs">Documentation</a>
@@ -30,11 +31,15 @@
     </div>
 </header>
 <main class="wrap">
+    @if (Catalogue.SeesUnlisted())
+    {
+        <p class="muted small">You see unlisted channels too in this browser. <a href="/see/off">Stop</a></p>
+    }
     @RenderBody()
 </main>
 <footer class="wrap foot">
     <p>Preview, unlisted. Every package is signed with Ed25519, and Pkg checks each file against its signed manifest before installing it.
-       <a href="/trust">Trust and signatures</a> · <a href="/docs">Documentation</a> · <a href="/api">API and feeds</a></p>
+       <a href="/trust">Trust and signatures</a> · <a href="/publishers#publish">Publish here</a> · <a href="/docs">Documentation</a> · <a href="/api">API and feeds</a></p>
     <p><a href="https://github.com/jonx/aros-pkg" rel="noopener">Source on GitHub</a> · <a href="https://github.com/jonx/aros-pkg/issues" rel="noopener">Report an issue</a> · Contact: <a href="https://github.com/jonx" rel="noopener">github.com/jonx</a></p>
 </footer>
 <script src="~/js/site.js" asp-append-version="true"></script>

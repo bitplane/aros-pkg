@@ -46,7 +46,7 @@
 @foreach (var c in channels)
 {
     <a class="card" href="/channels/@c.Name">
-        <span class="card-title">@c.Name</span>
+        <span class="card-title">@c.Name@(Catalogue.IsUnlisted(c.Name) ? " (unlisted)" : "")</span>
         <span class="muted">@c.Packages.Count package@(c.Packages.Count == 1 ? "" : "s") · updated @Site.Ago(c.Updated)</span>
     </a>
 }

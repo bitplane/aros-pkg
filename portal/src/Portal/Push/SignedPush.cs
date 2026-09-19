@@ -50,11 +50,11 @@ public sealed partial class SignedPush
 
     /// "key: <public key>" in, "session: <hex>" out. Anyone may ask; a session
     /// is worth nothing without the key's signatures.
-    public Record Open(string body)
+    public Record Open(string body, string ask)
     {
         var key = body.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("key: ", StringComparison.Ordinal))?[5..].Trim() ?? "";
         if (!byKey.ContainsKey(key))
-            return Record.Refused(14, "this portal does not know that signing key", "send the portal's operators your public key (pkg KEYINFO FILE <keyfile>) and ask for it to be added");
+            return Record.Refused(14, "this portal does not know that signing key. " + ask, "send the maintainers your public key (pkg KEYINFO FILE <keyfile>), your publisher name and the channel");
         foreach (var (id, s) in sessions) if (s.Expires < DateTime.UtcNow) sessions.TryRemove(id, out _);
         var mine = sessions.Where(x => string.Equals(x.Value.Key, key, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Value.Expires).ToList();
         foreach (var old in mine.Take(Math.Max(0, mine.Count - 7))) sessions.TryRemove(old.Key, out _);   // a public key is public: eight at most each
@@ -69,14 +69,14 @@ public sealed partial class SignedPush
 
     /// The publisher a signed request comes from, or the refusal. The body is
     /// read to a file to be hashed, and handed back for the route to read.
-    public async Task<(Publisher? Who, Record? Refusal, Stream? Body)> Check(HttpContext http, CancellationToken ct)
+    public async Task<(Publisher? Who, Record? Refusal, Stream? Body)> Check(HttpContext http, string ask, CancellationToken ct)
     {
         var m = Header().Match(http.Request.Headers.Authorization.ToString());
         if (!m.Success) return (null, Record.Refused(14, "the Pkg-Signature header is not in the form key=,session=,seq=,sha256=,sig=", "use Pkg 1.4 or later"), null);
         var (key, id, sig) = (m.Groups[1].Value, m.Groups[2].Value, m.Groups[5].Value);
         if (!long.TryParse(m.Groups[3].Value, out var seq)) seq = -1;
         if (!byKey.TryGetValue(key, out var who))
-            return (null, Record.Refused(14, "this portal does not know that signing key", "ask the operators to add your public key"), null);
+            return (null, Record.Refused(14, "this portal does not know that signing key. " + ask, "send the maintainers your public key (pkg KEYINFO FILE <keyfile>), your publisher name and the channel"), null);
         if (!sessions.TryGetValue(id, out var s) || s.Expires < DateTime.UtcNow || !string.Equals(s.Key, key, StringComparison.OrdinalIgnoreCase))
             return (null, Record.Refused(14, "the session is unknown or over", "push again: Pkg asks for a new one"), null);
 

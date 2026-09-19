@@ -1,0 +1,48 @@
+@using Microsoft.Extensions.Options
+@inject IOptions<PortalOptions> Options
+@{
+    var pol = Options.Value.Policy;
+    var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Context.Request.Scheme}://{Context.Request.Host}";
+    var plain = "http://" + site[(site.IndexOf("://", StringComparison.Ordinal) + 3)..];
+    var contact = pol.Contact.Trim();
+}
+<section id="publish">
+<h2>Publish on this portal</h2>
+<p class="lead">To publish here, ask the portal's maintainer to register you: for now that is the only way, and there is no sign-up form yet.</p>
+
+<h3>How to ask</h3>
+@if (contact.Length > 0)
+{
+    <p>Write to the maintainer: <strong>@contact</strong>.</p>
+}
+else
+{
+    <p>Write to the maintainer, through <a href="https://github.com/jonx" rel="noopener">github.com/jonx</a> or the place where you heard of this portal.</p>
+}
+<p>Send three things. None of them is secret.</p>
+<ol>
+    <li><strong>Your public key.</strong> Make your signing key once with <code>pkg KEYGEN FILE my.key</code>, then send what this prints:
+        <div class="cmd"><code>pkg KEYINFO FILE my.key</code><button class="copy" data-copy="pkg KEYINFO FILE my.key">Copy</button></div>
+        Never send <code>my.key</code> itself: it stays with you, and every version you publish is signed with it.</li>
+    <li><strong>Your publisher name</strong>, as people will see it on the portal.</li>
+    <li><strong>The channel or channels</strong> you want to publish to, such as <code>raspberry-pi</code>: lowercase letters, digits and <code>-</code>.</li>
+</ol>
+
+<h3>What the maintainer decides</h3>
+<ul>
+    <li><strong>By link</strong>, the default: your push carries the signed descriptions, and your files stay where you publish them, at an <code>https</code> address such as a GitHub release. You publish from that archive and name its address with <code>UPSTREAM</code>.</li>
+    <li><strong>With files</strong>: the portal stores what you upload.</li>
+</ul>
+@if (pol.Note.Trim().Length > 0)
+{
+    <p class="muted">@pol.Note</p>
+}
+
+<h3>Then, to publish</h3>
+<p>Publish into a channel on your machine, and push it, signed with your key:</p>
+<div class="cmd lines"><code>pkg PUBLISH MyTool CHANNEL mychannel KIND application SIGN my.key
+pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key</code><button class="copy" data-copy="pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key">Copy</button></div>
+<p>From AROS, which has no TLS, push to the <code>http://</code> address; the push is signed, so nothing secret travels:</p>
+<div class="cmd"><code>Pkg PUSH CHANNEL Work:mychannel TO @plain/mychannel SIGN Work:keys/my.key</code><button class="copy" data-copy="Pkg PUSH CHANNEL Work:mychannel TO @plain/mychannel SIGN Work:keys/my.key">Copy</button></div>
+<p>The guides say the rest: <a href="/docs/publishing">Publishing packages</a>, <a href="/docs/publishing-on-aros">Publishing from an AROS machine, from zero</a>, and this portal's rules on <a href="/trust">Trust</a>.</p>
+</section>

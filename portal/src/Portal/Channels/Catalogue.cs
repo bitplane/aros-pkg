@@ -91,7 +91,7 @@ public sealed record ArchiveCheck(string Archive, string Status, DateTime When, 
 /// rebuilt when an index changes on disk. There is no database: the channel
 /// files are the single source.
 /// </summary>
-public sealed class Catalogue(IOptions<PortalOptions> options)
+public sealed class Catalogue(IOptions<PortalOptions> options, IHttpContextAccessor? web = null)
 {
     readonly PortalOptions o = options.Value;
     readonly ConcurrentDictionary<string, (DateTime Stamp, long Len, ChannelInfo Info)> cache = new();
@@ -106,7 +106,23 @@ public sealed class Catalogue(IOptions<PortalOptions> options)
 
     /// The channels the site shows. An unlisted one is served like any other
     /// to whoever names it, and appears in no list, search, feed or count.
-    public IEnumerable<ChannelInfo> Listed() => Channels().Where(c => !IsUnlisted(c.Name));
+    public IEnumerable<ChannelInfo> Listed() => SeesUnlisted() ? Channels() : Channels().Where(c => !IsUnlisted(c.Name));
+
+    public const string ViewCookie = "pkg-view";
+
+    /// Whether this browser carries a view key of Portal:ViewKeys.
+    public bool SeesUnlisted() =>
+        web?.HttpContext?.Request.Cookies[ViewCookie] is { Length: > 0 } key && IsViewKey(key);
+
+    public bool IsViewKey(string key)
+    {
+        var given = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key));
+        var found = false;
+        foreach (var entry in o.ViewKeys.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (entry.Split(':') is [_, { Length: 64 } hex]
+                && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(Convert.FromHexString(hex), given)) found = true;
+        return found;
+    }
 
     public string UnlistedPath(string channel) => Path.Combine(o.StateDir, channel, "unlisted");
 
