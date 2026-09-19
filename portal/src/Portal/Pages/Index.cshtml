@@ -23,6 +23,10 @@
     {
         <a class="card pinned" href="/packages/@p.Channel/@p.Name">
             <span class="card-title">@p.Name <span class="muted">@p.Latest.Version</span></span>
+            @if (p.Latest.Manifest.Short is { } sh)
+            {
+                <span>@sh</span>
+            }
             <span class="muted small">@Site.KindLabel(p.Kind) · @string.Join(", ", p.Archs.Select(Site.ArchLabel))</span>
             <span class="cmd-line">Pkg INSTALL @p.Name CHANNEL @Site.ChannelUrl(Request, Options.Value, p.Channel)</span>
         </a>
@@ -54,7 +58,12 @@
         @foreach (var p in recent)
         {
             <tr>
-                <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a></td>
+                <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a>
+                @if (p.Latest.Manifest.Short is { } sh)
+                {
+                    <div class="muted small">@sh</div>
+                }
+                </td>
                 <td><code>@p.Latest.Version</code></td>
                 <td class="hide-s">@Site.KindLabel(p.Kind)</td>
                 <td class="hide-s">@p.Channel</td>

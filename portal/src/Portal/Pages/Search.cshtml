@@ -5,26 +5,57 @@
     string q = Request.Query["q"].ToString().Trim();
     string kind = Request.Query["kind"].ToString();
     string arch = Request.Query["arch"].ToString();
+    string tag = Request.Query["tag"].ToString().ToLowerInvariant();
+    string category = Request.Query["category"].ToString();
     var all = Catalogue.Channels().SelectMany(c => c.Packages.Values).ToList();
-    var hits = all.Where(p =>
-            (q.Length == 0 || p.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
-                || p.Latest.Manifest.Files.Any(f => f.Path.Contains(q, StringComparison.OrdinalIgnoreCase)))
-            && (kind.Length == 0 || p.Kind == kind)
-            && (arch.Length == 0 || p.Archs.Contains(arch)))
-        // Pinned first, then names, then packages that only hold a file of that name.
-        .OrderBy(p => Catalogue.IsPinned(p) ? 0 : 1)
-        .ThenBy(p => q.Length > 0 && p.Name.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0
-                    : q.Length > 0 && p.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 1
-                    : q.Length == 0 || p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ? 2 : 3)
-        .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-        .ToList();
-    ViewData["Title"] = q.Length > 0 ? $"Search: {q}" : "All packages";
+    bool Has(string? text) => text is not null && text.Contains(q, StringComparison.OrdinalIgnoreCase);
+    // How well a package answers the query: its name, then what it says about
+    // itself, then the files it holds. 9: no match.
+    int Rank(PackageInfo p)
+    {
+        if (q.Length == 0) return 2;
+        var m = p.Latest.Manifest;
+        return p.Name.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0
+             : p.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 1
+             : Has(p.Name) ? 2
+             : Has(m.Short) || m.Tags.Any(Has) || Has(m.Category) ? 3
+             : m.Description.Any(Has) || Has(m.Author) ? 4
+             : m.Files.Any(f => Has(f.Path)) ? 5 : 9;
+    }
+    var hits = all.Select(p => (P: p, R: Rank(p)))
+        .Where(x => x.R < 9
+            && (kind.Length == 0 || x.P.Kind == kind)
+            && (arch.Length == 0 || x.P.Archs.Contains(arch))
+            && (tag.Length == 0 || x.P.Latest.Manifest.Tags.Contains(tag))
+            && (category.Length == 0 || (x.P.Latest.Manifest.Category ?? "").StartsWith(category, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(x => Catalogue.IsPinned(x.P) ? 0 : 1).ThenBy(x => x.R)
+        .ThenBy(x => x.P.Name, StringComparer.OrdinalIgnoreCase)
+        .Select(x => x.P).ToList();
+    var what = q.Length > 0 ? $"“{q}”" : tag.Length > 0 ? $"tagged {tag}" : category.Length > 0 ? $"in {category}" : null;
+    ViewData["Title"] = what is null ? "All packages" : $"Search: {what}";
+    var categories = all.Select(p => p.Latest.Manifest.Category).OfType<string>().Distinct().Order().ToList();
     var kinds = all.Select(p => p.Kind).Distinct().Order().ToList();
     var archs = all.SelectMany(p => p.Archs).Distinct().Order().ToList();
 }
-<h1>@(q.Length > 0 ? $"Packages matching “{q}”" : "All packages")</h1>
+<h1>@(what is null ? "All packages" : $"Packages {(q.Length > 0 ? "matching " : "")}{what}")</h1>
 <form class="filters" method="get" action="/search">
     <input type="hidden" name="q" value="@q" />
+    @if (tag.Length > 0)
+    {
+        <input type="hidden" name="tag" value="@tag" />
+    }
+    @if (categories.Count > 0)
+    {
+        <label>Category
+            <select name="category" data-autosubmit>
+                <option value="">any</option>
+                @foreach (var c in categories)
+                {
+                    <option value="@c" selected="@(c == category)">@c</option>
+                }
+            </select>
+        </label>
+    }
     <label>Kind
         <select name="kind" data-autosubmit>
             <option value="">any</option>
@@ -45,7 +76,7 @@
     </label>
     <noscript><button type="submit">Filter</button></noscript>
 </form>
-<p class="muted">@hits.Count result@(hits.Count == 1 ? "" : "s")@(q.Length > 0 ? ", by package name and by the files packages hold" : "").</p>
+<p class="muted">@hits.Count result@(hits.Count == 1 ? "" : "s")@(q.Length > 0 ? ": names first, then descriptions and tags, then the files packages hold" : "").</p>
 @if (hits.Count > 0)
 {
     <table class="list">
@@ -57,6 +88,10 @@
                 ? p.Latest.Manifest.Files.FirstOrDefault(f => f.Path.Contains(q, StringComparison.OrdinalIgnoreCase)) : null;
             <tr>
                 <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a>
+                    @if (p.Latest.Manifest.Short is { } sh)
+                    {
+                        <div class="muted small">@sh</div>
+                    }
                     @if (file is not null)
                     {
                         <div class="muted small">holds <code>@file.Path</code></div>

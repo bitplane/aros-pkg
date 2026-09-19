@@ -43,6 +43,10 @@
         }
     </div>
 </div>
+@if (m.Short is not null)
+{
+    <p class="lead">@m.Short</p>
+}
 @if (v.Withdrawn)
 {
     <p class="note warn">Its publisher withdrew this version. Pkg no longer installs or upgrades to it, and asking for it by version is refused.</p>
@@ -54,6 +58,26 @@ else if (!isLatest)
 
 <div class="cmd"><code>@install</code><button class="copy" data-copy="@install">Copy</button></div>
 
+@if (m.Description.Count > 0)
+{
+    <section class="prose">
+        @foreach (var para in m.Paragraphs())
+        {
+            <p>@para</p>
+        }
+    </section>
+}
+@if (m.Changes.Count > 0)
+{
+    <h2>What's new in @PkgVersion.Base(v.Version)</h2>
+    <ul class="changes">
+        @foreach (var c in m.Changes)
+        {
+            <li>@c</li>
+        }
+    </ul>
+}
+
 <div class="grid">
 <section>
     <h2>About this version</h2>
@@ -64,7 +88,43 @@ else if (!isLatest)
                 <span class="muted"> · @Site.BuildLabel(b)</span>
             }
         </dd>
+        @if (m.Author is not null)
+        {
+            <dt>Author</dt><dd>@m.Author</dd>
+        }
         <dt>Kind</dt><dd>@Site.KindLabel(m.Kind)</dd>
+        @if (m.Category is not null)
+        {
+            <dt>Category</dt><dd><a href="/search?category=@Uri.EscapeDataString(m.Category)">@m.Category</a></dd>
+        }
+        @if (m.Tags.Count > 0)
+        {
+            <dt>Tags</dt>
+            <dd class="tags">
+                @foreach (var t in m.Tags)
+                {
+                    <a class="tag" href="/search?tag=@Uri.EscapeDataString(t)">@t</a>
+                }
+            </dd>
+        }
+        @if (m.License is not null || m.Distribution is not null)
+        {
+            <dt>Licence</dt>
+            <dd>@(m.License ?? "not stated")
+                @if (m.Distribution is not null)
+                {
+                    <div class="muted small">Distribution: @m.Distribution</div>
+                }
+            </dd>
+        }
+        @if (Site.SafeUrl(m.Homepage) is { } home)
+        {
+            <dt>Homepage</dt><dd><a href="@home" rel="nofollow noopener">@home</a></dd>
+        }
+        @if (Site.SafeUrl(m.Repository) is { } repo)
+        {
+            <dt>Source code</dt><dd><a href="@repo" rel="nofollow noopener">@repo</a></dd>
+        }
         <dt>CPU</dt><dd>@Site.ArchLabel(v.Arch)</dd>
         <dt>Installed size</dt><dd>@Site.Size(m.InstalledSize) in @m.Files.Count file@(m.Files.Count == 1 ? "" : "s")</dd>
         <dt>Download</dt>

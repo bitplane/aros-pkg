@@ -112,6 +112,12 @@ dl.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 ul.plain { list-style: none; padding: 0; margin: 0; }
+.prose { max-width: 70ch; }
+.prose p { margin: 0 0 0.8em; }
+ul.changes { margin: 0; padding-left: 1.2em; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font-size: 0.8rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg); }
+.tag:hover { border-color: var(--accent); text-decoration: none; }
 ul.plain li { padding: 3px 0; }
 
 details.files summary { cursor: pointer; list-style: none; }

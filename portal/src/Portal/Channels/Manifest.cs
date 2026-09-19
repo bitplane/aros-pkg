@@ -22,6 +22,32 @@ public sealed class Manifest
     public List<ManifestFile> Content { get; } = [];
     public List<Dependency> Depends { get; } = [];
 
+    // Catalogue fields, all optional (board thread 24). Signed like the rest.
+    public string? Short { get; private set; }
+    public List<string> Description { get; } = [];
+    public string? Category { get; private set; }
+    public List<string> Tags { get; } = [];
+    public string? Author { get; private set; }
+    public string? Homepage { get; private set; }
+    public string? Repository { get; private set; }
+    public string? License { get; private set; }
+    public string? Distribution { get; private set; }
+    public List<string> Changes { get; } = [];
+    public string? Icon { get; private set; }
+    public List<string> Screenshots { get; } = [];
+
+    /// The long text as paragraphs: blank Description lines separate them.
+    public IEnumerable<string> Paragraphs()
+    {
+        var cur = new List<string>();
+        foreach (var l in Description)
+        {
+            if (l.Trim().Length == 0) { if (cur.Count > 0) yield return string.Join(" ", cur); cur.Clear(); }
+            else cur.Add(l.Trim());
+        }
+        if (cur.Count > 0) yield return string.Join(" ", cur);
+    }
+
     /// The archive a Source line names, by basename.
     public string? SourceArchive => Source is null ? null : Source.Split("!/", 2)[0];
     public string? SourcePrefix => Source is null ? null : Source.Split("!/", 2) is [_, var p] ? p : null;
@@ -36,6 +62,7 @@ public sealed class Manifest
         foreach (var raw in text.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
+            if (line == "Description:") { m.Description.Add(""); continue; }
             int c = line.IndexOf(": ", StringComparison.Ordinal);
             if (c <= 0) continue;
             var key = line[..c];
@@ -60,6 +87,21 @@ public sealed class Manifest
                     var parts = val.Split(" >= ", 2);
                     m.Depends.Add(new Dependency(parts[0].Trim(), parts.Length > 1 ? parts[1].Trim() : null));
                     break;
+                case "Short": m.Short = val.Trim(); break;
+                case "Description": m.Description.Add(val); break;
+                case "Category": m.Category = val.Trim(); break;
+                case "Tags":
+                    m.Tags.AddRange(val.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(t => t.ToLowerInvariant()).Where(t => !m.Tags.Contains(t)));
+                    break;
+                case "Author": m.Author = val.Trim(); break;
+                case "Homepage": m.Homepage = val.Trim(); break;
+                case "Repository": m.Repository = val.Trim(); break;
+                case "License": m.License = val.Trim(); break;
+                case "Distribution": m.Distribution = val.Trim(); break;
+                case "Changes": m.Changes.Add(val.Trim()); break;
+                case "Icon": m.Icon = val.Trim(); break;
+                case "Screenshot": m.Screenshots.Add(val.Trim()); break;
                 case "Protect":
                 case "Comment":
                     attrs.Add((key, val));

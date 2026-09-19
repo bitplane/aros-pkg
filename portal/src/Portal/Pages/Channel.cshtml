@@ -83,6 +83,10 @@
                 {
                     <span class="pin">pinned</span>
                 }
+                @if (p.Latest.Manifest.Short is { } sh)
+                {
+                    <div class="muted small">@sh</div>
+                }
             </td>
             <td><code>@p.Latest.Version</code></td>
             <td class="hide-s">@Site.KindLabel(p.Kind)</td>

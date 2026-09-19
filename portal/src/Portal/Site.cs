@@ -48,6 +48,11 @@ public static class Site
         _ => kind,
     };
 
+    /// Only http(s) links are rendered as links: a manifest is signed, not trusted to be harmless.
+    public static string? SafeUrl(string? url) =>
+        url is not null && Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == "https" || u.Scheme == "http")
+            ? u.ToString() : null;
+
     public static string Short(string? hex, int n = 16) => hex is null ? "" : hex.Length > n ? hex[..n] : hex;
 
     public static string ArchiveStatus(ChannelInfo ch, string archive) =>

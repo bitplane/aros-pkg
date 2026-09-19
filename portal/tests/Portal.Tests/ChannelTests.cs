@@ -71,4 +71,20 @@ public class ChannelTests
         Assert.Equal("Starts the tool", m.Files[1].Comment);
         Assert.Equal(["lib >= 2.1", "other"], m.Depends.Select(d => d.ToString()));
     }
+
+    [Fact]
+    public void Catalogue_fields_are_read_and_paragraphs_split_on_blank_lines()
+    {
+        var m = Manifest.Parse(
+            "Name: regina\nShort: REXX interpreter\nDescription: One\nDescription: line.\nDescription:\n" +
+            "Description: Two.\nTags: rexx, ARexx, rexx\nCategory: dev/lang\nLicense: LGPL-2.1-or-later\n" +
+            "Homepage: javascript:alert(1)\nRepository: https://example.org/r\nChanges: a\nChanges: b\n");
+        Assert.Equal("REXX interpreter", m.Short);
+        Assert.Equal(["One line.", "Two."], m.Paragraphs());
+        Assert.Equal(["rexx", "arexx"], m.Tags);
+        Assert.Equal(["a", "b"], m.Changes);
+        // Only http(s) becomes a link, whatever a manifest says.
+        Assert.Null(Site.SafeUrl(m.Homepage));
+        Assert.Equal("https://example.org/r", Site.SafeUrl(m.Repository));
+    }
 }
