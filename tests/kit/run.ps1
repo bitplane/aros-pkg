@@ -72,6 +72,18 @@ foreach ($line in Get-Content (Join-Path $kit 'steps.txt')) {
         [System.IO.File]::WriteAllBytes($target, [System.Text.Encoding]::ASCII.GetBytes("edited`n"))
         continue
     }
+    # C/Hello moved by hand to Tools/Hello, and back
+    $hello = Join-Path (Join-Path $paths['{R}'] 'C') 'Hello'
+    $tools = Join-Path $paths['{R}'] 'Tools'
+    if ($name -eq 'move') {
+        New-Item -ItemType Directory -Force -Path $tools | Out-Null
+        Move-Item -LiteralPath $hello -Destination (Join-Path $tools 'Hello')
+        continue
+    }
+    if ($name -eq 'back') {
+        Move-Item -LiteralPath (Join-Path $tools 'Hello') -Destination $hello
+        continue
+    }
     $argv = @()
     foreach ($a in $f[2..($f.Length - 1)]) {
         foreach ($k in $paths.Keys) { $a = $a.Replace($k, $paths[$k]) }

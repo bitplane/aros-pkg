@@ -33,6 +33,8 @@ H="$work/host"
 mkdir -p "$H"
 grep -v '^#' tests/contract-steps.txt | while read -r name code args; do
     if [ "$name" = edit ]; then printf 'edited\n' > "$H/root/C/Hello"; continue; fi
+    if [ "$name" = move ]; then mkdir -p "$H/root/Tools"; mv "$H/root/C/Hello" "$H/root/Tools/Hello"; continue; fi
+    if [ "$name" = back ]; then mv "$H/root/Tools/Hello" "$H/root/C/Hello"; continue; fi
     # shellcheck disable=SC2086
     set -- $(printf '%s\n' "$args" | sed -e "s|{R3}|$H/root3|g" -e "s|{R2}|$H/root2|g" \
         -e "s|{R}|$H/root|g" -e "s|{CH}|$repo_root/$kit/channel|g" \
