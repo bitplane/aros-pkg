@@ -2924,6 +2924,15 @@ static int chan_id(const char *url)
     return (int)nchans++;
 }
 
+/* What a channel says it has withdrawn: one file, fetched once, listing the
+ * digests of the versions whose publisher signed a withdrawal. It is a hint
+ * and never the authority: what it names is still fetched and checked as
+ * before, and a channel that does not serve one (a drawer, a copy, an older
+ * portal) is read exactly as it was, one probe per entry. Absence is never
+ * read as "nothing is withdrawn". */
+static char *wlist[PKG_MAX_CHANNELS];       /* the digests, 64 hex each, as served */
+static signed char wstate[PKG_MAX_CHANNELS];/* 0 not asked, 1 usable, -1 ask per entry */
+
 static const char *chan_of(const struct entry *e)
 {
     return e->ch < nchans ? chans[e->ch] : "";
@@ -2931,8 +2940,12 @@ static const char *chan_of(const struct entry *e)
 
 static void chans_clear(void)
 {
-    while (nchans > 0)
+    while (nchans > 0) {
+        free(wlist[nchans - 1]);
+        wlist[nchans - 1] = NULL;
+        wstate[nchans - 1] = 0;
         free(chans[--nchans]);
+    }
 }
 
 /* The channels being read, for a sentence: one name, or all of them. */
@@ -4289,11 +4302,69 @@ static int withdrawal_valid(const char *channel, const struct entry *e)
  * that comes back "not found"; an index holds hundreds of entries and an
  * operation looks at a few, so they are asked for one at a time, not all at
  * once when the index is read. */
+/* The channel's list of withdrawals, read the first time one matters. NULL
+ * when the channel serves none or serves one this Pkg does not understand:
+ * the caller then asks entry by entry, as it always did. */
+static const char *withdrawals_of(const struct entry *e)
+{
+    static const char header[] = "Format: pkg-withdrawals 1\n";
+    const char *channel = chan_of(e);
+    unsigned char *buf = NULL;
+    size_t len = 0;
+    char *path;
+
+    if (e->ch >= nchans)
+        return NULL;
+    if (wstate[e->ch] != 0)
+        return wstate[e->ch] > 0 ? wlist[e->ch] : NULL;
+    wstate[e->ch] = -1;                         /* whatever happens, asked once */
+    path = chan_file(channel, "withdrawals");
+    if (path != NULL && pkg_fs_exists(path) && pkg_fs_read(path, &buf, &len) == 0) {
+        if (len >= sizeof header - 1 && memcmp(buf, header, sizeof header - 1) == 0) {
+            size_t dl = len - (sizeof header - 1);
+            wlist[e->ch] = (char *)malloc(dl + 1);
+            if (wlist[e->ch] != NULL) {
+                memcpy(wlist[e->ch], buf + sizeof header - 1, dl);
+                wlist[e->ch][dl] = '\0';
+            }
+            if (wlist[e->ch] != NULL) {
+                wstate[e->ch] = 1;
+                tr("%s lists what it has withdrawn: asked once, not once per version", channel);
+            }
+        } else {
+            tr("%s serves a withdrawals file this Pkg does not read: asking version by version",
+               channel);
+        }
+    }
+    free(buf);
+    free(path);
+    return wstate[e->ch] > 0 ? wlist[e->ch] : NULL;
+}
+
+/* The digest on a line of its own: a substring match would take a digest
+ * that merely holds this one, which no 64-hex line can, but the line ends
+ * are what make it exact. */
+static int listed(const char *list, const char *digest)
+{
+    const char *p = list;
+    size_t n = strlen(digest);
+    while ((p = strstr(p, digest)) != NULL) {
+        if ((p == list || p[-1] == '\n') && (p[n] == '\n' || p[n] == '\0' || p[n] == '\r'))
+            return 1;
+        p += n;
+    }
+    return 0;
+}
+
 static int is_withdrawn(const struct entry *e)
 {
     struct entry *m = (struct entry *)e;        /* the answer is cached on the entry */
-    if (m->withdrawn < 0)
-        m->withdrawn = withdrawal_valid(chan_of(e), e);
+    if (m->withdrawn < 0) {
+        const char *list = withdrawals_of(e);
+        m->withdrawn = list != NULL && !listed(list, e->digest)
+                       ? 0                      /* the channel says it withdrew nothing here */
+                       : withdrawal_valid(chan_of(e), e);
+    }
     return m->withdrawn;
 }
 
