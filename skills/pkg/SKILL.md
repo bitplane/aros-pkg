@@ -85,7 +85,9 @@ choice with its reason. Read it before guessing.
   for a library, `L/foo-handler` for a handler, `C/Tool` and `Tool.info` for
   a program. Flat files are laid out into these first.
 - **Channel**: a directory with `index` and `objects/`; published into,
-  installed from. Copy, sync or serve it as it is.
+  installed from. Copy, sync or serve it as it is. A root can keep a list of
+  the channels it reads (`CHANNEL ADD`), and then `CHANNEL` is left off the
+  line; give `CHANNEL` when the person named one channel and meant it.
 - **Root**: where packages are installed; its database is `<root>/.pkg/`.
 - **Key**: the publisher's Ed25519 key file, readable by its owner alone.
 - **Package name**: lower case, `a-z 0-9 + . _ -`. Read from a `$VER`
@@ -169,6 +171,11 @@ export PKG_SIGNKEY=<keyfile>
 pkg PUBLISH <drawer> CHANNEL <channel> KIND library DRYRUN MACHINE
 pkg PUBLISH <drawer> CHANNEL <channel> KIND library MACHINE
 ```
+
+`PACKAGE` is the same verb under another name, and says more plainly what
+it does: the package goes into a channel on this disk, and nothing reaches
+a portal until `PUSH`. Never tell the person their package is published on
+a portal because `PUBLISH` succeeded.
 
 Name and version come from the drawer's `$VER` cookie when it has one; Pkg
 refuses with 20, listing them, when cookies name different programs. Then
@@ -296,6 +303,8 @@ the other build later, same name and version, when it is ready.
 ## Installing and changing
 
 ```sh
+pkg SEARCH   <word>... [CHANNEL <channel>] [ROOT <root>] MACHINE
+pkg CHANNEL  ADD|LIST|REMOVE [<channel>] ROOT <root> MACHINE
 pkg INSTALL  <name> ROOT <root> CHANNEL <channel> [VERSION v] MACHINE
 pkg UPGRADE  <name> ROOT <root> CHANNEL <channel> [VERSION v] MACHINE
 pkg UPGRADE  ALL ROOT <root> CHANNEL <channel> MACHINE
@@ -333,6 +342,8 @@ kind files explicit|dependency`.
 | UPGRADE, ROLLBACK | `upgraded`, `downgraded`, `rolled-back`, or `unchanged` |
 | UPGRADE ALL | `upgraded`, a `package:` line each, `count:`; `unchanged` with `count: 0` when nothing is upgradable |
 | STATUS | `shown`, `package:` lines, `count:`, `upgradable:` |
+| SEARCH | `shown`, `package: name version arch [channel] short` lines, `count:`; exit 0 with `count: 0` when nothing matches, which is an answer, not a refusal |
+| CHANNEL | `added`, `shown` with `channel:` lines, or `removed` |
 | VERIFY | `intact`; `moved` (0) when the person moved the drawer by hand, their right, nothing to repair; `damaged` with exit 12 and `changed:`/`missing:` lines |
 | LIST | `listed`, `package:` lines, `count:` |
 | REMOVE | `removed`, `orphan:` lines for what nothing needs any more |
@@ -357,7 +368,17 @@ pkg UPGRADE ALL ROOT <root> CHANNEL <channel> MACHINE
 
 STATUS changes nothing and exits 0 whether or not updates exist. Its
 `package:` lines read `name installed available state`; `available` is
-what UPGRADE would take, `-` when the channel offers nothing for it.
+what UPGRADE would take, `-` when the channel offers nothing for it. When
+the root lists more than one channel, the channel the new version comes
+from is a last field on the `package:` lines of STATUS and UPGRADE ALL.
+
+UPGRADE ALL goes as far as it can and exits with the **worst** class of
+what it refused, not the first; so does `INSTALL a b c`. Read every
+`refused:` and `skipped:` line, not the exit code alone.
+
+A package two listed channels offer under different keys is refused (14,
+`ask-requester`) naming both channels and both keys, and is never settled
+here: take it to the person, who says which key is the publisher's.
 
 | `state` | What to tell the person |
 |---|---|

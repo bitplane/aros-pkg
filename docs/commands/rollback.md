@@ -5,7 +5,7 @@
 
 Return a package to the version installed before.
 ```
-pkg ROLLBACK <name> ROOT <root> CHANNEL <channel> [DRYRUN]
+pkg ROLLBACK <name> ROOT <root> [CHANNEL <channel>] [DRYRUN]
 ```
 
 ## What it does
@@ -15,6 +15,8 @@ version again from the channel, with the same care for edited files as an
 upgrade, and records the version it replaced in turn, so a second
 `ROLLBACK` goes forward again: one step, in either direction, not a
 history. The previous version must still be in the channel.
+
+Without `CHANNEL` it reads the channels the root lists ([CHANNEL](channel.md)), in order; `CHANNEL <channel>` means that channel alone.
 
 ## Examples
 

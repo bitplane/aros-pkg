@@ -18,6 +18,8 @@ in the [reference](../reference.md#verbs); `pkg HELP` prints it.
 - [`REPAIR`](repair.md): put missing and changed files back from the channel
 - [`REMOVE`](remove.md): take a package out, or the packages nothing needs any more
 - [`SHOW`](show.md): what a channel offers, each entry checked
+- [`SEARCH`](search.md): the packages every word matches
+- [`CHANNEL`](channel.md): the channels a root reads when `CHANNEL` is left out
 - [`MOUNTLIST`](mountlist.md): the Mount entry for an installed image
 - [`RESOLVE`](resolve.md): which library a program would get from here, and why
 
@@ -26,7 +28,7 @@ in the [reference](../reference.md#verbs); `pkg HELP` prints it.
 - [`KEYGEN`](keygen.md): a signing key, readable by you alone
 - [`KEYINFO`](keyinfo.md): the public key a key file holds
 - [`MANIFEST`](manifest.md): the manifest PUBLISH would sign, to read before publishing
-- [`PUBLISH`](publish.md): publish a drawer as a version of a package
+- [`PUBLISH`](publish.md), `PACKAGE`: publish a drawer as a version of a package
 - [`WITHDRAW`](withdraw.md): a version nothing installs any more
 - [`SIGN`](sign.md): a detached signature for any file
 - [`CHECKSIG`](checksig.md): whether such a signature is good, and whose it is

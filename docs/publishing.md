@@ -63,10 +63,11 @@ name and version come from the program's `$VER:` string (`$VER: mytool 1.0
 
 ```console
 $ pkg PUBLISH MyTool CHANNEL mychannel KIND application
-published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by d883101f27f48e16
+published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by 2f36386096f1ff0b
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
-  hint: the channel mychannel did not exist and was created: machines install from it with INSTALL mytool ROOT <root> CHANNEL <this channel, as the machine names it>
+  hint: the channel mychannel did not exist and was created
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 ```
 
 The first `PUBLISH` into a directory makes it a channel. `KIND` says what
@@ -85,10 +86,11 @@ of the last one published, so you only name what changes:
 
 ```console
 $ pkg PUBLISH MyTool-1.1 CHANNEL mychannel CONFIG S/MyTool.prefs
-published mytool 1.1 to mychannel: 2 files, payload 4606917aa7ca, signed by 04170cad8093a394
+published mytool 1.1 to mychannel: 2 files, payload 4606917aa7ca, signed by 2f36386096f1ff0b
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
   kind and dependencies from mytool 1.0, published before
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 $ pkg SHOW CHANNEL mychannel
 Package  Version  Kind         Arch    Status  Signer
 mytool   1.0      application  x86_64  ok      9f4314e9f88233c4
@@ -271,9 +273,10 @@ copied:
 ```console
 $ mkdir -p nightly/archives && cp nightly.tar.bz2 nightly/archives/
 $ pkg PUBLISH "nightly/archives/nightly.tar.bz2!/Top" FILES Extras/Tool CHANNEL nightly NAME tool BUILD 20260918 KIND application UPSTREAM https://example.org/nightly.tar.bz2
-published tool 2.1+20260918 to nightly: 1 file, from nightly.tar.bz2!/Top, signed by d883101f27f48e16
+published tool 2.1+20260918 to nightly: 1 file, from nightly.tar.bz2!/Top, signed by 2f36386096f1ff0b
   architecture x86_64, read from Extras/Tool/Tool
   version taken from $VER: in Extras/Tool/Tool
+  hint: the package is in the local channel nightly: any machine that can read that directory installs from it with INSTALL tool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL nightly TO <portal channel> sends it to a portal
 ```
 
 `FILES` picks the paths that make up this package. `BUILD` adds the date of

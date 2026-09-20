@@ -5,7 +5,7 @@
 
 What a channel offers, each entry checked.
 ```
-pkg SHOW [<name>] CHANNEL <channel> [ROOT <root>] [METADATA] [ARCHIVE <name>] [ARCH cpu]
+pkg SHOW [<name>] [CHANNEL <channel>] [ROOT <root>] [METADATA] [ARCHIVE <name>] [ARCH cpu]
 ```
 
 ## What it does
@@ -19,6 +19,8 @@ category, tags, author, licence, links. `METADATA` also checks the archives
 that packages published from someone else's archive point to; `ARCHIVE
 <name>` limits that to one archive. Exit 0 when every entry is sound;
 otherwise the class of the first problem, and the count of bad entries.
+
+Without `CHANNEL` it reads the channels the root lists ([CHANNEL](channel.md)), in order; `CHANNEL <channel>` means that channel alone.
 
 ## Examples
 

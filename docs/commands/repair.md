@@ -5,8 +5,8 @@
 
 Put missing and changed files back from the channel.
 ```
-pkg REPAIR <name> ROOT <root> CHANNEL <channel> [DRYRUN]
-pkg REPAIR ALL    ROOT <root> CHANNEL <channel> [DRYRUN]
+pkg REPAIR <name> ROOT <root> [CHANNEL <channel>] [DRYRUN]
+pkg REPAIR ALL    ROOT <root> [CHANNEL <channel>] [DRYRUN]
 ```
 
 ## What it does
@@ -18,6 +18,8 @@ file back. A changed file is not thrown away: it is kept beside as
 configuration files are left alone. A package whose installed version the
 channel no longer offers cannot be repaired from it (exit 11); the others
 are.
+
+Without `CHANNEL` it reads the channels the root lists ([CHANNEL](channel.md)), in order; `CHANNEL <channel>` means that channel alone.
 
 ## Examples
 

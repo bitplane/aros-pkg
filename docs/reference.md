@@ -23,18 +23,20 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 
 | Verb | Form | Does |
 |---|---|---|
-| [`INSTALL`](commands/install.md) | `INSTALL <name>... ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. Several names are installed in turn, as far as the command can get. |
-| [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
-| [`UPGRADE ALL`](commands/upgrade.md) | `UPGRADE ALL ROOT <root> CHANNEL <channel> [ARCH cpu]` | Upgrades every package that has a newer version, as far as it can; never downgrades, never accepts a new key. |
-| [`ROLLBACK`](commands/rollback.md) | `ROLLBACK <name> ROOT <root> CHANNEL <channel>` | Returns a package to the version installed before its last change. |
-| [`STATUS`](commands/status.md) | `STATUS [<name>] ROOT <root> CHANNEL <channel>` | Compares what is installed with the channel: `current`, `upgradable`, `withdrawn`, `not-offered` or `edited`. Exits 0 whether or not updates exist. |
+| [`INSTALL`](commands/install.md) | `INSTALL <name>... ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. Several names are installed in turn, as far as the command can get. |
+| [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> [CHANNEL <channel>] [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
+| [`UPGRADE ALL`](commands/upgrade.md) | `UPGRADE ALL ROOT <root> [CHANNEL <channel>] [ARCH cpu]` | Upgrades every package that has a newer version, as far as it can; never downgrades, never accepts a new key. |
+| [`ROLLBACK`](commands/rollback.md) | `ROLLBACK <name> ROOT <root> [CHANNEL <channel>]` | Returns a package to the version installed before its last change. |
+| [`STATUS`](commands/status.md) | `STATUS [<name>] ROOT <root> [CHANNEL <channel>]` | Compares what is installed with the channel: `current`, `upgradable`, `withdrawn`, `not-offered` or `edited`. Exits 0 whether or not updates exist. |
 | [`LIST`](commands/list.md) | `LIST ROOT <root>` | Lists what is installed. |
 | [`VERIFY`](commands/verify.md) | `VERIFY <name>\|ALL ROOT <root>` | Checks each installed file against its package; names what is missing, changed, moved or edited. |
-| [`REPAIR`](commands/repair.md) | `REPAIR <name>\|ALL ROOT <root> CHANNEL <channel> [UNPACKED <dir>]` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
+| [`REPAIR`](commands/repair.md) | `REPAIR <name>\|ALL ROOT <root> [CHANNEL <channel>] [UNPACKED <dir>]` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
 | [`REMOVE`](commands/remove.md) | `REMOVE <name> ROOT <root>` | Removes a package, keeping any file that was changed; refuses while another package needs it. |
 | [`REMOVE ORPHANS`](commands/remove.md) | `REMOVE ORPHANS ROOT <root>` | Removes the packages installed only as dependencies that nothing needs any more. |
 | [`MOUNTLIST`](commands/mountlist.md) | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
-| [`SHOW`](commands/show.md) | `SHOW [<name>] CHANNEL <channel> [ROOT <root>] [METADATA] [ARCHIVE <archive>]` | Lists and checks what a channel offers; with `ROOT`, marks what is installed. |
+| [`SEARCH`](commands/search.md) | `SEARCH <word>... [CHANNEL <channel>] [ROOT <root>] [ARCH cpu]` | The packages whose name, `Short`, `Tags`, `Category`, `Description` or `Provides` hold every word. Exits 0 whether or not any match. |
+| [`CHANNEL`](commands/channel.md) | `CHANNEL ADD\|LIST\|REMOVE [<channel>] ROOT <root>` | The channels this root reads when `CHANNEL` is left out, in the order they were added. `ADD` checks the channel can be read and refuses a duplicate. |
+| [`SHOW`](commands/show.md) | `SHOW [<name>] [CHANNEL <channel>] [ROOT <root>] [METADATA] [ARCHIVE <archive>]` | Lists and checks what a channel offers; with `ROOT`, marks what is installed. |
 | [`RESOLVE`](commands/resolve.md) | `RESOLVE <library>\|<program> [VERSION v] [ROOT <root>] [FROM <dir>] [CHANNEL <channel>] [ARCH cpu]` | Shows which copy of a library AROS would give a program, walking the places the loader looks, with a verdict and a next step for each; a program instead of a library checks every library it names. Exits 0, 11 when found nowhere, 18 when the copy taken is too old or unusable. See [Libraries](libraries.md). |
 
 ### Publishing
@@ -44,7 +46,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | [`KEYGEN`](commands/keygen.md) | `KEYGEN FILE <keyfile>` | Makes a signing key, readable by its owner alone. |
 | [`KEYINFO`](commands/keyinfo.md) | `KEYINFO FILE <keyfile> [SSH]` | Prints the public key a key file holds; `SSH` prints it as an `ssh-ed25519` line. |
 | [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."] [INFO <file>]` | Prints the description a publish would sign; writes nothing. |
-| [`PUBLISH`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [INFO <file>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. |
+| [`PUBLISH`](commands/publish.md), [`PACKAGE`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [INFO <file>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. `PACKAGE` is the same verb under another name: nothing reaches a portal until `PUSH`. |
 | [`WITHDRAW`](commands/withdraw.md) | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>]` | Marks a published version as withdrawn. |
 | [`PUSH`](commands/push.md) | `PUSH CHANNEL <channel> TO <url> [SIGN <keyfile>]` | Uploads a local channel to a portal: over `https` with the key in `PKG_PUSHKEY`, or, over `http` too, with requests signed by the publisher's key. |
 | [`IMAGE`](commands/image.md) | `IMAGE <drawer> OUT <file> [NAME <volume>]` | Writes a drawer as an FFS disk image. |
@@ -63,7 +65,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | Keyword | Value | Used by |
 |---|---|---|
 | `ROOT` | the system installed into: `SYS:`, or a directory | installing verbs, `LIST`, `VERIFY`, `REMOVE`, `SHOW` |
-| `CHANNEL` | a directory, or an `http://` or `https://` address (on AROS `http://` only, with the network started) | installing and publishing verbs |
+| `CHANNEL` | a directory, or an `http://` or `https://` address (on AROS `http://` only, with the network started). The installing verbs, `SHOW` and `SEARCH` read the root's list ([`CHANNEL ADD`](commands/channel.md)) when it is left out; given, it means that channel alone | installing and publishing verbs, `SEARCH` |
 | `VERSION` | a version: dotted numbers, and an optional `+build` | `INSTALL`, `UPGRADE`, `PUBLISH`, `MANIFEST`, `WITHDRAW` |
 | `ARCH` | a CPU: `x86_64`, `i386`, `aarch64`, `arm`, `ppc`, `m68k`, or `generic` | installing verbs, `PUBLISH`, `MANIFEST`, `WITHDRAW` |
 | `NAME` | a package name; for `IMAGE`, the volume name | `PUBLISH`, `MANIFEST`, `IMAGE` |
@@ -114,6 +116,7 @@ missing one.
 | Switch | Does |
 |---|---|
 | `ALL` | `UPGRADE ALL`, `VERIFY ALL`, `REPAIR ALL`: every installed package |
+| `ADD`, `LIST`, `REMOVE` | `CHANNEL`: add a channel to the root's list, show the list, take one off it |
 | `ORPHANS` | `REMOVE ORPHANS` |
 | `DOWNGRADE` | allows `UPGRADE` to an older version |
 | `DRYRUN` | runs every check of a verb that changes something, and changes nothing |
@@ -214,7 +217,8 @@ Every answer has a `result:` line: `installed`, `upgraded`, `downgraded`,
 | `warning:` | something to check before going on |
 | `note:` | a fact worth passing on |
 | `hint:` | what usually comes next; never a way around a refusal |
-| `package:` | `LIST`, `STATUS`, `VERIFY ALL`, `UPGRADE ALL`: one line per package |
+| `package:` | `LIST`, `STATUS`, `VERIFY ALL`, `UPGRADE ALL`, `SEARCH`: one line per package. `STATUS` and `UPGRADE ALL` add the channel the newer version comes from when several channels are read |
+| `channel:` | `CHANNEL LIST`: one line per channel, in order |
 | `entry:` | `SHOW`: one line per published version, with its state and signer |
 | `refused:`, `skipped:` | `UPGRADE ALL`: a package not upgraded, and why; one that waits for it |
 | `missing:`, `changed:`, `edited:`, `moved:` | `VERIFY`: a file and what is wrong with it |

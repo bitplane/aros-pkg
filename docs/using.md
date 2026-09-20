@@ -15,6 +15,55 @@ yourself.
 Words in capitals are keywords; you can type them in any case, as in any
 AmigaDOS command.
 
+## Say where packages come from, once
+
+A root keeps its own list of channels, so you do not type `CHANNEL` on
+every command:
+
+```console
+$ pkg CHANNEL ADD channel ROOT aros
+added channel to aros, in place 1: it offers 4 packages
+  hint: INSTALL, UPGRADE, STATUS, SHOW, REPAIR, ROLLBACK and SEARCH now read this channel when CHANNEL is left out; CHANNEL <dir|url> on the line still means that channel alone
+$ pkg CHANNEL LIST ROOT aros
+In  Channel
+1   channel
+1 channel in aros, asked in this order
+```
+
+From then on `INSTALL`, `UPGRADE`, `STATUS`, `SHOW`, `SEARCH`, `REPAIR`
+and `ROLLBACK` read that list when no `CHANNEL` is given, asking the
+channels in the order they were added and taking the newest version any of
+them offers. `CHANNEL <channel>` on the line still means that channel and
+no other, and `CHANNEL REMOVE` takes one off the list without removing
+anything from the root.
+
+Two listed channels offering the same package under different keys is
+refused, naming both, until you have installed it once from the channel
+whose key is the publisher's. Adding a channel is never a way for someone
+to replace another publisher's package quietly. See
+[CHANNEL](commands/channel.md).
+
+## Find a package
+
+`SEARCH` gives the packages whose name, short description, tags, category,
+description or libraries hold every word:
+
+```console
+$ pkg SEARCH media ROOT aros
+Package  Version  Arch     Short
+sdl2     2.30     aarch64  Simple DirectMedia Layer
+1 package matches media
+$ pkg SEARCH hello ROOT aros
+Package     Version  Arch     Short
+hellolib    1.0      generic  -
+helloworld  1.1      generic  -
+2 packages match hello
+```
+
+Finding nothing is an answer, not a refusal: it exits 0. A portal channel
+answers through its own search interface, so one question is one round
+trip rather than a few hundred; see [SEARCH](commands/search.md).
+
 ## See what a channel offers
 
 ```console
@@ -134,9 +183,12 @@ nothing needs an update: 3 packages, none with a newer version in the channel
 
 `UPGRADE ALL` updates every package that has a newer version, each before
 the packages that need it, and goes as far as it can: a package it cannot
-update is named with the reason, and the others are updated anyway. It
-never downgrades and never accepts a new key; those are decisions you make
-one package at a time.
+update is named with the reason, and the others are updated anyway. Its
+exit code is the worst class of what it refused, not the first, which is
+what every Pkg command given several things to do does. It never downgrades
+and never accepts a new key; those are decisions you make one package at a
+time. With several channels listed, `STATUS` and `UPGRADE ALL` name the
+channel each new version comes from.
 
 `STATUS` and `UPGRADE ALL` never ask a question and never wait for input,
 so a startup script or a scheduler can run them. Add `DRYRUN` to see what

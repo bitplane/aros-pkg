@@ -27,15 +27,17 @@ key written to my.key, readable by you alone
   hint: every later version of what this key publishes must be signed with it: keep the file with the person's secrets, outside any channel or repository, and back it up. Use it with SIGN <file> or PKG_SIGNKEY; only the public key may be shared
 $ export PKG_SIGNKEY=my.key
 $ pkg PUBLISH MyTool CHANNEL mychannel KIND application
-published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by b261704c924d5d1c
+published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by 23666bddf186e2f5
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
-  hint: the channel mychannel did not exist and was created: machines install from it with INSTALL mytool ROOT <root> CHANNEL <this channel, as the machine names it>
+  hint: the channel mychannel did not exist and was created
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 $ pkg PUBLISH MyTool-1.1 CHANNEL mychannel
-published mytool 1.1 to mychannel: 2 files, payload 4606917aa7ca, signed by b261704c924d5d1c
+published mytool 1.1 to mychannel: 2 files, payload 4606917aa7ca, signed by 23666bddf186e2f5
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
   kind and dependencies from mytool 1.0, published before
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 $ pkg WITHDRAW mytool VERSION 1.1 CHANNEL mychannel
 withdrew mytool 1.1 from mychannel: it stays in the channel, and nothing installs it any more
 $ pkg SHOW mytool CHANNEL mychannel

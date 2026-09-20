@@ -224,6 +224,18 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
     memset(a, 0, sizeof *a);
     for (i = 2; i < argc; i++) {
         const char **slot = NULL;
+        /* CHANNEL ADD <channel>: the word after ADD or REMOVE is the
+         * channel, even when it is spelled like a keyword. A directory
+         * really can be called "channel" or "root", and the place of this
+         * word says what it is. */
+        if (strcmp(verb_name, "channel") == 0 && i == 3 && a->target != NULL
+            && a->nalso == 0 && !ieq(a->target, "LIST")) {
+            if (clean_value("the channel", argv[i]) != 0)
+                return PKG_RC_USAGE;
+            also[a->nalso++] = argv[i];
+            a->also = also;
+            continue;
+        }
         if (ieq(argv[i], "DOWNGRADE")) {
             a->downgrade = 1;
             continue;
@@ -292,9 +304,11 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
             if (clean_value("the name", argv[i]) != 0)
                 return PKG_RC_USAGE;
             a->target = argv[i];
-        } else if (strcmp(verb_name, "install") == 0
+        } else if ((strcmp(verb_name, "install") == 0 || strcmp(verb_name, "search") == 0
+                    || strcmp(verb_name, "channel") == 0)
                    && a->nalso < sizeof also / sizeof also[0]) {
-            /* INSTALL a b c: every name on the line, installed in turn. */
+            /* INSTALL a b c: every name on the line, installed in turn.
+             * SEARCH takes its words this way, and CHANNEL ADD its channel. */
             if (clean_value("the name", argv[i]) != 0)
                 return PKG_RC_USAGE;
             also[a->nalso++] = argv[i];
@@ -316,21 +330,25 @@ static int usage_is_error = 1;
  * and the descriptions dimmed, and a pipe gets plain text. */
 static const struct { const char *group, *verb, *args, *what; } usage_lines[] = {
     { "Installing and keeping software", NULL, NULL, NULL },
-    { NULL, "INSTALL",   "<name>... ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>] [UNPACKED <dir>]",
+    { NULL, "INSTALL",   "<name>... ROOT <dir> [CHANNEL <dir|url>] [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>] [UNPACKED <dir>]",
                          "install packages and what they depend on; several names go as far as they can" },
-    { NULL, "STATUS",    "[<name>] ROOT <dir> CHANNEL <dir|url>",
+    { NULL, "STATUS",    "[<name>] ROOT <dir> [CHANNEL <dir|url>]",
                          "what is installed and what has a newer version; exit 0 either way" },
-    { NULL, "UPGRADE",   "<name>|ALL ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [DOWNGRADE] [UNPACKED <dir>]",
+    { NULL, "UPGRADE",   "<name>|ALL ROOT <dir> [CHANNEL <dir|url>] [VERSION v] [ARCH cpu] [DOWNGRADE] [UNPACKED <dir>]",
                          "ALL takes every newer version, dependencies first, and goes as far as it can" },
-    { NULL, "ROLLBACK",  "<name> ROOT <dir> CHANNEL <dir|url>",
+    { NULL, "ROLLBACK",  "<name> ROOT <dir> [CHANNEL <dir|url>]",
                          "back to the version installed before" },
     { NULL, "LIST",      "ROOT <dir>", "what a root holds" },
     { NULL, "VERIFY",    "<name>|ALL ROOT <dir>", "every installed file against its signed manifest" },
-    { NULL, "REPAIR",    "<name>|ALL ROOT <dir> CHANNEL <dir|url> [UNPACKED <dir>]", "put damaged files back" },
+    { NULL, "REPAIR",    "<name>|ALL ROOT <dir> [CHANNEL <dir|url>] [UNPACKED <dir>]", "put damaged files back" },
     { NULL, "REMOVE",    "<name>|ORPHANS ROOT <dir>",
                          "take a package out; ORPHANS: what nothing needs any more" },
-    { NULL, "SHOW",      "[<name>] CHANNEL <dir|url> [ROOT <dir>] [METADATA] [ARCHIVE <name>]",
+    { NULL, "SHOW",      "[<name>] [CHANNEL <dir|url>] [ROOT <dir>] [METADATA] [ARCHIVE <name>]",
                          "what a channel offers, each entry checked" },
+    { NULL, "SEARCH",    "<word>... [CHANNEL <dir|url>] [ROOT <dir>] [ARCH cpu]",
+                         "the packages every word matches; exit 0 whether or not any do" },
+    { NULL, "CHANNEL",   "ADD|LIST|REMOVE [<dir|url>] ROOT <dir>",
+                         "the channels this root reads when CHANNEL is left out, in order" },
     { NULL, "MOUNTLIST", "<image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]",
                          "the Mount entry for an installed image" },
     { "Publishing", NULL, NULL, NULL },
@@ -339,6 +357,8 @@ static const struct { const char *group, *verb, *args, *what; } usage_lines[] = 
     { NULL, "MANIFEST",  "<drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"] [INFO <file>]",
                          "the manifest PUBLISH would sign, to read before publishing" },
     { NULL, "PUBLISH",   "<drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a]",
+                         NULL },
+    { NULL, "",          "PACKAGE is the same verb under another name: nothing reaches a portal until PUSH",
                          NULL },
     { NULL, "",          "[DEPENDS \"a >= 1, b\"] [CONFIG \"S/Startup-Sequence\"] [FILES \"C,Libs\"] [BUILD <date>]",
                          NULL },
@@ -428,7 +448,12 @@ static int run_verb(int argc, char **argv)
         { "MOUNTLIST", "mountlist", pkg_mountlist },
         { "SHOW",      "show",      pkg_show },
         { "PUSH",      "push",      pkg_push },
-        { "STATUS",    "status",    pkg_status }
+        { "STATUS",    "status",    pkg_status },
+        { "CHANNEL",   "channel",   pkg_channel },
+        { "SEARCH",    "search",    pkg_search },
+        /* PACKAGE is PUBLISH under the name a person who has not pushed yet
+         * expects; the same operation, the same records. */
+        { "PACKAGE",   "package",   pkg_publish }
     };
     struct pkg_options a;
     size_t i;

@@ -5,7 +5,7 @@
 
 What is installed, and what has a newer version.
 ```
-pkg STATUS [<name>] ROOT <root> CHANNEL <channel> [ARCH cpu]
+pkg STATUS [<name>] ROOT <root> [CHANNEL <channel>] [ARCH cpu]
 ```
 
 ## What it does
@@ -22,6 +22,8 @@ scheduler; the exit code is 0 whether or not updates exist.
 | `no longer offered by the channel` | the package is not in the channel any more |
 | `files edited since install` | `VERIFY` names them; an upgrade would keep them |
 | `published for <cpu>, not yet for this root's CPU` | a newer version exists for another machine |
+
+Without `CHANNEL` it reads the channels the root lists ([CHANNEL](channel.md)), in order; `CHANNEL <channel>` means that channel alone.
 
 ## Examples
 

@@ -129,14 +129,27 @@ $ pkg VERIFY pkg ROOT aros
 pkg 1.1: 1 file, all intact
 ```
 
+Typing the channel on every command gets old. Put it in the root's own
+list once, and leave `CHANNEL` off from then on:
+
+```console
+$ pkg CHANNEL ADD https://aros-pkg.azurewebsites.net/pkg ROOT aros
+added https://aros-pkg.azurewebsites.net/pkg to aros, in place 1: it offers 1 package
+  hint: INSTALL, UPGRADE, STATUS, SHOW, REPAIR, ROLLBACK and SEARCH now read this channel when CHANNEL is left out; CHANNEL <dir|url> on the line still means that channel alone
+$ pkg SEARCH pkg ROOT aros
+Package  Version  Arch            Short
+pkg      1.1      aarch64,x86_64  Installs and updates AROS software
+1 package matches pkg
+```
+
 Ask whether anything can be updated, then update everything:
 
 ```console
-$ pkg STATUS ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg
+$ pkg STATUS ROOT aros
 Package  Installed  State
 pkg      1.1        current
 1 package in aros, all up to date with https://aros-pkg.azurewebsites.net/pkg
-$ pkg UPGRADE ALL ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg
+$ pkg UPGRADE ALL ROOT aros
 nothing needs an update: 1 package, none with a newer version in the channel
 ```
 

@@ -5,7 +5,7 @@
 
 Install a package and what it depends on.
 ```
-pkg INSTALL <name>... ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
+pkg INSTALL <name>... ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
 ```
 
 ## What it does
@@ -29,6 +29,8 @@ root and records the package in the root's database (`.pkg/`).
 - Installing the version already installed succeeds and says so
   (`result: unchanged`); a newer one asks for `UPGRADE` (exit 15).
 - A withdrawn version is not installed unless `VERSION` names it (exit 18).
+
+Without `CHANNEL` it reads the channels the root lists ([CHANNEL](channel.md)), in order; `CHANNEL <channel>` means that channel alone.
 
 ## Several names at once
 

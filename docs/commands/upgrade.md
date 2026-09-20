@@ -5,8 +5,8 @@
 
 Move a package, or every package, to a newer version.
 ```
-pkg UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
-pkg UPGRADE ALL    ROOT <root> CHANNEL <channel> [ARCH cpu] [DRYRUN]
+pkg UPGRADE <name> ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
+pkg UPGRADE ALL    ROOT <root> [CHANNEL <channel>] [ARCH cpu] [DRYRUN]
 ```
 
 ## What it does
@@ -26,8 +26,16 @@ signed by another key is refused (exit 14) unless `ACCEPTKEY` names it.
 package before what depends on it. It never downgrades and never accepts a
 new key. It goes as far as it can: a package it cannot upgrade is named
 with its reason, what depends on it is skipped and named, and the rest are
-upgraded. Exit 0 when everything offered was taken, otherwise the class of
-the first refusal.
+upgraded. Exit 0 when everything offered was taken, otherwise the worst
+class of its refusals, which is the rule for every batch: a command given
+several things to do goes as far as it can, reports each, and exits with
+the worst that happened rather than the first.
+
+Without `CHANNEL` it reads the channels the root lists
+([CHANNEL](channel.md)), and says which channel each new version comes
+from. A package two of those channels offer under different keys is not
+upgraded; it is reported like any other package that needs the requester
+(exit 14), and the rest go ahead.
 
 A package whose files live in someone else's archive is read the way
 `INSTALL` reads it: from the archive in the cache, from the block map the

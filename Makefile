@@ -106,6 +106,10 @@ test:
 	@PKG=./build/pkg sh tests/status.sh
 	@echo "== network"
 	@PKG=./build/pkg sh tests/network.sh
+	@echo "== channels"
+	@PKG=./build/pkg sh tests/channels.sh
+	@echo "== search"
+	@PKG=./build/pkg sh tests/search.sh
 	@echo "== push"
 	@PKG=./build/pkg sh tests/push.sh
 	@echo "== hostile"

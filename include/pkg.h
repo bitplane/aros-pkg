@@ -386,6 +386,8 @@ int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_show     (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_push     (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_status   (const struct pkg_sink *s, const struct pkg_options *o);  /* root, channel, [target] */
+int pkg_channel  (const struct pkg_sink *s, const struct pkg_options *o);  /* root, target ADD|LIST|REMOVE, also[0] the channel */
+int pkg_search   (const struct pkg_sink *s, const struct pkg_options *o);  /* target and also: the words; [channel] [root] [arch] */
 
 /* A refusal of the request itself, answered in the same form as the
  * operations' own: for a front end that validates its input first. Returns

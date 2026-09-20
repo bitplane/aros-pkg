@@ -10,9 +10,10 @@
 # a newer version withdrawn by its publisher is skipped, and a version
 # published for another CPU is not offered. UPGRADE ALL upgrades in
 # dependency order (names chosen so that name order is the wrong order),
-# never downgrades, stops at the first refusal with nothing further changed
-# and says what it had done, and under DRYRUN changes nothing at all, the
-# root's .pkg included.
+# never downgrades, goes as far as it can and exits with the worst class of
+# its refusals (the rule for every batch: INSTALL a b c does the same), says
+# what it had done, and under DRYRUN changes nothing at all, the root's .pkg
+# included.
 #
 # Oracles outside the code: the installed bytes are read back with cat, a
 # root's whole content is compared through shasum before and after, a
@@ -205,6 +206,20 @@ $PKG UPGRADE bb ROOT "$R2" CHANNEL "$C2" ACCEPTKEY "$OTHERPUB" > /dev/null 2>&1
 $PKG UPGRADE ALL ROOT "$R2" CHANNEL "$C2" MACHINE > "$T/pr2" 2>&1
 [ $? -eq 0 ] && has "$T/pr2" '^package: dd 1.0 2.0$' && has "$T/pr2" '^upgraded: 1$'
                                                                      ok $? "UPGRADE ALL again takes dd, which no longer waits"
+
+# The worst class, not the first: bb comes before cc by name and is refused
+# with key (14); cc's edited file is refused with conflict (15). The exit
+# code has to be 15.
+R4="$T/root4"
+for n in bb cc; do $PKG INSTALL "$n" ROOT "$R4" CHANNEL "$C2" VERSION 1.0 > /dev/null 2>&1; done
+printf 'my own cc\n' > "$R4/Libs/cc.library"
+$PKG UPGRADE ALL ROOT "$R4" CHANNEL "$C2" MACHINE > "$T/worst" 2>&1
+rc=$?
+grep -q '^refused: bb 1.0 key ' "$T/worst" && grep -q '^refused: cc 1.0 conflict ' "$T/worst"
+                                                                     ok $? "both are refused, bb (key) reported before cc (conflict)"
+[ "$rc" -eq 15 ] && has "$T/worst" '^class: conflict$' && has "$T/worst" '^code: 15$'
+                                                                     ok $? "the exit code is the worst class of the refusals, not the first"
+has "$T/worst" '^not-upgraded: 2$';                                  ok $? "both are counted as not upgraded"
 
 printf 'my cc\n' > "$R3/Libs/cc.library"
 $PKG STATUS ROOT "$R3" CHANNEL "$C2" MACHINE > "$T/s3"

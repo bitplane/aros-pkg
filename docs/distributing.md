@@ -49,15 +49,17 @@ key written to my.key, readable by you alone
   hint: every later version of what this key publishes must be signed with it: keep the file with the person's secrets, outside any channel or repository, and back it up. Use it with SIGN <file> or PKG_SIGNKEY; only the public key may be shared
 $ export PKG_SIGNKEY=my.key
 $ pkg PUBLISH MyTool-aarch64 CHANNEL mychannel KIND application
-published mytool 1.0 to mychannel: 1 file, payload c943b57f1703, signed by b4caa1c2c6c4df56
+published mytool 1.0 to mychannel: 1 file, payload c943b57f1703, signed by b673dd18b5ca39ca
   architecture aarch64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
-  hint: the channel mychannel did not exist and was created: machines install from it with INSTALL mytool ROOT <root> CHANNEL <this channel, as the machine names it>
+  hint: the channel mychannel did not exist and was created
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 $ pkg PUBLISH MyTool CHANNEL mychannel KIND application
-published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by b4caa1c2c6c4df56
+published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by b673dd18b5ca39ca
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
   dependencies from mytool 1.0, published before
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 $ pkg SHOW mytool CHANNEL mychannel
 Package  Version  Kind         Arch     Status  Signer
 mytool   1.0      application  aarch64  ok      b4caa1c2c6c4df56

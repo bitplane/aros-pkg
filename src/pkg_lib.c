@@ -2886,6 +2886,7 @@ struct entry {
     char arch[32];      /* one version may be published for several CPUs */
     char digest[PKG_SHA256_HEXLEN + 1];
     int  withdrawn;     /* its publisher signed a withdrawal */
+    unsigned char ch;   /* the channel it was read from: chan_of() names it */
 };
 
 struct index {
@@ -2894,6 +2895,53 @@ struct index {
 };
 
 static void mark_withdrawn(const char *channel, struct index *ix);
+
+/* ---- the channels of one operation ------------------------------------ *
+ *
+ * An index may hold the entries of several channels at once (the list a
+ * root keeps, see below), so every entry carries the channel it came from
+ * and nothing downstream has to be told which one to fetch an object from.
+ * The channels of the running operation are kept here, in the order they
+ * were read; `ch` is a place in this table. */
+#define PKG_MAX_CHANNELS 24
+static char *chans[PKG_MAX_CHANNELS];
+static size_t nchans;
+
+static int chan_id(const char *url)
+{
+    size_t i;
+    for (i = 0; i < nchans; i++)
+        if (strcmp(chans[i], url) == 0)
+            return (int)i;
+    if (nchans >= PKG_MAX_CHANNELS)
+        return -1;
+    chans[nchans] = pkg_strdup(url);
+    if (chans[nchans] == NULL)
+        return -1;
+    return (int)nchans++;
+}
+
+static const char *chan_of(const struct entry *e)
+{
+    return e->ch < nchans ? chans[e->ch] : "";
+}
+
+static void chans_clear(void)
+{
+    while (nchans > 0)
+        free(chans[--nchans]);
+}
+
+/* The channels being read, for a sentence: one name, or all of them. */
+static const char *chans_text(void)
+{
+    static char text[900];
+    size_t i, at = 0;
+    text[0] = '\0';
+    for (i = 0; i < nchans && at + 80 < sizeof text; i++)
+        at += (size_t)snprintf(text + at, sizeof text - at, "%s%s", at ? ", " : "", chans[i]);
+    return text;
+}
 
 /* ---- channels over the network ---------------------------------------- *
  *
@@ -2964,10 +3012,14 @@ static int read_index(const char *channel, struct index *ix)
     unsigned char *buf = NULL;
     size_t len = 0, at = 0;
     unsigned line = 0;
+    int id = chan_id(channel);
 
     ix->e = NULL;
     ix->n = 0;
     net_err[0] = '\0';
+    if (id < 0)
+        return refuse_c(20, "no more than %d channels can be read at once",
+                        PKG_MAX_CHANNELS);
     path = chan_file(channel, "index");
     if (path == NULL)
         return refuse("out of memory");
@@ -3014,6 +3066,7 @@ static int read_index(const char *channel, struct index *ix)
         if (w == NULL) { free(buf); return refuse("out of memory"); }
         ix->e = w;
         en.withdrawn = 0;
+        en.ch = (unsigned char)id;
         ix->e[ix->n++] = en;
     }
     free(buf);
@@ -3045,6 +3098,169 @@ static int write_index(const char *channel, struct index *ix)
     free(path);
     free(buf);
     return rc;
+}
+
+/* ---- the channels a root keeps ---------------------------------------- *
+ *
+ * A machine that installs from the same places every day should not have to
+ * type CHANNEL on every command. A root keeps its own list in
+ * .pkg/channels, one channel per line in the order they were added, beside
+ * .pkg/arch and .pkg/keys: the list belongs to the root, so an AROS system
+ * keeps its own in SYS:.pkg and a test root keeps another. CHANNEL on the
+ * line still means that channel and no other. */
+
+struct chanlist {
+    char  *v[PKG_MAX_CHANNELS];
+    size_t n;
+};
+
+static void chanlist_free(struct chanlist *c)
+{
+    while (c->n > 0)
+        free(c->v[--c->n]);
+}
+
+/* Read the list; a root without one has an empty list, which is not a
+ * refusal. */
+static int chanlist_read(const char *root, struct chanlist *c)
+{
+    char *p = pkg_join(root, ".pkg/channels");
+    unsigned char *buf;
+    size_t len, at = 0;
+
+    c->n = 0;
+    if (p == NULL)
+        return refuse("out of memory");
+    if (!pkg_fs_exists(p)) { free(p); return 0; }
+    if (pkg_fs_read(p, &buf, &len) != 0) {
+        refuse_c(17, "cannot read the channel list %s", p);
+        free(p);
+        return 1;
+    }
+    free(p);
+    while (at < len) {
+        const char *ls = (const char *)buf + at;
+        const char *nl = (const char *)memchr(ls, '\n', len - at);
+        size_t ll = nl ? (size_t)(nl - ls) : len - at;
+        char line[1200];
+        at += ll + 1u;
+        while (ll > 0 && (ls[ll - 1] == '\r' || ls[ll - 1] == ' '))
+            ll--;
+        if (ll == 0u)
+            continue;
+        if (ll >= sizeof line || c->n >= PKG_MAX_CHANNELS) {
+            free(buf);
+            chanlist_free(c);
+            return refuse_c(12, "the channel list in %s is malformed, or holds more than %d "
+                            "channels; edit %s/.pkg/channels, or remove it and add the channels "
+                            "again", root, PKG_MAX_CHANNELS, root);
+        }
+        memcpy(line, ls, ll);
+        line[ll] = '\0';
+        c->v[c->n] = pkg_strdup(line);
+        if (c->v[c->n] == NULL) { free(buf); chanlist_free(c); return refuse("out of memory"); }
+        c->n++;
+    }
+    free(buf);
+    return 0;
+}
+
+/* The channels of a list, for a sentence. */
+static const char *chanlist_text(const struct chanlist *c)
+{
+    static char text[900];
+    size_t i, at = 0;
+    text[0] = '\0';
+    for (i = 0; i < c->n && at + 80 < sizeof text; i++)
+        at += (size_t)snprintf(text + at, sizeof text - at, "%s%s", at ? ", " : "", c->v[i]);
+    return text;
+}
+
+static int chanlist_write(const char *root, const struct chanlist *c)
+{
+    char *dir = pkg_join(root, ".pkg"), *p = pkg_join(root, ".pkg/channels");
+    char *buf;
+    size_t i, cap = 8, len = 0;
+    int rc;
+
+    for (i = 0; i < c->n; i++)
+        cap += strlen(c->v[i]) + 1u;
+    buf = (char *)malloc(cap);
+    if (dir == NULL || p == NULL || buf == NULL) { free(dir); free(p); free(buf); return -1; }
+    pkg_fs_mkdirs(dir);
+    free(dir);
+    for (i = 0; i < c->n; i++)
+        len += (size_t)snprintf(buf + len, cap - len, "%s\n", c->v[i]);
+    rc = pkg_fs_write_atomic(p, buf, len);
+    free(p);
+    free(buf);
+    return rc;
+}
+
+/* The root whose pinned keys govern a choice among several channels, set
+ * when the channels are opened. */
+static const char *pick_root;
+
+/* The channels an operation reads from: CHANNEL when it was given, and then
+ * that channel alone; else the root's list, in its order. The index that
+ * comes back holds every channel's entries, each remembering where it came
+ * from. */
+static int open_channels(const struct pkg_options *a, struct index *ix)
+{
+    struct chanlist cl;
+    size_t i;
+
+    ix->e = NULL;
+    ix->n = 0;
+    pick_root = a->root;
+    if (a->channel != NULL)
+        return read_index(a->channel, ix);
+    if (a->root == NULL)
+        return refuse_c(20, "name the channel with CHANNEL <dir|url>");
+    if (chanlist_read(a->root, &cl) != 0)
+        return 1;
+    if (cl.n == 0) {
+        chanlist_free(&cl);
+        return refuse_c(20, "name the channel with CHANNEL <dir|url>, or add it to this root "
+                        "once and leave CHANNEL out from then on: "
+                        "CHANNEL ADD <dir|url> ROOT %s", a->root);
+    }
+    for (i = 0; i < cl.n; i++) {
+        struct index one;
+        struct entry *w;
+        if (!is_url(cl.v[i]) && !pkg_fs_is_dir(cl.v[i])) {
+            free(ix->e);
+            ix->e = NULL;
+            ix->n = 0;
+            chanlist_free(&cl);
+            return refuse_c(11, "%s lists the channel %s, and there is no channel there: not "
+                            "mounted, or moved. Nothing was checked or changed; "
+                            "CHANNEL REMOVE %s ROOT %s takes it off the list",
+                            a->root, cl.v[i], cl.v[i], a->root);
+        }
+        if (read_index(cl.v[i], &one) != 0) {
+            free(ix->e);
+            ix->e = NULL;
+            ix->n = 0;
+            chanlist_free(&cl);
+            return 1;
+        }
+        if (one.n == 0) { free(one.e); continue; }
+        w = (struct entry *)realloc(ix->e, (ix->n + one.n) * sizeof *w);
+        if (w == NULL) {
+            free(one.e); free(ix->e); ix->e = NULL; ix->n = 0;
+            chanlist_free(&cl);
+            return refuse("out of memory");
+        }
+        ix->e = w;
+        memcpy(ix->e + ix->n, one.e, one.n * sizeof *one.e);
+        ix->n += one.n;
+        free(one.e);
+    }
+    tr("reading %lu channel%s listed in %s: %s", (unsigned long)cl.n, cl.n == 1 ? "" : "s",
+       a->root, chans_text());
+    chanlist_free(&cl);
+    return 0;
 }
 
 static char *object_path(const char *channel, const char *digest, const char *ext)
@@ -3235,32 +3451,131 @@ static int arch_ambiguous(const struct index *ix, const char *name, char *list, 
     return n > 1;
 }
 
-/* Pick the entry for name: EXACT when version is given, else the highest. */
+static char *root_path(const char *root, const char *dir, const char *name);
+static int claimed_signer(const char *channel, const char *digest, char out[65]);
+
+/* The key this root pinned for a package, if any. */
+static int pinned_key(const char *root, const char *name, char out[65])
+{
+    char *p = root ? root_path(root, "keys", name) : NULL;
+    unsigned char *buf;
+    size_t len;
+    int got = 0;
+    if (p != NULL && pkg_fs_read(p, &buf, &len) == 0) {
+        if (len >= 64u) {
+            memcpy(out, buf, 64);
+            out[64] = '\0';
+            got = 1;
+        }
+        free(buf);
+    }
+    free(p);
+    return got;
+}
+
+/* Pick the entry for name: EXACT when version is given, else the highest.
+ *
+ * With several channels listed, each is asked in turn and the answers are
+ * weighed together. Two channels offering the same package under different
+ * keys is the case adding a channel must never settle by itself: it is
+ * refused, naming both, unless this root has already pinned a key for that
+ * name, in which case only the channels whose chosen version carries that
+ * key count. Among what is left the newest version wins, and list order
+ * breaks a tie. */
 static int pick_quiet;     /* the version was already chosen and traced */
+static int pick_refused;   /* pick refused; the caller must not say "not found" */
+static char pick_why[2400];/* the refusal's reason, for a caller that reports per package */
 
 static const struct entry *pick(const struct index *ix, const char *name, const char *version)
 {
+    const struct entry *best[PKG_MAX_CHANNELS];
+    char signer[PKG_MAX_CHANNELS][65];
     const struct entry *p = NULL;
-    size_t i;
+    size_t i, c, ncand = 0;
+    char pin[65];
+    int have_pin;
+
+    pick_refused = 0;
+    pick_why[0] = '\0';
+    for (c = 0; c < PKG_MAX_CHANNELS; c++) {
+        best[c] = NULL;
+        signer[c][0] = '\0';
+    }
     for (i = 0; i < ix->n; i++) {
-        if (strcmp(ix->e[i].name, name) != 0 || !arch_matches(&ix->e[i]))
+        const struct entry *e = &ix->e[i];
+        const struct entry **b;
+        if (strcmp(e->name, name) != 0 || !arch_matches(e) || e->ch >= PKG_MAX_CHANNELS)
             continue;
+        b = &best[e->ch];
         if (version) {
-            if (pkg_version_cmp(ix->e[i].version, version) == 0)
-                p = &ix->e[i];
-        } else if (ix->e[i].withdrawn) {
-            tr("skipping %s %s: withdrawn by its publisher", ix->e[i].name, ix->e[i].version);
-        } else if (p == NULL || pkg_version_cmp(ix->e[i].version, p->version) > 0) {
-            p = &ix->e[i];
+            if (pkg_version_cmp(e->version, version) == 0)
+                *b = e;
+        } else if (e->withdrawn) {
+            tr("skipping %s %s: withdrawn by its publisher", e->name, e->version);
+        } else if (*b == NULL || pkg_version_cmp(e->version, (*b)->version) > 0) {
+            *b = e;
         }
+    }
+    for (c = 0; c < PKG_MAX_CHANNELS; c++)
+        if (best[c] != NULL)
+            ncand++;
+    if (ncand > 1) {
+        /* Only then is a signature file read: one channel is the usual case
+         * and must cost nothing. */
+        have_pin = pinned_key(pick_root, name, pin);
+        for (c = 0; c < PKG_MAX_CHANNELS; c++)
+            if (best[c] != NULL)
+                claimed_signer(chans[c], best[c]->digest, signer[c]);
+        if (have_pin) {
+            for (c = 0; c < PKG_MAX_CHANNELS; c++)
+                if (best[c] != NULL && strcmp(signer[c], pin) != 0) {
+                    tr("%s %s in %s is signed by %s, not by the key this root pinned: not counted",
+                       name, best[c]->version, chans[c], signer[c][0] ? signer[c] : "no one");
+                    best[c] = NULL;
+                }
+        } else {
+            size_t first = PKG_MAX_CHANNELS;
+            for (c = 0; c < PKG_MAX_CHANNELS; c++) {
+                if (best[c] == NULL)
+                    continue;
+                if (first == PKG_MAX_CHANNELS) { first = c; continue; }
+                if (strcmp(signer[first], signer[c]) != 0) {
+                    pick_refused = 1;
+                    snprintf(pick_why, sizeof pick_why,
+                             "%s is offered by two channels under different keys, and this root "
+                             "has pinned no key for it yet.\n"
+                             "  %s %s in %s, signed by %s\n"
+                             "  %s %s in %s, signed by %s\n"
+                             "Nothing was changed. Taking either one would decide which of them "
+                             "is the publisher, and adding a channel is never a way to replace "
+                             "someone's package: only whoever requested this can say which key "
+                             "is right, by asking the publisher by another route than these "
+                             "channels. Install from that channel alone once, with CHANNEL, and "
+                             "the root pins its key from then on",
+                             name,
+                             name, best[first]->version, chans[first],
+                             signer[first][0] ? signer[first] : "no one",
+                             name, best[c]->version, chans[c],
+                             signer[c][0] ? signer[c] : "no one");
+                    refuse_n(14, "ask-requester", "%s", pick_why);
+                    return NULL;
+                }
+            }
+        }
+    }
+    for (c = 0; c < PKG_MAX_CHANNELS; c++) {
+        if (best[c] == NULL)
+            continue;
+        if (p == NULL || pkg_version_cmp(best[c]->version, p->version) > 0)
+            p = best[c];        /* newest wins; list order breaks a tie */
     }
     if (pick_quiet)
         ;
     else if (p != NULL)
-        tr("picked %s %s: %s", p->name, p->version, version ? "the version asked for"
-           : "the highest the channel offers");
+        tr("picked %s %s from %s: %s", p->name, p->version, chan_of(p),
+           version ? "the version asked for" : "the highest offered");
     else
-        tr("the channel offers no %s%s%s", name, version ? " " : "", version ? version : "");
+        tr("no channel offers %s%s%s", name, version ? " " : "", version ? version : "");
     return p;
 }
 
@@ -3899,7 +4214,7 @@ static int claimed_signer(const char *channel, const char *digest, char out[65])
 
 /* The other keys that sign versions of `name` in the channel, listed in
  * `others`. The count of them. */
-static int other_signers(const char *channel, const struct index *ix, const char *name,
+static int other_signers(const struct index *ix, const char *name,
                          const char *signer, char *others, size_t olen)
 {
     size_t i, at = 0;
@@ -3908,7 +4223,7 @@ static int other_signers(const char *channel, const struct index *ix, const char
     others[0] = '\0';
     for (i = 0; i < ix->n; i++) {
         int j, dup = 0;
-        if (strcmp(ix->e[i].name, name) != 0 || !claimed_signer(channel, ix->e[i].digest, claim))
+        if (strcmp(ix->e[i].name, name) != 0 || !claimed_signer(chan_of(&ix->e[i]), ix->e[i].digest, claim))
             continue;
         if (strcmp(claim, signer) == 0)
             continue;
@@ -4661,7 +4976,7 @@ struct plan {
     size_t          n;
     const char     *stack[32];   /* the path being resolved, for cycles */
     size_t          depth;
-    const char     *root, *channel, *acceptkey;
+    const char     *root, *acceptkey;
     const struct index *ix;
 };
 
@@ -4730,26 +5045,28 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
             }
     }
     e = pick(p->ix, name, exact);
+    if (e == NULL && pick_refused)
+        return 1;
     if (e == NULL) {
         if (from == NULL) {
-            say_not_found(p->ix, name, exact, p->channel);
+            say_not_found(p->ix, name, exact, chans_text());
             return 1;
         }
         return refuse_c(16, "%s depends on %s%s%s, which the channel %s does not offer; "
                         "nothing was changed", from, name, min ? " >= " : "", min ? min : "",
-                        p->channel);
+                        chans_text());
     }
     if (e->withdrawn)
         return refuse_n(18, "ask-requester", "%s %s was withdrawn by its publisher in %s; nothing "
                         "was changed. Installing it anyway is the requester's decision, and Pkg "
-                        "does not take it", e->name, e->version, p->channel);
+                        "does not take it", e->name, e->version, chan_of(e));
     if (min != NULL && pkg_version_cmp(e->version, min) < 0)
         return refuse_c(16, "%s needs %s >= %s, and the highest the channel offers is %s; "
                         "nothing was changed", from ? from : "the request", name, min, e->version);
     if (p->depth >= sizeof p->stack / sizeof p->stack[0])
         return refuse_c(16, "the dependencies of %s go more than %u levels deep", name,
                         (unsigned)(sizeof p->stack / sizeof p->stack[0]));
-    if (fetch(p->channel, e, &f) != 0) {
+    if (fetch(chan_of(e), e, &f) != 0) {
         fetched_free(&f);
         return 1;
     }
@@ -4769,11 +5086,11 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
         size_t o;
         free(kp);
         for (o = 0; first && o < p->ix->n; o++)
-            if (strcmp(p->ix->e[o].name, e->name) == 0
+            if (strcmp(p->ix->e[o].name, e->name) == 0 && p->ix->e[o].ch == e->ch
                 && (oldest == NULL || pkg_version_cmp(p->ix->e[o].version, oldest->version) < 0))
                 oldest = &p->ix->e[o];
         if (first && oldest != NULL && oldest != e
-            && claimed_signer(p->channel, oldest->digest, first_signer)
+            && claimed_signer(chan_of(oldest), oldest->digest, first_signer)
             && strcmp(first_signer, f.signer) != 0
             && (p->acceptkey == NULL || strcmp(p->acceptkey, f.signer) != 0)) {
             kv("signer", "%s", f.signer);
@@ -4927,7 +5244,6 @@ static int plan_target(struct plan *p, const struct pkg_options *a, const struct
     int rc;
     memset(p, 0, sizeof *p);
     p->root = a->root;
-    p->channel = a->channel;
     p->acceptkey = a->acceptkey;
     p->ix = ix;
     /* The caller picked `exact` and traced why. */
@@ -5143,7 +5459,7 @@ static int ac_data(const struct pkg_archive_entry *e, const unsigned char *buf, 
 
 /* SHOW <name>: the catalogue fields of its newest version, as a person
  * reads them on the portal, and as records for a program. */
-static void show_about(const char *channel, const struct index *ix, const char *name)
+static void show_about(const struct index *ix, const char *name)
 {
     const struct entry *best = NULL;
     struct pkg_manifest m;
@@ -5156,7 +5472,7 @@ static void show_about(const char *channel, const struct index *ix, const char *
         if (strcmp(ix->e[o].name, name) == 0
             && (best == NULL || pkg_version_cmp(ix->e[o].version, best->version) > 0))
             best = &ix->e[o];
-    if (best == NULL || (mp = object_path(channel, best->digest, "manifest")) == NULL)
+    if (best == NULL || (mp = object_path(chan_of(best), best->digest, "manifest")) == NULL)
         return;
     if (pkg_fs_read(mp, &buf, &len) != 0) { free(mp); return; }
     free(mp);
@@ -5212,8 +5528,7 @@ static int cmd_show(const struct pkg_options *a)
     size_t i, shown = 0, bad = 0;
     int first_bad = 0;
 
-    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
-    if (read_index(a->channel, &ix) != 0) return 1;
+    if (open_channels(a, &ix) != 0) return 1;
     row = (struct show_row *)calloc(ix.n ? ix.n : 1, sizeof *row);
     if (row == NULL) { free(ix.e); return refuse("out of memory"); }
     kv("result", "shown");
@@ -5234,7 +5549,7 @@ static int cmd_show(const struct pkg_options *a)
         quiet = 1;
         refused_class = 0;
         quiet_reason[0] = '\0';
-        r->rc = fetch(a->channel, &ix.e[i], &r->f);
+        r->rc = fetch(chan_of(&ix.e[i]), &ix.e[i], &r->f);
         quiet = 0;
         r->cls = refused_class;
         snprintf(r->reason, sizeof r->reason, "%s", quiet_reason);
@@ -5295,7 +5610,7 @@ static int cmd_show(const struct pkg_options *a)
             }
             ac.n = n;
             qsort(ac.ex, n, sizeof *ac.ex, by_expect);
-            path = archive_path(a->channel, an);
+            path = archive_path(chan_of(&ix.e[r0]), an);
             if ((path == NULL || !pkg_fs_exists(path)) && n > 0 && row[ac.ex[0].row].f.m.archive_sha) {
                 /* published upstream: a copy downloaded before, else nothing to read here */
                 const struct pkg_manifest *um = &row[ac.ex[0].row].f.m;
@@ -5448,9 +5763,9 @@ static int cmd_show(const struct pkg_options *a)
             continue;
         for (j = 0; j < i; j++)
             if (strcmp(ix.e[j].name, ix.e[i].name) == 0) earlier = 1;
-        if (earlier || !claimed_signer(a->channel, ix.e[i].digest, claim))
+        if (earlier || !claimed_signer(chan_of(&ix.e[i]), ix.e[i].digest, claim))
             continue;
-        if (other_signers(a->channel, &ix, ix.e[i].name, claim, others, sizeof others) > 0) {
+        if (other_signers(&ix, ix.e[i].name, claim, others, sizeof others) > 0) {
             if (machine)
                 kv("warning", "%s is signed by more than one key: %s on %s, and %s", ix.e[i].name,
                    claim, ix.e[i].version, others);
@@ -5460,7 +5775,7 @@ static int cmd_show(const struct pkg_options *a)
         }
     }
     if (a->target != NULL && shown > 0)
-        show_about(a->channel, &ix, a->target);
+        show_about(&ix, a->target);
     kv("count", "%lu", (unsigned long)shown);
     kv("bad", "%lu", (unsigned long)bad);
     if (!machine && shown == 0)
@@ -6048,9 +6363,16 @@ static int cmd_publish(const struct pkg_options *a)
             say_item("left out", "%s, host metadata no Amiga uses", b.left_out[i]);
     }
     if (new_channel)
-        hint("the channel %s did not exist and was created: machines install from it with "
-             "INSTALL %s ROOT <root> CHANNEL <this channel, as the machine names it>",
-             a->channel, b.m.name);
+        hint("the channel %s did not exist and was created", a->channel);
+    /* PUBLISH says "published", and a person who has only ever sent packages
+     * to a portal reads that as "it is online now". It is not: the package
+     * is in a channel on this disk, which is a channel like any other, and
+     * PUSH is what sends it to a portal. */
+    if (!dryrun)
+        hint("the package is in the local channel %s: any machine that can read that directory "
+             "installs from it with INSTALL %s ROOT <root> CHANNEL <that directory, as the "
+             "machine names it>, and PUSH CHANNEL %s TO <portal channel> sends it to a portal",
+             a->channel, b.m.name, a->channel);
     rc = 0;
 out:
     memset(&k, 0, sizeof k);
@@ -6064,7 +6386,6 @@ static int need_root_channel(const struct pkg_options *a)
 {
     if (a->target == NULL)     return refuse_c(20, "name the package");
     if (a->root == NULL)    return refuse_c(20, "name the root with ROOT <dir>");
-    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
     if (a->version && pkg_check_version(a->version))
         return refuse_c(20, "VERSION \"%s\": %s", a->version, pkg_check_version(a->version));
     return 0;
@@ -6085,7 +6406,7 @@ static int install_one(const struct pkg_options *a, const char *target, char *li
 
     if (need_root_channel(a) != 0) return 1;
     if (resolve_arch(a) != 0) return 1;
-    if (read_index(a->channel, &ix) != 0) return 1;
+    if (open_channels(a, &ix) != 0) return 1;
     {
         char cpus[200];
         if (arch_ambiguous(&ix, target, cpus, sizeof cpus)) {
@@ -6097,7 +6418,11 @@ static int install_one(const struct pkg_options *a, const char *target, char *li
         }
     }
     e = pick(&ix, target, a->version);
-    if (e == NULL) { say_not_found(&ix, target, a->version, a->channel); free(ix.e); return 1; }
+    if (e == NULL) {
+        if (!pick_refused) say_not_found(&ix, target, a->version, chans_text());
+        free(ix.e);
+        return 1;
+    }
     if (load_installed(a->root, e->name, &cur, 1) == 0) {
         if (is_auto(a->root, cur.name)) {
             /* Asked for by name now: no longer an orphan candidate. */
@@ -6341,10 +6666,10 @@ static int cmd_upgrade(const struct pkg_options *a)
     if (load_installed(a->root, a->target, &cur, 0) != 0) return 1;
     if (target_arch == NULL && strcmp(cur.architecture, "generic") != 0)
         target_arch = cur.architecture;       /* stay on the installed CPU */
-    if (read_index(a->channel, &ix) != 0) { pkg_manifest_free(&cur); return 1; }
+    if (open_channels(a, &ix) != 0) { pkg_manifest_free(&cur); return 1; }
     e = pick(&ix, a->target, a->version);
     if (e == NULL) {
-        say_not_found(&ix, a->target, a->version, a->channel);
+        if (!pick_refused) say_not_found(&ix, a->target, a->version, chans_text());
         goto out;
     }
     c = pkg_version_cmp(e->version, cur.version);
@@ -6416,14 +6741,14 @@ static int cmd_rollback(const struct pkg_options *a)
             return refuse_c(12, "the rollback record for %s is damaged", a->target);
         }
     }
-    if (read_index(a->channel, &ix) != 0) { pkg_manifest_free(&cur); return 1; }
+    if (open_channels(a, &ix) != 0) { pkg_manifest_free(&cur); return 1; }
     for (i = 0; i < ix.n; i++)
         if (strcmp(ix.e[i].name, a->target) == 0 && pkg_version_cmp(ix.e[i].version, prev.version) == 0
             && (strcmp(ix.e[i].arch, cur.architecture) == 0 || strcmp(ix.e[i].arch, "generic") == 0))
             e = &ix.e[i];
     if (e == NULL)
-        refuse_c(11, "the previous version of %s, %s, is no longer in the channel %s",
-               a->target, prev.version, a->channel);
+        refuse_c(11, "the previous version of %s, %s, is no longer in %s",
+               a->target, prev.version, chans_text());
     else
         rc = move_to(a, &ix, e, &cur, "rolled back");
     pkg_manifest_free(&cur);
@@ -6803,13 +7128,15 @@ static int repair_one(const struct pkg_options *a, const struct index *ix, const
         return 0;
     }
     e = pick(ix, m.name, m.version);
+    if (e == NULL && pick_refused)
+        goto out;
     if (e == NULL) {
         refuse_c(11, "%s %s is installed and the channel no longer offers it, so its %lu damaged "
                  "file%s cannot be put back; UPGRADE to a version the channel has", m.name,
                  m.version, (unsigned long)needed, needed == 1 ? "" : "s");
         goto out;
     }
-    if (fetch(a->channel, e, &f) != 0)
+    if (fetch(chan_of(e), e, &f) != 0)
         goto out;
     if (!dryrun) {
         c.root = a->root; c.m = &m; c.restored = c.aside = 0; c.err[0] = '\0';
@@ -6873,7 +7200,8 @@ struct resolution {
     int         rc;             /* 0, 11 nothing, 18 too old or the taken file fails */
     int         shadows;        /* the copy taken hides a newer one found later */
     char        summary[300];
-    char        offer[160];     /* "sdl2 2.30" when the channel has a package providing it */
+    char        offer[160];     /* "sdl2 2.30" when a channel has a package providing it */
+    char        offer_chan[600];/* the channel that offers it */
 };
 
 /* "SDL2.library 2.30 (1.1.2026)" -> "2.30": the version of a $VER cookie
@@ -6942,13 +7270,23 @@ static void cand_add(struct resolution *r, const char *where, const char *path)
     r->n++;
 }
 
-/* A package of the channel whose newest version provides `name`: "sdl2 2.30". */
-static int channel_offers(const char *channel, const char *name, char *out, size_t ol)
+/* A package of the channels whose newest version provides `name`:
+ * "sdl2 2.30", and the channel it is in. */
+static int channel_offers(const struct pkg_options *a, const char *name, char *out, size_t ol,
+                          char *where, size_t wl)
 {
     struct index ix;
     size_t i, j;
-    int found = 0;
-    if (channel == NULL || read_index(channel, &ix) != 0) { refused_class = 0; return 0; }
+    int found = 0, rc;
+    where[0] = '\0';
+    if (a->channel == NULL && a->root == NULL) return 0;
+    /* RESOLVE offers this as an extra: a root with no channel to ask is not
+     * a refusal here, and nothing about it is printed. */
+    quiet = 1;
+    rc = open_channels(a, &ix);
+    quiet = 0;
+    quiet_reason[0] = '\0';
+    if (rc != 0) { refused_class = 0; refused_next = NULL; return 0; }
     for (i = 0; i < ix.n && !found; i++) {
         const struct entry *best = &ix.e[i];
         struct pkg_manifest m;
@@ -6959,12 +7297,13 @@ static int channel_offers(const char *channel, const char *name, char *out, size
             if (strcmp(ix.e[j].name, best->name) == 0 && pkg_version_cmp(ix.e[j].version, best->version) > 0)
                 best = &ix.e[j];
         if (best != &ix.e[i]) continue;
-        if ((mp = object_path(channel, best->digest, "manifest")) == NULL) continue;
+        if ((mp = object_path(chan_of(best), best->digest, "manifest")) == NULL) continue;
         if (pkg_fs_read(mp, &buf, &len) != 0) { free(mp); continue; }
         free(mp);
         if (pkg_manifest_parse((const char *)buf, len, &m, err, sizeof err) == 0) {
             if (strs_has_nocase(&m.provides, name)) {
                 snprintf(out, ol, "%s %s", m.name, m.version);
+                snprintf(where, wl, "%s", chan_of(best));
                 found = 1;
             }
             pkg_manifest_free(&m);
@@ -7091,7 +7430,7 @@ static void resolve_one(const struct pkg_options *a, const char *name, const cha
     }
     r->loaded = pkg_fs_loaded(base, device, &lv, &lr, &r->opencnt);
     if (r->loaded == 1) snprintf(r->loaded_ver, sizeof r->loaded_ver, "%u.%u", lv, lr);
-    channel_offers(a->channel, base, r->offer, sizeof r->offer);
+    channel_offers(a, base, r->offer, sizeof r->offer, r->offer_chan, sizeof r->offer_chan);
 
     /* the loader's walk: what each place gives, and where it stops */
     for (i = 0; i < r->n; i++) {
@@ -7194,8 +7533,8 @@ static void resolve_one(const struct pkg_options *a, const char *name, const cha
             if (!last->next[0]) {
                 if (r->offer[0])
                     snprintf(last->next, sizeof last->next, "install it: package %s provides %s "
-                             "(pkg INSTALL %.*s ROOT <root> CHANNEL %s)", r->offer, base,
-                             (int)strcspn(r->offer, " "), r->offer, a->channel);
+                             "(pkg INSTALL %.*s ROOT <root> CHANNEL %.150s)", r->offer, base,
+                             (int)strcspn(r->offer, " "), r->offer, r->offer_chan);
                 else
                     snprintf(last->next, sizeof last->next, "install %s%s%s into %s", base,
                              want ? " " : "", want ? want : "", device ? "SYS:Devs" : "SYS:Libs");
@@ -7220,8 +7559,8 @@ static void resolve_one(const struct pkg_options *a, const char *name, const cha
                          t->path, r->c[better].path, r->c[better].ver);
             else if (r->offer[0])
                 snprintf(nx, sizeof nx, "install a newer one: package %s provides %s "
-                         "(pkg UPGRADE or INSTALL %.*s ROOT <root> CHANNEL %s)", r->offer, base,
-                         (int)strcspn(r->offer, " "), r->offer, a->channel);
+                         "(pkg UPGRADE or INSTALL %.*s ROOT <root> CHANNEL %.150s)", r->offer, base,
+                         (int)strcspn(r->offer, " "), r->offer, r->offer_chan);
             else
                 snprintf(nx, sizeof nx, "copy or install a %s %s or newer into %s, and "
                          "remove %s", base, want, device ? "SYS:Devs" : "SYS:Libs", t->path);
@@ -7422,9 +7761,8 @@ static int cmd_repair(const struct pkg_options *a)
 
     if (!a->all && a->target == NULL) return refuse_c(20, "name the package to repair, or REPAIR ALL");
     if (a->root == NULL)    return refuse_c(20, "name the root with ROOT <dir>");
-    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
     if (resolve_arch(a) != 0) return 1;
-    if (read_index(a->channel, &ix) != 0) return 1;
+    if (open_channels(a, &ix) != 0) return 1;
     if (a->all) {
         if (load_all(a->root, &in) != 0) { free(ix.e); return 1; }
     } else {
@@ -7707,6 +8045,8 @@ struct standing {
     int newer;                   /* offer is higher than the installed version */
     int withdrawn;               /* the installed version was withdrawn by its publisher */
     int edited;                  /* a file differs from the installed manifest */
+    int conflict;                /* two listed channels offer it under different keys */
+    char why[2400];              /* the conflict, in full */
 };
 
 /* The machine UPGRADE <name> chooses for: the root's, else the installed
@@ -7733,11 +8073,20 @@ static void stand(const char *root, const struct index *ix, const char *base,
             s->withdrawn = 1;
     }
     s->offer = pick(ix, m->name, NULL);
+    if (s->offer == NULL && pick_refused) {
+        /* Reported per package: one package two channels disagree about
+         * must not stop the others being compared or upgraded. */
+        s->conflict = 1;
+        snprintf(s->why, sizeof s->why, "%s", pick_why);
+        refused_class = 0;
+        refused_next = NULL;
+    }
     s->newer = s->offer != NULL && pkg_version_cmp(s->offer->version, m->version) > 0;
     /* The check VERIFY makes, size and digest, stopping at the first edit. */
     for (i = 0; i < m->nfiles && !s->edited; i++)
         s->edited = file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size) == 1;
-    if (s->offer == NULL)  s->state = s->withdrawn ? "withdrawn" : "not-offered";
+    if (s->conflict)       s->state = "conflict";
+    else if (s->offer == NULL)  s->state = s->withdrawn ? "withdrawn" : "not-offered";
     else if (s->newer)     s->state = s->edited ? "edited" : "upgradable";
     else if (s->withdrawn) s->state = "withdrawn";
     else if (s->edited)    s->state = "edited";
@@ -7764,28 +8113,665 @@ static void note(const char *fmt, ...)
 static int keep_current_setup(const struct pkg_options *a, struct index *ix, struct installed *in)
 {
     if (a->root == NULL)    return refuse_c(20, "name the root with ROOT <dir>");
-    if (a->channel == NULL) return refuse_c(20, "name the channel with CHANNEL <dir>");
-    if (!is_url(a->channel) && !pkg_fs_is_dir(a->channel))  /* a URL answers for itself */
+    if (a->channel != NULL && !is_url(a->channel) && !pkg_fs_is_dir(a->channel))
         return refuse_c(11, "there is no channel at %s: not mounted, or not the path meant; "
                         "nothing was checked or changed", a->channel);
     if (resolve_arch(a) != 0) return 1;
-    if (read_index(a->channel, ix) != 0) return 1;
+    if (open_channels(a, ix) != 0) return 1;
     if (load_all(a->root, in) != 0) { free(ix->e); return 1; }
     return 0;
+}
+
+/* ---- CHANNEL: the list a root keeps ------------------------------------ */
+
+/* The distinct package names a channel offers, for what ADD says back. */
+static size_t offered_count(const struct index *ix)
+{
+    size_t i, j, n = 0;
+    for (i = 0; i < ix->n; i++) {
+        int seen = 0;
+        for (j = 0; j < i && !seen; j++)
+            if (strcmp(ix->e[j].name, ix->e[i].name) == 0)
+                seen = 1;
+        if (!seen)
+            n++;
+    }
+    return n;
+}
+
+static int cmd_channel(const struct pkg_options *a)
+{
+    struct chanlist cl;
+    const char *what = a->target, *ch = a->nalso > 0 ? a->also[0] : NULL;
+    size_t i;
+    int add, remove, list;
+
+    if (what == NULL)
+        return refuse_c(20, "CHANNEL takes ADD, LIST or REMOVE");
+    add = ascii_casecmp(what, "ADD") == 0;
+    remove = ascii_casecmp(what, "REMOVE") == 0;
+    list = ascii_casecmp(what, "LIST") == 0;
+    if (!add && !remove && !list)
+        return refuse_c(20, "\"%s\" is not one of CHANNEL's words; they are ADD, LIST and REMOVE",
+                        what);
+    if (a->root == NULL)
+        return refuse_c(20, "name the root whose channels these are with ROOT <dir>");
+    if ((add || remove) && ch == NULL)
+        return refuse_c(20, "CHANNEL %s takes the channel: a directory, or an http(s) URL",
+                        add ? "ADD" : "REMOVE");
+    if (a->nalso > 1)
+        return refuse_c(20, "CHANNEL takes one channel at a time");
+    if (chanlist_read(a->root, &cl) != 0)
+        return 1;
+
+    if (list) {
+        kv("result", "shown");
+        if (!machine && cl.n > 0) {
+            static const int widths[] = { 4, 0 };
+            tbl_head(widths, "In\tChannel");
+        }
+        for (i = 0; i < cl.n; i++) {
+            if (machine)
+                rec_item("channel", cl.v[i], "channel", cl.v[i], NULL);
+            else
+                tbl_row("%lu\t%s", (unsigned long)i + 1, cl.v[i]);
+        }
+        if (!machine && cl.n > 0)
+            tbl_end();
+        kv("count", "%lu", (unsigned long)cl.n);
+        kv("root", "%s", a->root);
+        if (cl.n == 0) {
+            kv("summary", "%s lists no channel", a->root);
+            if (!machine)
+                say_result("%s lists no channel", a->root);
+            hint("CHANNEL ADD <dir|url> ROOT %s adds one; from then on INSTALL, UPGRADE, STATUS, "
+                 "SEARCH and SHOW read it without CHANNEL on the line", a->root);
+        } else {
+            kv("summary", "%lu channel%s, asked in this order",
+               (unsigned long)cl.n, cl.n == 1 ? "" : "s");
+            if (!machine)
+                say_result("%lu channel%s in %s, asked in this order", (unsigned long)cl.n,
+                           cl.n == 1 ? "" : "s", a->root);
+        }
+        chanlist_free(&cl);
+        return 0;
+    }
+
+    for (i = 0; i < cl.n; i++)
+        if (strcmp(cl.v[i], ch) == 0)
+            break;
+    if (add) {
+        size_t offers = 0;
+        if (i < cl.n) {
+            chanlist_free(&cl);
+            return refuse_c(15, "%s already lists the channel %s, in place %lu; nothing was "
+                            "changed. CHANNEL LIST ROOT %s shows them", a->root, ch,
+                            (unsigned long)i + 1, a->root);
+        }
+        if (cl.n >= PKG_MAX_CHANNELS) {
+            chanlist_free(&cl);
+            return refuse_c(15, "%s already lists %d channels, which is as many as Pkg reads at "
+                            "once; remove one first", a->root, PKG_MAX_CHANNELS);
+        }
+        if (!dryrun) {
+            /* A channel that cannot be read is not added: the mistake is
+             * found now, not at the next INSTALL. */
+            struct index ix;
+            if (!is_url(ch) && !pkg_fs_is_dir(ch)) {
+                chanlist_free(&cl);
+                return refuse_c(11, "there is no channel at %s: not mounted, or not the path "
+                                "meant; nothing was added", ch);
+            }
+            if (read_index(ch, &ix) != 0) { chanlist_free(&cl); return 1; }
+            offers = offered_count(&ix);
+            free(ix.e);
+        }
+        cl.v[cl.n] = pkg_strdup(ch);
+        if (cl.v[cl.n] == NULL) { chanlist_free(&cl); return refuse("out of memory"); }
+        cl.n++;
+        if (!dryrun && chanlist_write(a->root, &cl) != 0) {
+            chanlist_free(&cl);
+            return refuse_c(17, "cannot write the channel list in %s: %s", a->root,
+                            strerror(errno));
+        }
+        kv("result", "%s", res("added", "would-add"));
+        kv("channel", "%s", ch);
+        kv("root", "%s", a->root);
+        kv("position", "%lu", (unsigned long)cl.n);
+        if (!dryrun)
+            kv("packages", "%lu", (unsigned long)offers);
+        if (!machine) {
+            if (dryrun)
+                say_result("would add %s to %s, in place %lu", ch, a->root, (unsigned long)cl.n);
+            else
+                say_result("added %s to %s, in place %lu: it offers %lu package%s", ch, a->root,
+                           (unsigned long)cl.n, (unsigned long)offers, offers == 1 ? "" : "s");
+        }
+        if (cl.n == 1)
+            hint("INSTALL, UPGRADE, STATUS, SHOW, REPAIR, ROLLBACK and SEARCH now read this "
+                 "channel when CHANNEL is left out; CHANNEL <dir|url> on the line still means "
+                 "that channel alone");
+        chanlist_free(&cl);
+        return 0;
+    }
+
+    /* REMOVE */
+    if (i == cl.n) {
+        chanlist_free(&cl);
+        return refuse_c(11, "%s does not list the channel %s; nothing was changed. CHANNEL LIST "
+                        "ROOT %s shows the ones it lists", a->root, ch, a->root);
+    }
+    free(cl.v[i]);
+    for (; i + 1 < cl.n; i++)
+        cl.v[i] = cl.v[i + 1];
+    cl.n--;
+    if (!dryrun && chanlist_write(a->root, &cl) != 0) {
+        chanlist_free(&cl);
+        return refuse_c(17, "cannot write the channel list in %s: %s", a->root, strerror(errno));
+    }
+    kv("result", "%s", res("removed", "would-remove"));
+    kv("channel", "%s", ch);
+    kv("root", "%s", a->root);
+    kv("count", "%lu", (unsigned long)cl.n);
+    if (!machine)
+        say_result("%s %s from %s; %lu channel%s left", dryrun ? "would remove" : "removed", ch,
+                   a->root, (unsigned long)cl.n, cl.n == 1 ? "" : "s");
+    note("what was installed from it stays installed; nothing was removed from this root");
+    chanlist_free(&cl);
+    return 0;
+}
+
+/* ---- SEARCH ------------------------------------------------------------ */
+
+struct hit {
+    char name[65];
+    char version[64];
+    char arch[120];
+    char short_desc[200];
+    char chan[700];
+};
+
+struct hits {
+    struct hit *v;
+    size_t      n, cap;
+};
+
+static int hit_add(struct hits *h, const struct hit *x)
+{
+    size_t i;
+    for (i = 0; i < h->n; i++)
+        if (strcmp(h->v[i].name, x->name) == 0 && strcmp(h->v[i].chan, x->chan) == 0)
+            return 0;               /* one row per package per channel */
+    if (h->n == h->cap) {
+        size_t cap = h->cap ? h->cap * 2 : 32;
+        struct hit *w = (struct hit *)realloc(h->v, cap * sizeof *w);
+        if (w == NULL) return -1;
+        h->v = w;
+        h->cap = cap;
+    }
+    h->v[h->n++] = *x;
+    return 0;
+}
+
+static int by_hit(const void *x, const void *y)
+{
+    const struct hit *a = (const struct hit *)x, *b = (const struct hit *)y;
+    int c = ascii_casecmp(a->name, b->name);
+    return c ? c : strcmp(a->chan, b->chan);
+}
+
+/* Does `text` hold `word`, whatever the case? */
+static int holds_word(const char *text, const char *word)
+{
+    size_t wl = strlen(word), i;
+    if (text == NULL) return 0;
+    for (i = 0; text[i]; i++)
+        if (ascii_casecmp_n(text + i, word, wl) == 0)
+            return 1;
+    return 0;
+}
+
+static int strs_hold_word(const struct pkg_strs *l, const char *word)
+{
+    size_t i;
+    for (i = 0; i < l->n; i++)
+        if (holds_word(l->v[i], word))
+            return 1;
+    return 0;
+}
+
+/* Every field SEARCH looks in, for one word. */
+static int manifest_holds(const struct pkg_manifest *m, const char *word)
+{
+    const struct pkg_about *ab = &m->about;
+    return holds_word(m->name, word) || holds_word(ab->short_desc, word)
+        || holds_word(ab->category, word) || strs_hold_word(&ab->tags, word)
+        || strs_hold_word(&ab->description, word) || strs_hold_word(&m->provides, word);
+}
+
+/* One channel read package by package: the index, then the manifest of each
+ * newest version that is not withdrawn. Directory channels and plain web
+ * servers are read this way, and so is a portal whose API did not answer. */
+static int search_local(const char *channel, const char *const *words, unsigned nwords,
+                        struct hits *h)
+{
+    struct index ix;
+    size_t i, j;
+
+    if (read_index(channel, &ix) != 0) { refused_class = 0; refused_next = NULL; return 1; }
+    for (i = 0; i < ix.n; i++) {
+        const struct entry *best = NULL;
+        struct pkg_manifest m;
+        struct hit x;
+        unsigned char *buf;
+        char *mp, err[200];
+        size_t len;
+        unsigned w;
+        int seen = 0, all = 1;
+
+        for (j = 0; j < i; j++)
+            if (strcmp(ix.e[j].name, ix.e[i].name) == 0) seen = 1;
+        if (seen)
+            continue;
+        for (j = 0; j < ix.n; j++) {
+            const struct entry *e = &ix.e[j];
+            if (strcmp(e->name, ix.e[i].name) != 0 || e->withdrawn || !arch_matches(e))
+                continue;
+            if (best == NULL || pkg_version_cmp(e->version, best->version) > 0)
+                best = e;
+        }
+        if (best == NULL)
+            continue;
+        if (cancelled("while reading the channel; nothing was changed")) { free(ix.e); return 1; }
+        if ((mp = object_path(channel, best->digest, "manifest")) == NULL)
+            continue;
+        if (pkg_fs_read(mp, &buf, &len) != 0) { free(mp); continue; }
+        free(mp);
+        if (pkg_manifest_parse((const char *)buf, len, &m, err, sizeof err) != 0) {
+            free(buf);
+            continue;
+        }
+        free(buf);
+        for (w = 0; w < nwords && all; w++)
+            if (!manifest_holds(&m, words[w]))
+                all = 0;
+        if (all) {
+            memset(&x, 0, sizeof x);
+            snprintf(x.name, sizeof x.name, "%s", m.name);
+            snprintf(x.version, sizeof x.version, "%s", best->version);
+            snprintf(x.chan, sizeof x.chan, "%s", channel);
+            snprintf(x.short_desc, sizeof x.short_desc, "%s",
+                     m.about.short_desc ? m.about.short_desc : "-");
+            /* every CPU this version is published for */
+            for (j = 0; j < ix.n; j++) {
+                size_t at = strlen(x.arch);
+                if (strcmp(ix.e[j].name, m.name) != 0
+                    || pkg_version_cmp(ix.e[j].version, best->version) != 0
+                    || strstr(x.arch, ix.e[j].arch) != NULL)
+                    continue;
+                if (at + strlen(ix.e[j].arch) + 2 < sizeof x.arch)
+                    snprintf(x.arch + at, sizeof x.arch - at, "%s%s", at ? "," : "",
+                             ix.e[j].arch);
+            }
+            if (hit_add(h, &x) != 0) { pkg_manifest_free(&m); free(ix.e); return refuse("out of memory"); }
+        }
+        pkg_manifest_free(&m);
+    }
+    free(ix.e);
+    return 0;
+}
+
+/* ---- the portal's search API ------------------------------------------- *
+ *
+ * A portal channel holds hundreds of packages, and reading every manifest
+ * over the network to answer one question is minutes of waiting. The portal
+ * answers the same question itself at /api/search (portal/src/Portal/Api,
+ * Channels/Search.cs), so that is asked first: one request per word, the
+ * answers intersected by name, which is Pkg's rule that every word must
+ * match, expressed in the portal's own index, description and files
+ * included. Anything unusable in the answer and the channel is read the
+ * long way instead, without a word about it: the result is the same, only
+ * slower.
+ *
+ * Pkg carries no JSON library and gains none for this. The reader below
+ * takes exactly the fields these records hold, and refuses anything it does
+ * not recognise rather than guessing. */
+
+/* The value of "key" in the JSON object at *p, which must be a string,
+ * copied unescaped into out. 1 when it was found. */
+static int json_str(const char *obj, const char *key, char *out, size_t ol)
+{
+    char pat[64];
+    const char *p;
+    size_t at = 0;
+    snprintf(pat, sizeof pat, "\"%s\":", key);
+    p = strstr(obj, pat);
+    if (p == NULL) return 0;
+    p += strlen(pat);
+    while (*p == ' ') p++;
+    if (*p != '"') return 0;
+    p++;
+    while (*p && *p != '"' && at + 1 < ol) {
+        if (*p == '\\') {
+            p++;
+            if (*p == '\0') break;
+            out[at++] = *p == 'n' ? '\n' : *p == 't' ? '\t' : *p;
+            p++;
+            continue;
+        }
+        out[at++] = *p++;
+    }
+    out[at] = '\0';
+    return 1;
+}
+
+/* "key": [ "a", "b" ] -> "a,b". */
+static int json_strs(const char *obj, const char *key, char *out, size_t ol)
+{
+    char pat[64];
+    const char *p;
+    size_t at = 0;
+    snprintf(pat, sizeof pat, "\"%s\":", key);
+    p = strstr(obj, pat);
+    out[0] = '\0';
+    if (p == NULL) return 0;
+    p += strlen(pat);
+    while (*p == ' ') p++;
+    if (*p != '[') return 0;
+    p++;
+    while (*p && *p != ']') {
+        if (*p == '"') {
+            p++;
+            if (at && at + 1 < ol) out[at++] = ',';
+            while (*p && *p != '"' && at + 1 < ol) {
+                if (*p == '\\') p++;
+                if (*p) out[at++] = *p++;
+            }
+        }
+        if (*p) p++;
+    }
+    out[at] = '\0';
+    return 1;
+}
+
+/* The end of the JSON object that starts at `p` (which points at its '{'),
+ * or NULL when it does not end. Strings and their escapes are stepped over
+ * so a brace inside a description does not close the record. */
+static const char *json_object_end(const char *p)
+{
+    int depth = 0, instr = 0;
+    for (; *p; p++) {
+        if (instr) {
+            if (*p == '\\' && p[1]) p++;
+            else if (*p == '"') instr = 0;
+            continue;
+        }
+        if (*p == '"') instr = 1;
+        else if (*p == '{' || *p == '[') depth++;
+        else if (*p == '}' || *p == ']') {
+            if (--depth == 0) return p;
+            if (depth < 0) return NULL;
+        }
+    }
+    return NULL;
+}
+
+/* https://host/contrib-nightly -> the site, and the channel's name there. */
+static int portal_parts(const char *url, char *site, size_t sl, char *name, size_t nl)
+{
+    const char *after = strstr(url, "://"), *slash;
+    size_t n;
+    if (after == NULL) return 0;
+    after += 3;
+    slash = strrchr(after, '/');
+    if (slash == NULL || slash[1] == '\0') return 0;
+    n = (size_t)(slash - url);
+    if (n + 1 >= sl) return 0;
+    memcpy(site, url, n);
+    site[n] = '\0';
+    snprintf(name, nl, "%s", slash + 1);
+    return name[0] != '\0';
+}
+
+static void url_escape(const char *s, char *out, size_t ol)
+{
+    size_t at = 0;
+    for (; *s && at + 4 < ol; s++) {
+        unsigned char c = (unsigned char)*s;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+            || c == '-' || c == '_' || c == '.' || c == '~')
+            out[at++] = (char)c;
+        else
+            at += (size_t)snprintf(out + at, ol - at, "%%%02X", c);
+    }
+    out[at] = '\0';
+}
+
+/* One /api/search request, its records appended to `h`, keeping only the
+ * ones this channel published. -1 when the answer was not usable and the
+ * channel must be read the long way instead. */
+static int api_words(const char *channel, const char *const *words, unsigned nwords,
+                     struct hits *h)
+{
+    char site[900], cname[200], *cache, *local = NULL;
+    struct hits got[8];
+    unsigned w, nq = nwords ? nwords : 1;
+    int rc = -1;
+    size_t i, j;
+
+    memset(got, 0, sizeof got);
+    if (nq > 8) nq = 8;
+    if (!portal_parts(channel, site, sizeof site, cname, sizeof cname))
+        return -1;
+    cache = pkg_cache_dir();
+    if (cache == NULL) return -1;
+    local = pkg_join(cache, "search.json");
+    free(cache);
+    if (local == NULL) return -1;
+    for (w = 0; w < nq; w++) {
+        char url[2300], q[600], arch[80], err[400];
+        unsigned char *buf;
+        size_t len;
+        const char *p, *end;
+        url_escape(nwords ? words[w] : "", q, sizeof q);
+        arch[0] = '\0';
+        if (target_arch != NULL)
+            snprintf(arch, sizeof arch, "&arch=%s", target_arch);
+        snprintf(url, sizeof url, "%s/api/search?q=%s&channel=%s%s", site, q, cname, arch);
+        if (pkg_net_get(url, local, err, sizeof err) != 0) {
+            tr("the portal's search API did not answer (%s): reading %s the long way", err,
+               channel);
+            goto out;
+        }
+        if (pkg_fs_read(local, &buf, &len) != 0)
+            goto out;
+        p = strstr((const char *)buf, "\"results\":");
+        if (p == NULL) { free(buf); tr("the portal's answer holds no results: reading %s the long way", channel); goto out; }
+        p = strchr(p, '[');
+        if (p == NULL) { free(buf); goto out; }
+        end = (const char *)buf + len;
+        for (p++; p < end && *p; ) {
+            const char *stop;
+            char rec[9000], chn[200];
+            struct hit x;
+            size_t rl;
+            while (p < end && *p && *p != '{' && *p != ']') p++;
+            if (p >= end || *p != '{') break;
+            stop = json_object_end(p);
+            if (stop == NULL) break;
+            rl = (size_t)(stop - p) + 1u;
+            if (rl >= sizeof rec) { p = stop + 1; continue; }
+            memcpy(rec, p, rl);
+            rec[rl] = '\0';
+            p = stop + 1;
+            memset(&x, 0, sizeof x);
+            if (!json_str(rec, "name", x.name, sizeof x.name)
+                || !json_str(rec, "version", x.version, sizeof x.version)
+                || !json_str(rec, "channel", chn, sizeof chn)) {
+                free(buf);
+                tr("a record of the portal's answer is not what Pkg expects: reading %s the long way",
+                   channel);
+                goto out;
+            }
+            if (strcmp(chn, cname) != 0)
+                continue;
+            json_strs(rec, "archs", x.arch, sizeof x.arch);
+            if (!json_str(rec, "short", x.short_desc, sizeof x.short_desc) || !x.short_desc[0])
+                snprintf(x.short_desc, sizeof x.short_desc, "%s", "-");
+            if (x.arch[0] == '\0') snprintf(x.arch, sizeof x.arch, "%s", "-");
+            snprintf(x.chan, sizeof x.chan, "%s", channel);
+            if (hit_add(&got[w], &x) != 0) { free(buf); goto out; }
+        }
+        free(buf);
+    }
+    /* every word must match: a name that is in every answer */
+    for (i = 0; i < got[0].n; i++) {
+        int all = 1;
+        for (w = 1; w < nq && all; w++) {
+            int here = 0;
+            for (j = 0; j < got[w].n && !here; j++)
+                if (strcmp(got[w].v[j].name, got[0].v[i].name) == 0)
+                    here = 1;
+            all = here;
+        }
+        if (all && hit_add(h, &got[0].v[i]) != 0)
+            goto out;
+    }
+    tr("%s answered for %u word%s through its search API", channel, nq, nq == 1 ? "" : "s");
+    rc = 0;
+out:
+    for (w = 0; w < nq; w++)
+        free(got[w].v);
+    pkg_fs_unlink(local);
+    free(local);
+    return rc;
+}
+
+static int cmd_search(const struct pkg_options *a)
+{
+    struct chanlist cl;
+    struct hits h;
+    const char *words[16];
+    unsigned nwords = 0, w;
+    size_t i;
+    int rc = 1, several;
+    char line[900];
+
+    memset(&h, 0, sizeof h);
+    if (a->target == NULL)
+        return refuse_c(20, "SEARCH takes the words to look for: SEARCH <word>...");
+    words[nwords++] = a->target;
+    for (w = 0; w < a->nalso && nwords < sizeof words / sizeof words[0]; w++)
+        words[nwords++] = a->also[w];
+    if (a->arch != NULL) {
+        const char *why = pkg_check_arch(a->arch);
+        if (why != NULL)
+            return refuse_c(20, "ARCH \"%s\": %s", a->arch, why);
+        target_arch = a->arch;
+    } else if (a->root != NULL) {
+        if (resolve_arch(a) != 0)
+            return 1;
+    } else {
+        target_arch = NULL;
+    }
+    cl.n = 0;
+    if (a->channel != NULL) {
+        cl.v[cl.n] = pkg_strdup(a->channel);
+        if (cl.v[cl.n] == NULL) return refuse("out of memory");
+        cl.n++;
+    } else if (a->root == NULL) {
+        return refuse_c(20, "name the channel to search with CHANNEL <dir|url>, or the root "
+                        "whose channels to search with ROOT <dir>");
+    } else {
+        if (chanlist_read(a->root, &cl) != 0)
+            return 1;
+        if (cl.n == 0) {
+            chanlist_free(&cl);
+            return refuse_c(20, "%s lists no channel and no CHANNEL was given; "
+                            "CHANNEL ADD <dir|url> ROOT %s adds one", a->root, a->root);
+        }
+    }
+    several = cl.n > 1;
+    for (i = 0; i < cl.n; i++) {
+        if (is_url(cl.v[i]) && api_words(cl.v[i], words, nwords, &h) == 0)
+            continue;
+        if (search_local(cl.v[i], words, nwords, &h) != 0 && refused_class)
+            goto out;
+    }
+    qsort(h.v, h.n, sizeof h.v[0], by_hit);
+    kv("result", "shown");
+    if (!machine && h.n > 0) {
+        static const int widths[] = { 22, 14, 10, 0 };
+        if (several) {
+            static const int wide[] = { 22, 14, 10, 34, 0 };
+            tbl_head(wide, "Package\tVersion\tArch\tShort\tChannel");
+        } else {
+            tbl_head(widths, "Package\tVersion\tArch\tShort");
+        }
+    }
+    for (i = 0; i < h.n; i++) {
+        const struct hit *x = &h.v[i];
+        if (machine) {
+            /* the short description last: it is the only field with spaces */
+            if (several) {
+                snprintf(line, sizeof line, "%s %s %s %s %s", x->name, x->version, x->arch,
+                         x->chan, x->short_desc);
+                rec_item("package", line, "name", x->name, "version", x->version, "arch", x->arch,
+                         "channel", x->chan, "short", x->short_desc, NULL);
+            } else {
+                snprintf(line, sizeof line, "%s %s %s %s", x->name, x->version, x->arch,
+                         x->short_desc);
+                rec_item("package", line, "name", x->name, "version", x->version, "arch", x->arch,
+                         "short", x->short_desc, NULL);
+            }
+        } else if (several) {
+            tbl_row("%s\t%s\t%s\t%s\t%s", x->name, x->version, x->arch, x->short_desc, x->chan);
+        } else {
+            tbl_row("%s\t%s\t%s\t%s", x->name, x->version, x->arch, x->short_desc);
+        }
+    }
+    if (!machine && h.n > 0)
+        tbl_end();
+    kv("count", "%lu", (unsigned long)h.n);
+    {
+        char asked[700];
+        size_t at = 0;
+        asked[0] = '\0';
+        for (w = 0; w < nwords && at + 40 < sizeof asked; w++)
+            at += (size_t)snprintf(asked + at, sizeof asked - at, "%s%s", at ? " " : "", words[w]);
+        if (h.n == 0) {
+            kv("summary", "nothing matches %s", asked);
+            if (!machine)
+                say_result("nothing in %s matches %s", chanlist_text(&cl), asked);
+            hint("every word must match, in the name, the short description, the tags, the "
+                 "category, the description or what the package provides; fewer words match more");
+        } else {
+            kv("summary", "%lu package%s match%s %s", (unsigned long)h.n, h.n == 1 ? "" : "s",
+               h.n == 1 ? "es" : "", asked);
+            if (!machine)
+                say_result("%lu package%s match%s %s", (unsigned long)h.n, h.n == 1 ? "" : "s",
+                           h.n == 1 ? "es" : "", asked);
+        }
+    }
+    rc = 0;
+out:
+    free(h.v);
+    chanlist_free(&cl);
+    return rc;
 }
 
 static int cmd_status(const struct pkg_options *a)
 {
     struct index ix;
     struct installed in;
-    size_t i, shown = 0, upgradable = 0, at_e = 0, at_w = 0;
-    char edited[400], withdrawn[400];
+    size_t i, shown = 0, upgradable = 0, at_e = 0, at_w = 0, at_c = 0;
+    char edited[400], withdrawn[400], conflicts[400];
     const char *base;
     int rc = 1;
 
     if (keep_current_setup(a, &ix, &in) != 0) return 1;
     base = target_arch;
-    edited[0] = withdrawn[0] = '\0';
+    edited[0] = withdrawn[0] = conflicts[0] = '\0';
     if (a->target != NULL) {
         for (i = 0; i < in.n && strcmp(in.m[i].name, a->target) != 0; i++)
             ;
@@ -7814,21 +8800,37 @@ static int cmd_status(const struct pkg_options *a)
         if (s.edited && at_e + 70 < sizeof edited)
             at_e += (size_t)snprintf(edited + at_e, sizeof edited - at_e, "%s%s", at_e ? ", " : "",
                                      s.m->name);
+        if (s.conflict && at_c + 70 < sizeof conflicts)
+            at_c += (size_t)snprintf(conflicts + at_c, sizeof conflicts - at_c, "%s%s",
+                                     at_c ? ", " : "", s.m->name);
         if (s.withdrawn && !s.newer && at_w + 70 < sizeof withdrawn)
             at_w += (size_t)snprintf(withdrawn + at_w, sizeof withdrawn - at_w, "%s%s %s",
                                      at_w ? ", " : "", s.m->name, s.m->version);
         if (machine) {
-            char j[300];
-            snprintf(j, sizeof j, "%s %s %s %s", s.m->name, s.m->version, avail, s.state);
-            rec_item("package", j, "name", s.m->name, "installed", s.m->version,
-                     "available", avail, "state", s.state, NULL);
+            char j[500];
+            const char *from = nchans > 1 && s.offer ? chan_of(s.offer) : NULL;
+            snprintf(j, sizeof j, "%s %s %s %s%s%s", s.m->name, s.m->version, avail, s.state,
+                     from ? " " : "", from ? from : "");
+            if (from != NULL)
+                rec_item("package", j, "name", s.m->name, "installed", s.m->version,
+                         "available", avail, "state", s.state, "channel", from, NULL);
+            else
+                rec_item("package", j, "name", s.m->name, "installed", s.m->version,
+                         "available", avail, "state", s.state, NULL);
+            if (s.conflict)
+                kv("warning", "%s", s.why);
             if (s.withdrawn && s.newer)
                 note("%s %s, installed, was withdrawn by its publisher; UPGRADE takes %s",
                      s.m->name, s.m->version, avail);
         } else {
-            char what[200];
-            if (strcmp(s.state, "upgradable") == 0)
-                snprintf(what, sizeof what, "upgradable to %s", avail);
+            char what[300], from[200];
+            from[0] = '\0';
+            if (nchans > 1 && s.offer != NULL)
+                snprintf(from, sizeof from, " from %s", chan_of(s.offer));
+            if (strcmp(s.state, "conflict") == 0)
+                snprintf(what, sizeof what, "two channels offer it under different keys");
+            else if (strcmp(s.state, "upgradable") == 0)
+                snprintf(what, sizeof what, "upgradable to %s%s", avail, from);
             else if (strcmp(s.state, "withdrawn") == 0)
                 snprintf(what, sizeof what, "withdrawn by its publisher%s%s",
                          s.offer ? "; the channel offers " : ", and nothing else is offered",
@@ -7862,18 +8864,30 @@ static int cmd_status(const struct pkg_options *a)
             say_result("nothing installed in %s", a->root);
         else if (upgradable == 0)
             say_result("%lu package%s in %s, all up to date with %s", (unsigned long)shown,
-                shown == 1 ? "" : "s", a->root, a->channel);
+                shown == 1 ? "" : "s", a->root, chans_text());
         else
             say_result("%lu of %lu package%s in %s can be updated from %s", (unsigned long)upgradable,
-                (unsigned long)shown, shown == 1 ? "" : "s", a->root, a->channel);
+                (unsigned long)shown, shown == 1 ? "" : "s", a->root, chans_text());
     }
-    if (upgradable > 0)
-        hint("UPGRADE ALL ROOT %s CHANNEL %s upgrades every one of them, a package before what "
-             "depends on it; with DRYRUN it only says what it would do", a->root, a->channel);
+    if (upgradable > 0) {
+        if (a->channel != NULL)
+            hint("UPGRADE ALL ROOT %s CHANNEL %s upgrades every one of them, a package before "
+                 "what depends on it; with DRYRUN it only says what it would do", a->root,
+                 a->channel);
+        else
+            hint("UPGRADE ALL ROOT %s upgrades every one of them from this root's channels, a "
+                 "package before what depends on it; with DRYRUN it only says what it would do",
+                 a->root);
+    }
     if (at_e > 0)
         hint("files were edited in %s since install: VERIFY <name> names them. An upgrade that "
              "would replace an edited file is refused; what to do with the edit is the "
              "requester's decision", edited);
+    if (at_c > 0)
+        hint("%s: two of this root's channels offer it under different keys, so nothing is "
+             "chosen for it. INSTALL it from the channel whose key is the publisher's, with "
+             "CHANNEL <that one>, and this root pins that key from then on; CHANNEL LIST ROOT %s "
+             "shows the channels", conflicts, a->root);
     if (at_w > 0)
         hint("%s: withdrawn by the publisher, with nothing newer offered. Going back to the "
              "previous version (ROLLBACK) or waiting for a fixed one is the requester's decision",
@@ -7924,9 +8938,9 @@ static int upgrade_all(const struct pkg_options *a)
     size_t *cand = NULL, *order = NULL, ncand = 0, i, j, pos, done = 0;
     unsigned char *emitted = NULL;
     const char *base;
-    int rc = 1, first_class = 0;
-    const char *first_next = NULL;
-    size_t nrefused = 0, nskipped = 0, at_r = 0;
+    int rc = 1, worst_class = 0;
+    const char *worst_next = NULL;
+    size_t nrefused = 0, nskipped = 0, nconflict = 0, at_r = 0;
     unsigned char *failed = NULL;
     char refused_names[600];
 
@@ -7958,8 +8972,32 @@ static int upgrade_all(const struct pkg_options *a)
     }
     for (i = 0; i < in.n; i++) {
         stand(a->root, &ix, base, &in.m[i], &st[i]);
-        if (st[i].newer) {
-            offered_manifest(a->channel, st[i].offer, &nm[ncand]);
+        if (st[i].conflict) {
+            /* Two listed channels disagree about it: reported like any other
+             * package that needs the requester, and every other goes ahead. */
+            char one[2400], *q;
+            nrefused++;
+            nconflict++;
+            snprintf(one, sizeof one, "%s", st[i].why);
+            for (q = one; *q; q++)
+                if (*q == '\n') *q = ' ';
+            if (14 > worst_class) { worst_class = 14; worst_next = "ask-requester"; }
+            if (machine) {
+                char jn[2600];
+                snprintf(jn, sizeof jn, "%s %s %s %s", in.m[i].name, in.m[i].version,
+                         class_name(14), one);
+                rec_item("refused", jn, "name", in.m[i].name, "installed", in.m[i].version,
+                         "class", class_name(14), "code", "14", "reason", one,
+                         "next", "ask-requester", NULL);
+            } else {
+                say_pkgline(in.m[i].name, "not upgraded: %s", one);
+            }
+            if (at_r + 80 < sizeof refused_names)
+                at_r += (size_t)snprintf(refused_names + at_r, sizeof refused_names - at_r,
+                                         "%s%s (%s)", at_r ? ", " : "", in.m[i].name,
+                                         class_name(14));
+        } else if (st[i].newer) {
+            offered_manifest(chan_of(st[i].offer), st[i].offer, &nm[ncand]);
             cand[ncand++] = i;
         } else if (st[i].withdrawn) {
             note("%s %s was withdrawn by its publisher, and nothing newer is offered; going back "
@@ -8028,9 +9066,11 @@ static int upgrade_all(const struct pkg_options *a)
             plan_free(&p);
             failed[pos] = 1;
             nrefused++;
-            if (first_class == 0) {
-                first_class = refused_class;
-                first_next = refused_next;
+            /* The owner's rule for a batch: go as far as possible, report
+             * each, and exit with the worst class of the refusals. */
+            if (refused_class > worst_class) {
+                worst_class = refused_class;
+                worst_next = refused_next;
             }
             snprintf(codes, sizeof codes, "%d", refused_class);
             {
@@ -8058,17 +9098,25 @@ static int upgrade_all(const struct pkg_options *a)
             continue;
         }
         if (machine) {
-            char jn[300];
-            snprintf(jn, sizeof jn, "%s %s %s", s->m->name, s->m->version, s->offer->version);
-            rec_item("package", jn, "name", s->m->name, "from", s->m->version,
-                     "version", s->offer->version, NULL);
+            char jn[500];
+            const char *from = nchans > 1 ? chan_of(s->offer) : NULL;
+            snprintf(jn, sizeof jn, "%s %s %s%s%s", s->m->name, s->m->version, s->offer->version,
+                     from ? " " : "", from ? from : "");
+            if (from != NULL)
+                rec_item("package", jn, "name", s->m->name, "from", s->m->version,
+                         "version", s->offer->version, "channel", from, NULL);
+            else
+                rec_item("package", jn, "name", s->m->name, "from", s->m->version,
+                         "version", s->offer->version, NULL);
         } else {
             char keptw[40];
             keptw[0] = '\0';
         if (kept) snprintf(keptw, sizeof keptw, ", %lu kept", kept);
-            say_pkgline(s->m->name, "%s from %s to %s: %lu placed, %lu removed%s",
+            say_pkgline(s->m->name, "%s from %s to %s%s%s: %lu placed, %lu removed%s",
                 dryrun ? "would upgrade" : "upgraded",
-                s->m->version, s->offer->version, placed, dropped, keptw);
+                s->m->version, s->offer->version,
+                nchans > 1 ? " from " : "", nchans > 1 ? chan_of(s->offer) : "",
+                placed, dropped, keptw);
         }
         {
             const struct fetched *f = &p.f[p.n - 1];
@@ -8087,7 +9135,8 @@ static int upgrade_all(const struct pkg_options *a)
     }
     {
         char summary[900];
-        if (ncand == 0)
+        size_t tried = ncand + nconflict;
+        if (nrefused + nskipped == 0 && tried == 0)
             snprintf(summary, sizeof summary, "nothing needs an update: %lu package%s, none with a "
                      "newer version in the channel", (unsigned long)in.n, in.n == 1 ? "" : "s");
         else if (nrefused + nskipped == 0)
@@ -8100,26 +9149,26 @@ static int upgrade_all(const struct pkg_options *a)
                 snprintf(waiting, sizeof waiting, "; %lu waiting for one of them", (unsigned long)nskipped);
             snprintf(summary, sizeof summary, "%s %lu of %lu package%s; not upgraded: %s%s. "
                      "Everything else went ahead", dryrun ? "would update" : "updated",
-                     (unsigned long)done, (unsigned long)ncand, ncand == 1 ? "" : "s",
+                     (unsigned long)done, (unsigned long)tried, tried == 1 ? "" : "s",
                      refused_names, waiting);
         }
         if (nrefused + nskipped == 0) {
-            kv("result", "%s", ncand == 0 ? "unchanged" : res("upgraded", "would-upgrade"));
+            kv("result", "%s", tried == 0 ? "unchanged" : res("upgraded", "would-upgrade"));
         } else {
-            /* Some needed a decision: the answer is a refusal, with the class
-             * of the first, so the exit code and next say what to do. */
-            refused_class = first_class;
-            refused_next = first_next;
+            /* Some needed a decision: the answer is a refusal, with the
+             * worst class of them, so the exit code and next say what to do. */
+            refused_class = worst_class;
+            refused_next = worst_next;
             kv("result", "refused");
-            kv("class", "%s", class_name(first_class));
-            kv("code", "%d", first_class);
+            kv("class", "%s", class_name(worst_class));
+            kv("code", "%d", worst_class);
         }
         kv("upgraded", "%lu", (unsigned long)done);
         kv("not-upgraded", "%lu", (unsigned long)(nrefused + nskipped));
         kv("count", "%lu", (unsigned long)done);
         kv("summary", "%s", summary);
         if (nrefused + nskipped > 0)
-            kv("next", "%s", first_next ? first_next : next_default(first_class));
+            kv("next", "%s", worst_next ? worst_next : next_default(worst_class));
         if (!machine)
             say_result("%s", summary);
         rc = nrefused + nskipped == 0 ? 0 : 1;
@@ -8200,9 +9249,13 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     target_arch = NULL;
     root_arch[0] = '\0';
     told_source = 0;
+    pick_root = NULL;
+    pick_refused = 0;
+    chans_clear();
     opt_unpacked = o != NULL ? o->unpacked : NULL;
     rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
+    chans_clear();
     sink = NULL;
     return rc;
 }
@@ -8226,6 +9279,8 @@ int pkg_image    (const struct pkg_sink *s, const struct pkg_options *o) { retur
 int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "mountlist", cmd_mountlist, o); }
 int pkg_show     (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "show", cmd_show, o); }
 int pkg_status   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "status", cmd_status, o); }
+int pkg_channel  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "channel", cmd_channel, o); }
+int pkg_search   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "search", cmd_search, o); }
 
 static const char *usage_reason;
 static int usage_op(const struct pkg_options *o)

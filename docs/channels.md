@@ -20,6 +20,22 @@ being trusted: Pkg checks every signature and every file itself.
   certificate against the address, with no way to turn that off. A machine
   behind its own authority names its bundle in `PKG_CAFILE`.
 
+## A root's list of channels
+
+A root keeps the channels it reads in `<root>/.pkg/channels`, one per line,
+in the order they were added; on AROS that is `SYS:.pkg/channels`. The list
+is written and read with [`CHANNEL ADD`, `CHANNEL LIST` and `CHANNEL
+REMOVE`](commands/channel.md), and it is what `INSTALL`, `UPGRADE`,
+`STATUS`, `SHOW`, `SEARCH`, `REPAIR`, `ROLLBACK` and `RESOLVE` use when no
+`CHANNEL` is given. Each channel is asked in turn, the newest version wins,
+and the order breaks a tie.
+
+The list adds no trust. A channel is still checked file by file, and a
+package two listed channels offer under different keys is refused (exit 14)
+until the root has pinned a key for it, so that adding a channel cannot
+replace another publisher's package. See
+[Signatures and trust](signing.md).
+
 ## The cache
 
 `PKG_CACHE` names it; without it, `~/.cache/pkg`, `%LOCALAPPDATA%\pkg-cache`

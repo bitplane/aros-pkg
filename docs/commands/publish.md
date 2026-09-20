@@ -1,12 +1,20 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 John Knipper -->
 
-# PUBLISH
+# PUBLISH, PACKAGE
 
 Publish a drawer as a version of a package.
 ```
 pkg PUBLISH <drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [ACCEPTKEY <key>] [UPSTREAM <url>] [README <file>] [INFO <file>] [<catalogue keywords>] [DRYRUN]
 ```
+
+`PACKAGE` is the same verb under another name, everywhere the verb is
+taken: on the command line, on the ARexx port and in `HELP`. `PUBLISH` was
+read by more than one person as "it is online now"; it is not. A channel on
+a disk or a share is a real channel, and a machine that can read that
+directory installs from it; what sends a package to a portal is
+[`PUSH`](push.md). Every successful publish into a local channel says so in
+a hint.
 
 ## What it does
 
@@ -50,15 +58,17 @@ key written to my.key, readable by you alone
   hint: every later version of what this key publishes must be signed with it: keep the file with the person's secrets, outside any channel or repository, and back it up. Use it with SIGN <file> or PKG_SIGNKEY; only the public key may be shared
 $ export PKG_SIGNKEY=my.key
 $ pkg PUBLISH MyTool CHANNEL mychannel KIND application
-published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by e37f352e46ab9d18
+published mytool 1.0 to mychannel: 1 file, payload bf9bc6edcb45, signed by 24e6350b5a5fbfc6
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
-  hint: the channel mychannel did not exist and was created: machines install from it with INSTALL mytool ROOT <root> CHANNEL <this channel, as the machine names it>
+  hint: the channel mychannel did not exist and was created
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 $ pkg PUBLISH MyTool-1.1 CHANNEL mychannel CONFIG S/MyTool.prefs SHORT "Renames files by pattern" AUTHOR "Jane Roe" LICENSE MIT
-published mytool 1.1 to mychannel: 2 files, payload 4606917aa7ca, signed by e37f352e46ab9d18
+published mytool 1.1 to mychannel: 2 files, payload 4606917aa7ca, signed by 24e6350b5a5fbfc6
   architecture x86_64, read from C/MyTool
   name and version taken from $VER: in C/MyTool
   kind and dependencies from mytool 1.0, published before
+  hint: the package is in the local channel mychannel: any machine that can read that directory installs from it with INSTALL mytool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL mychannel TO <portal channel> sends it to a portal
 $ printf 'Window=800x600\n' > MyTool-1.1/S/MyTool.prefs
 $ pkg PUBLISH MyTool-1.1 CHANNEL mychannel    # exits 15
 pkg publish: mytool 1.1 is already published with a different payload, and 1.1 came from the $VER cookie in C/MyTool: either this is a new build whose $VER was not raised (raise it, or give VERSION), or it is the old build, changed; check which before publishing
@@ -72,9 +82,10 @@ mytool   1.1      application  x86_64  ok      e37f352e46ab9d18
   license    MIT
 $ mkdir -p nightly/archives && cp nightly.tar.bz2 nightly/archives/
 $ pkg PUBLISH "nightly/archives/nightly.tar.bz2!/Top" FILES Extras/Tool CHANNEL nightly NAME tool BUILD 20260918 KIND application UPSTREAM https://example.org/nightly.tar.bz2
-published tool 2.1+20260918 to nightly: 1 file, from nightly.tar.bz2!/Top, signed by e37f352e46ab9d18
+published tool 2.1+20260918 to nightly: 1 file, from nightly.tar.bz2!/Top, signed by 24e6350b5a5fbfc6
   architecture x86_64, read from Extras/Tool/Tool
   version taken from $VER: in Extras/Tool/Tool
+  hint: the package is in the local channel nightly: any machine that can read that directory installs from it with INSTALL tool ROOT <root> CHANNEL <that directory, as the machine names it>, and PUSH CHANNEL nightly TO <portal channel> sends it to a portal
 ```
 
 ## Records (`MACHINE`)
