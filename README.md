@@ -1,25 +1,25 @@
-# Pkg
+# pkg
 
-Pkg installs, updates and removes software on AROS, and publishes it. Every
+pkg installs, updates and removes software on AROS, and publishes it. Every
 package is signed, every file is checked before anything is written, and an
-update you did not ask for never happens: Pkg refuses and tells you why. The
+update you did not ask for never happens: pkg refuses and tells you why. The
 same program runs on AROS, where it manages your system, and on macOS, Linux
 and Windows, where you build, publish and test packages.
 
-Pkg is being built to become part of the official AROS distribution, once it
+pkg is being built to become part of the official AROS distribution, once it
 has stabilised a little more. Until then it lives here, with its
 portal, and changes as the work needs.
 
-This page is for using Pkg. If you are here to **publish your own
+This page is for using pkg. If you are here to **publish your own
 programs**, read [Publishing packages](docs/publishing.md); to **run your own
 channel**, [Channels](docs/channels.md); to **ship builds for several
 CPUs**, [Distributing builds](docs/distributing.md); to **move an existing
-distribution, archive or package manager to Pkg**,
-[Moving to Pkg](docs/migrating.md); to **take Pkg itself off a system**,
-[Removing Pkg](docs/removing.md); and if **an AI assistant does the
-typing for you**, [Pkg with an AI assistant](docs/agents.md).
+distribution, archive or package manager to pkg**,
+[Moving to pkg](docs/migrating.md); to **take pkg itself off a system**,
+[Removing pkg](docs/removing.md); and if **an AI assistant does the
+typing for you**, [pkg with an AI assistant](docs/agents.md).
 
-## Install Pkg
+## Install pkg
 
 **On AROS, with a network and `wget`** (AROS One, Icaros, or the nightly
 with its contrib). Paste these two lines in the Shell:
@@ -29,7 +29,7 @@ wget -q -O RAM:Get-Pkg http://aros-pkg.azurewebsites.net/Get-Pkg
 Execute RAM:Get-Pkg
 ```
 
-The script fetches the Pkg for your CPU, and that Pkg installs the signed
+The script fetches the pkg for your CPU, and that pkg installs the signed
 `pkg` package into `SYS:` from the portal's channel.
 
 If `wget` ends at once without a word, it wants its settings file first:
@@ -45,7 +45,7 @@ Execute MacRW:Pkg-aarch64/Install-Pkg MacRW:Pkg-aarch64
 ```
 
 **On AROS without a network.** The [downloads page](https://aros-pkg.azurewebsites.net/downloads)
-gives `pkg-<cpu>.zip` for each CPU, a small drawer that is itself a Pkg
+gives `pkg-<cpu>.zip` for each CPU, a small drawer that is itself a pkg
 channel: unzip it on your Mac or PC, copy the drawer to the AROS machine (a
 share, a USB stick, an image), and run its install script, naming the drawer
 as the machine sees it:
@@ -54,7 +54,7 @@ as the machine sees it:
 Execute Work:Pkg-x86_64/Install-Pkg Work:Pkg-x86_64
 ```
 
-Either way Pkg is installed as a signed package, so later versions arrive
+Either way pkg is installed as a signed package, so later versions arrive
 with `Pkg UPGRADE pkg ROOT SYS: CHANNEL https://aros-pkg.azurewebsites.net/pkg`.
 
 **On macOS and Linux.** One line downloads the build for your computer,
@@ -101,7 +101,7 @@ since AROS reads channels over `https` too ([Channels](docs/channels.md)).
 A copy of the channel on a volume works too, with no network at all.
 
 See what a channel offers. A channel is where packages are published; this
-one holds Pkg itself, built for two CPUs:
+one holds pkg itself, built for two CPUs:
 
 ```console
 $ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
@@ -119,7 +119,7 @@ installed pkg 1.1 into aros: 1 file, payload 08916a1ece2a, signed by 43c550967bc
 ```
 
 `ARCH x86_64` says which machine the root is for, and the root remembers
-it; on AROS, Pkg knows its own. See what is installed, and check it:
+it; on AROS, pkg knows its own. See what is installed, and check it:
 
 ```console
 $ pkg LIST ROOT aros
@@ -166,11 +166,11 @@ with colour and marks; piped or logged they are the plain text above.
 
 The portal's other channel, `contrib-nightly`, holds the hundred-odd
 programs of the AROS nightly build (`lua`, `wget`, `xadmaster`, ...). Their
-files stay in the nightly's own archive, which Pkg downloads from
+files stay in the nightly's own archive, which pkg downloads from
 SourceForge once (about 640 MB for x86_64) and keeps in its cache for every
 package from that nightly.
 
-## When Pkg says no
+## When pkg says no
 
 A refusal says what happened and what to do next
 ([Signatures and trust](docs/signing.md) explains the ones that protect
@@ -183,18 +183,18 @@ AROS every refusal is at least 10, so `If ERROR` catches all of them.
 
 ## Guides
 
-Using Pkg
+Using pkg
 
-- [Using Pkg](docs/using.md): installing, updating, checking, repairing,
+- [Using pkg](docs/using.md): installing, updating, checking, repairing,
   rolling back and removing software; images; what each refusal means.
 - [Libraries](docs/libraries.md): how AROS finds a library, what that means
   for packages, and RESOLVE, which shows why a program gets the copy it gets.
 - [Signatures and trust](docs/signing.md): what is signed and by whom, what
   is checked where, what a key change means for you, checking a package by
   hand.
-- [Removing Pkg](docs/removing.md): taking Pkg itself off a system, what it
-  leaves behind, and moving to a Pkg that cannot read this one's database.
-- [Pkg with an AI assistant](docs/agents.md): the skill an agent loads, what
+- [Removing pkg](docs/removing.md): taking pkg itself off a system, what it
+  leaves behind, and moving to a pkg that cannot read this one's database.
+- [pkg with an AI assistant](docs/agents.md): the skill an agent loads, what
   to ask it, what it will not decide for you.
 
 Publishing
@@ -203,14 +203,14 @@ Publishing
   versions, dependencies, configuration files, withdrawing, uploading to
   the portal.
 - [Publishing from an AROS machine, from zero](docs/publishing-on-aros.md):
-  every step typed in the AROS Shell, from putting Pkg on the machine to your
+  every step typed in the AROS Shell, from putting pkg on the machine to your
   program on the portal and its second version, with what each command prints.
 - [Channels](docs/channels.md): what a channel holds, serving one over
   HTTP or a share, the portal.
 - [Distributing builds for several platforms](docs/distributing.md): one
-  version, one build per CPU, how a machine picks its build, Pkg's own
+  version, one build per CPU, how a machine picks its build, pkg's own
   channel.
-- [Moving an existing distribution to Pkg](docs/migrating.md): archives,
+- [Moving an existing distribution to pkg](docs/migrating.md): archives,
   `.readme` files, Installer scripts, machines already set up, another
   package manager.
 
@@ -221,7 +221,7 @@ Every command
 - [Reference](docs/reference.md): every verb, keyword and environment
   variable on one page; the machine-readable output; the ARexx port.
 
-Pkg is written in C99, with no dependency beyond the C library: bzip2 is
+pkg is written in C99, with no dependency beyond the C library: bzip2 is
 included, and so is Mbed TLS (Apache-2.0), which the AROS builds use for
 `https`. It builds as a command and as a library, `libpkg`, for programs
 that want to install software themselves. MIT licence; the included
@@ -229,8 +229,8 @@ libraries keep theirs, in `third_party/`.
 
 ## For contributors
 
-[Developing Pkg](docs/development.md) (build, test, the library),
+[Developing pkg](docs/development.md) (build, test, the library),
 [the portal's source](portal/README.md), [the container](docs/container.md),
-[AROS defects found while building Pkg](docs/aros-defects.md),
-[how Pkg was established](docs/history.md), [GOAL.md](GOAL.md) and
+[AROS defects found while building pkg](docs/aros-defects.md),
+[how pkg was established](docs/history.md), [GOAL.md](GOAL.md) and
 [OPEN.md](OPEN.md).

@@ -11,7 +11,7 @@
     var host = $"pkg {verb} {p.Name}{ver} ROOT aros CHANNEL {url}{arch}";
     var arexx = $"ADDRESS PKG\nOPTIONS RESULTS\n'{verb} {p.Name}{ver} ROOT SYS: CHANNEL {drawer}'\nIF RC ~= 0 THEN SAY 'refused, class' RC";
     var ask = verb == "UPGRADE"
-        ? $"Upgrade Pkg in ~/aros-root from {url}{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it."
+        ? $"Upgrade pkg in ~/aros-root from {url}{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it."
         : $"Install {p.Name}{(ver.Length > 0 ? $" version {v.Version}" : "")} from {url} into ~/aros-root{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it.";
     var id = "t" + Math.Abs((p.Channel + p.Name).GetHashCode());
 }
@@ -22,7 +22,7 @@
     <input type="radio" name="@id" id="@(id)k" /><label for="@(id)k">Ask an assistant</label>
     <div class="tab">
         <div class="cmd"><code>@aros</code><button class="copy" data-copy="@aros">Copy</button></div>
-        <p class="muted small">In a Shell. Pkg on AROS reads a channel from a drawer for now: @drawer stands for a copy of this channel on one of your volumes (<a href="/docs/channels">how</a>). Reading it from its address comes in a later version.</p>
+        <p class="muted small">In a Shell. pkg on AROS reads a channel from a drawer for now: @drawer stands for a copy of this channel on one of your volumes (<a href="/docs/channels">how</a>). Reading it from its address comes in a later version.</p>
     </div>
     <div class="tab">
         <div class="cmd"><code>@host</code><button class="copy" data-copy="@host">Copy</button></div>
@@ -34,6 +34,6 @@
     </div>
     <div class="tab">
         <div class="cmd wrapcode"><code>@ask</code><button class="copy" data-copy="@ask">Copy</button></div>
-        <p class="muted small">For an assistant that has loaded Pkg's skill (<a href="/docs/agents">how</a>). It runs the commands and checks, and leaves decisions such as accepting a new key to you.</p>
+        <p class="muted small">For an assistant that has loaded pkg's skill (<a href="/docs/agents">how</a>). It runs the commands and checks, and leaves decisions such as accepting a new key to you.</p>
     </div>
 </div>

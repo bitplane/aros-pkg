@@ -1,7 +1,7 @@
 # Publishing packages
 
-This guide is for making software available through Pkg: your own programs,
-or the components of someone else's archive. You publish on any system Pkg
+This guide is for making software available through pkg: your own programs,
+or the components of someone else's archive. You publish on any system pkg
 runs on, into a channel (a directory); then you copy that directory to
 where people read it, or upload it to the portal.
 
@@ -25,7 +25,7 @@ key written to my.key, readable by you alone
 The file holds your private key, readable by you alone. Keep it with your
 other secrets and back it up: every later version of what you publish must
 be signed with it, because people who installed your package accept a new
-version only from the same key. Tell Pkg where it is:
+version only from the same key. Tell pkg where it is:
 
 ```console
 $ export PKG_SIGNKEY=my.key
@@ -54,7 +54,7 @@ File: c93731985b65bf43460090b575902f0a6eca3ad030914fb0e58c0700569b2d85 94 C/MyTo
 Protect: 0x00000002 C/MyTool
 ```
 
-`MANIFEST` shows the description Pkg would sign, and writes nothing. The
+`MANIFEST` shows the description pkg would sign, and writes nothing. The
 name and version come from the program's `$VER:` string (`$VER: mytool 1.0
 (19.9.2026)`), and the CPU from its executable header; give `NAME`,
 `VERSION` or `ARCH` to say otherwise.
@@ -181,7 +181,7 @@ all come from the file. `Files:` picks them as `FILES` does, one path per
 line, a drawer meaning all of it, and a path the drawer does not hold is
 refused rather than quietly skipped. A keyword you type wins over the file,
 the file wins over a `README` and over the last version published, and a
-key Pkg does not know (`Upstream-Archive`, `Port-Maintainer`) is ignored,
+key pkg does not know (`Upstream-Archive`, `Port-Maintainer`) is ignored,
 so a port may keep its own lines in the same file.
 [`tools/contrib/PKGINFO.md`](../tools/contrib/PKGINFO.md) is the format in
 full, for whoever writes the port.
@@ -243,9 +243,9 @@ list; publish with `CONFIG` again to change it.
 
 ## Several CPUs
 
-Publish each build into the same channel; Pkg reads the CPU from the
+Publish each build into the same channel; pkg reads the CPU from the
 executables and a machine installs the build it can run. How that works,
-`ARCH`, `WITHDRAW` of one build and Pkg's own channel:
+`ARCH`, `WITHDRAW` of one build and pkg's own channel:
 [Distributing builds for several platforms](distributing.md).
 
 ## Withdraw a version
@@ -267,7 +267,7 @@ mytool   1.1      application  x86_64  withdrawn  9f4314e9f88233c4
 
 To publish the components of an archive you did not make, such as the
 nightly contrib archive of AROS, name the archive and the path inside it.
-Pkg reads the files straight out of the archive; nothing is unpacked or
+pkg reads the files straight out of the archive; nothing is unpacked or
 copied:
 
 ```console
@@ -282,7 +282,7 @@ published tool 2.1+20260918 to nightly: 1 file, from nightly.tar.bz2!/Top, signe
 `FILES` picks the paths that make up this package. `BUILD` adds the date of
 the nightly to the version (`2.1+20260918`), so each nightly is a newer
 version, and a nightly whose files did not change publishes nothing.
-`UPSTREAM` records where the archive is published: people's Pkg downloads
+`UPSTREAM` records where the archive is published: people's pkg downloads
 it from there, once, checks it against the size and SHA-256 you signed,
 and the channel never carries the archive.
 
@@ -314,7 +314,7 @@ parts that resume after a failure, and never an archive published with
 `UPSTREAM`. The portal checks every signature before it publishes anything.
 
 From AROS, or from any machine without a portal key, push to the `http://`
-address instead: Pkg signs each request with your publisher key, and the
+address instead: pkg signs each request with your publisher key, and the
 portal knows you by its public half ([PUSH](commands/push.md)).
 
 **What your key may send.** A portal decides per key whether it takes your

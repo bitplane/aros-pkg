@@ -55,4 +55,4 @@ and `set-aside:` per file, `package: name repaired|intact`, `refused: name`,
 
 ## Related
 
-[VERIFY](verify.md), [Using Pkg](../using.md#check-and-repair).
+[VERIFY](verify.md), [Using pkg](../using.md#check-and-repair).

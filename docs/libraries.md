@@ -50,7 +50,7 @@ tells you, step by step, what AROS would find and why.
   private copy.
 - **`Depends` connects a program to the library package.** A library package
   lists the libraries it ships as `Provides:` lines, derived from its
-  `Libs/` and `Devs/` when it is published. When you publish a program, Pkg
+  `Libs/` and `Devs/` when it is published. When you publish a program, pkg
   reads the library names in its executables and warns about each one that
   no dependency provides and that is not part of AROS.
 
@@ -75,7 +75,7 @@ SDL2.library resolves to Game/libs/SDL2.library 2.0
 Each row is a place the loader looks, in its order, with what it finds and
 why. `FROM` names the program's directory, which stands for both the current
 directory and `PROGDIR:`; `ROOT` stands for `SYS:`. On AROS you name neither:
-Pkg searches from where you are, and first asks the system whether the
+pkg searches from where you are, and first asks the system whether the
 library is in memory.
 
 Ask for the version the program needs, and RESOLVE says whether it would

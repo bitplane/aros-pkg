@@ -89,4 +89,4 @@ per package upgraded, `not-upgraded:` and `skipped:` with reasons,
 
 ## Related
 
-[ROLLBACK](rollback.md), [STATUS](status.md), [Using Pkg](../using.md#keep-it-current).
+[ROLLBACK](rollback.md), [STATUS](status.md), [Using pkg](../using.md#keep-it-current).

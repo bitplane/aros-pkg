@@ -1,15 +1,15 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 John Knipper -->
 
-# Removing Pkg
+# Removing pkg
 
-This guide takes Pkg off a system: because you no longer want it, or because
-you are moving to a version of Pkg that cannot read what this one wrote, such
+This guide takes pkg off a system: because you no longer want it, or because
+you are moving to a version of pkg that cannot read what this one wrote, such
 as one with a different database format or a different publisher key.
 
-Pkg keeps everything it knows in one place, `.pkg` inside the root it manages
+pkg keeps everything it knows in one place, `.pkg` inside the root it manages
 (`SYS:.pkg` on AROS). Removing the program leaves that place as it is, so a
-later Pkg takes over exactly where this one stopped. Removing the program
+later pkg takes over exactly where this one stopped. Removing the program
 *and* `.pkg` leaves the software itself untouched on disk: nothing you
 installed is deleted, but nothing tracks it any more.
 
@@ -19,16 +19,16 @@ full.
 
 ## On AROS
 
-### Remove Pkg, keep what it installed
+### Remove pkg, keep what it installed
 
 ```amigados
 Pkg REMOVE pkg ROOT SYS:
 ```
 
-`C:Pkg` is deleted and the `pkg` record leaves the database. Pkg removes its
+`C:Pkg` is deleted and the `pkg` record leaves the database. pkg removes its
 own file while it is running: on AROS that is allowed, and the command ends
 with `$RC` 0. Everything else stays: the packages you installed, their files
-and their records in `SYS:.pkg`. Install Pkg again later, with
+and their records in `SYS:.pkg`. Install pkg again later, with
 `Install-Pkg`, and `Pkg LIST ROOT SYS:` names them all again.
 
 ### Remove every trace
@@ -43,15 +43,15 @@ download cache (`SYS:.pkg/cache`), so the one `Delete` takes all of it. Two
 places lie outside it: `RAM:pkg-cache`, used when the system volume cannot be
 written, and whatever `PKG_CACHE` names when it is set.
 
-What this leaves is the software itself. Every file Pkg ever placed stays
+What this leaves is the software itself. Every file pkg ever placed stays
 where it is and keeps working; what is gone is the record of which package
 put it there, which version it was and what it should look like. Nothing is
 deleted from the packages.
 
 ### Remove the software first
 
-If the system should go back to what it was before Pkg, take the packages out
-before Pkg itself, most recent first, and then the libraries nothing needs any
+If the system should go back to what it was before pkg, take the packages out
+before pkg itself, most recent first, and then the libraries nothing needs any
 more:
 
 ```amigados
@@ -75,18 +75,18 @@ pkg remove: ALL is not installed in aros
 `Pkg LIST ROOT SYS:` after the orphans have gone says what is still there;
 repeat `REMOVE` until only `pkg` is left.
 
-A file you changed since it was installed is kept, and Pkg says so
+A file you changed since it was installed is kept, and pkg says so
 ([REMOVE](commands/remove.md)); delete those by hand if you want them gone.
 
-## Moving to a Pkg that cannot read this one
+## Moving to a pkg that cannot read this one
 
-A new Pkg that changed its database format, or that is signed by another key,
+A new pkg that changed its database format, or that is signed by another key,
 needs the old state out of the way. The software on disk does not: the new
-Pkg takes it over again, file by file, without downloading or rewriting
+pkg takes it over again, file by file, without downloading or rewriting
 anything.
 
 **Keep** everything the packages put on the system. **Delete** `SYS:.pkg`,
-the state the old Pkg wrote. Then install the new Pkg from its drawer and
+the state the old pkg wrote. Then install the new pkg from its drawer and
 install the packages again: each file already in place and identical to the
 package's is *adopted*, so nothing is fetched twice and nothing you are using
 is overwritten.
@@ -109,7 +109,7 @@ $ pkg INSTALL helloworld ROOT aros CHANNEL channel
 installed helloworld 1.1 into aros: 2 files, payload 0542ac0ba511, signed by 5ff18d3fe14e383e
 $ pkg REMOVE pkg ROOT aros
 removed pkg 1.7.0 from aros: 1 file removed
-  hint: Pkg is gone, but aros/.pkg still holds what is installed, the keys pinned for it and the downloads; a later Pkg takes over from there, and the guide to removing Pkg says what to delete when nothing should stay
+  hint: pkg is gone, but aros/.pkg still holds what is installed, the keys pinned for it and the downloads; a later pkg takes over from there, and the guide to removing pkg says what to delete when nothing should stay
 $ rm -rf aros/.pkg
 $ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg ARCH aarch64
 installed pkg 1.7.0 into aros: 1 file, payload 54abf82ec01e, signed by 5ff18d3fe14e383e
@@ -128,20 +128,20 @@ pkg         1.7.0    1 file   intact
 
 `adopted` is the point: the files were already right, so the second install
 placed none of them and the new database describes what is on the disk.
-[Moving to Pkg](migrating.md) explains adoption at length.
+[Moving to pkg](migrating.md) explains adoption at length.
 
-### When the new Pkg is signed by another key
+### When the new pkg is signed by another key
 
 The key that signed a package is pinned when it is first installed, and the
 pin outlives the package: `REMOVE` deletes the files and the record, not the
 pin, because a pin is what stops someone else's build from arriving under a
-name you trust. So a Pkg signed by a new key is refused, even after the old
-Pkg has been removed:
+name you trust. So a pkg signed by a new key is refused, even after the old
+pkg has been removed:
 
 ```console
 $ pkg REMOVE pkg ROOT aros
 removed pkg 1.7.0 from aros: 1 file removed
-  hint: Pkg is gone, but aros/.pkg still holds what is installed, the keys pinned for it and the downloads; a later Pkg takes over from there, and the guide to removing Pkg says what to delete when nothing should stay
+  hint: pkg is gone, but aros/.pkg still holds what is installed, the keys pinned for it and the downloads; a later pkg takes over from there, and the guide to removing pkg says what to delete when nothing should stay
 $ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg-next    # exits 14
 pkg install: pkg is signed by a different key from the one pinned in aros.
 pkg install:   pinned 5ff18d3fe14e383e95e905adb17a66dc17864a4588ac585ff550d1436399e111
@@ -155,7 +155,7 @@ lightly. Ask the publisher by some route other than the channel itself
 whether the key really changed.
 
 - **Accept the new key by name.** Add `ACCEPTKEY` and the new key in full, as
-  the refusal prints it; Pkg says what changed and pins the new one. This is
+  the refusal prints it; pkg says what changed and pins the new one. This is
   the one to use when you are keeping the rest of the database.
 - **Delete the pin.** When `.pkg` goes altogether, the pin goes with it and
   the new key is pinned as a first install would pin it. To drop only this
@@ -169,7 +169,7 @@ installed pkg 2.0 into aros: 1 file, payload 4917add02b19, signed by 4f6b8dcf459
 
 ## On macOS, Linux and Windows
 
-There, Pkg is one program on your `PATH`, put there by the installer from the
+There, pkg is one program on your `PATH`, put there by the installer from the
 downloads page. Undoing it means the program, the `PATH` line and the cache.
 
 **macOS and Linux.** `pkg` is in `/usr/local/bin`, in `~/.local/bin`, or
@@ -184,7 +184,7 @@ rm -rf "$HOME/AROS/Shared/Pkg-aarch64" "$HOME/AROS/Shared/Pkg-x86_64"
 ```
 
 Then delete the `PATH` line the installer added, if it added one: it sits
-under the comment `# Pkg, the AROS package tool` in `~/.zshrc`,
+under the comment `# pkg, the AROS package tool` in `~/.zshrc`,
 `~/.bash_profile`, `~/.bashrc`, `~/.profile` or
 `~/.config/fish/config.fish`. Open a new terminal afterwards.
 
@@ -212,7 +212,7 @@ After `REMOVE pkg`, on the root it managed:
 
 | Path | What it holds | Safe to delete |
 |---|---|---|
-| `SYS:.pkg/db` | one record per installed package: version, files, digests | yes, and a later Pkg then knows nothing about them |
+| `SYS:.pkg/db` | one record per installed package: version, files, digests | yes, and a later pkg then knows nothing about them |
 | `SYS:.pkg/keys` | the key pinned for each package, `pkg` among them | yes, and the next key seen is pinned instead |
 | `SYS:.pkg/auto` | which packages came in as dependencies | yes; without it, `REMOVE ORPHANS` finds nothing |
 | `SYS:.pkg/arch` | the CPU this root is for | yes; name it again with `ARCH` |
@@ -227,6 +227,6 @@ and the roots you manage are directories you made yourself.
 
 ## Related
 
-[Using Pkg](using.md), [REMOVE](commands/remove.md),
-[INSTALL](commands/install.md), [Moving to Pkg](migrating.md),
+[Using pkg](using.md), [REMOVE](commands/remove.md),
+[INSTALL](commands/install.md), [Moving to pkg](migrating.md),
 [Signatures and trust](signing.md).

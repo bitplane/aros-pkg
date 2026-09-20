@@ -1,10 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 John Knipper -->
 
-# Pkg with an AI assistant
+# pkg with an AI assistant
 
 If you use Claude Code, Cursor, Codex or another coding agent, you do not
-have to learn Pkg's commands: the agent runs them for you. Pkg ships a
+have to learn pkg's commands: the agent runs them for you. pkg ships a
 *skill*, a document written for the agent, that teaches it the commands, the
 habits (try with `DRYRUN` first, read the machine output, never work around
 a refusal) and the decisions it must leave to you. Give the agent that
@@ -47,7 +47,7 @@ Plain requests work; the skill supplies the commands and the checks:
   `next:` line tell the agent what happened)
 - "Why does Game not find `SDL2.library`?" (the agent runs `RESOLVE` on the
   program and reads the verdicts)
-- "Put Pkg itself on my AROS machine" (the agent builds the channel with
+- "Put pkg itself on my AROS machine" (the agent builds the channel with
   `make aros-channel` and tells you the `Execute ... Install-Pkg` line)
 
 ## What the agent will not do
@@ -60,14 +60,14 @@ The skill forbids the agent to take four decisions that are yours:
 - copy a `Pkg` binary onto an AROS machine by hand instead of installing it
   through a channel.
 
-When one of those comes up, the agent stops and asks. Pkg helps: its
+When one of those comes up, the agent stops and asks. pkg helps: its
 refusals never print a command that overrides a safeguard, and its machine
 output (`MACHINE`) gives the agent `result:`, `class:`, `code:` and `next:`
 instead of prose to guess from ([reference](reference.md#machine-readable-output)).
 
-## For programs that embed Pkg
+## For programs that embed pkg
 
 An agent's tool adapter, an installer or a graphical front end links
 `libpkg` instead of running the command: `include/pkg.h` lists every
 operation and every field it answers. See
-[Developing Pkg](development.md#as-a-library).
+[Developing pkg](development.md#as-a-library).

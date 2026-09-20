@@ -17,9 +17,9 @@ root and records the package in the root's database (`.pkg/`).
 
 - A file already in place and byte for byte the package's is **adopted**:
   nothing is written, and the package is recorded as installed. This is how
-  a system copied by hand comes under Pkg afterwards.
+  a system copied by hand comes under pkg afterwards.
 - A file already in place with other content, belonging to no package, is a
-  conflict (exit 15): Pkg overwrites nothing it did not install.
+  conflict (exit 15): pkg overwrites nothing it did not install.
 - A package installed only as a dependency is marked so; `REMOVE ORPHANS`
   takes it out when nothing needs it any more. Installing it explicitly
   later keeps it for itself.
@@ -74,7 +74,7 @@ MACHINE` prints as `archive:`.
 | `ROOT <dir>` | the system installed into: `SYS:` on AROS, a directory elsewhere |
 | `CHANNEL <dir\|url>` | where the package is published |
 | `VERSION v` | this version instead of the newest |
-| `ARCH cpu` | the root's CPU, when the root has never been told and Pkg cannot know it |
+| `ARCH cpu` | the root's CPU, when the root has never been told and pkg cannot know it |
 | `ACCEPTKEY <key>` | accept a publisher key other than the one pinned |
 | `UNPACKED <dir>` | read the files from a directory the archive was unpacked into |
 | `DRYRUN` | every check, no write; the result reads `would install` |
@@ -127,5 +127,5 @@ of an archive. With several names, `package:` or `refused:` for each, then
 ## Related
 
 [STATUS](status.md), [UPGRADE](upgrade.md), [REMOVE](remove.md),
-[MOUNTLIST](mountlist.md) for images, [Using Pkg](../using.md#install),
+[MOUNTLIST](mountlist.md) for images, [Using pkg](../using.md#install),
 [Distributing builds](../distributing.md) for `ARCH`.

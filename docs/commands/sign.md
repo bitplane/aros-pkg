@@ -10,19 +10,19 @@ pkg SIGN <file> KEY <keyfile> OUT <sigfile> [SSH NAMESPACE <ns>]
 
 ## What it does
 
-Signs any file with a Pkg key and writes the signature to `<sigfile>`, in
+Signs any file with a pkg key and writes the signature to `<sigfile>`, in
 the form the channel uses for manifests (`Signer:` and the Ed25519
 signature). For a checksum list, a release note, or anything you want a
 machine to verify against your public key outside a package.
 
 With `SSH` and `NAMESPACE <ns>`, the same key signs in OpenSSH's format
 instead, which `ssh-keygen -Y verify` checks on any machine with OpenSSH
-8.1 or later (macOS, Linux, Windows 10 and 11), with no Pkg installed. The
+8.1 or later (macOS, Linux, Windows 10 and 11), with no pkg installed. The
 namespace says what the signature is for, and the verifier must name the
 same one: a signature made for `aros-pkg-bootstrap` does not pass as
 anything else. The verifier's `allowed_signers` file names the key as
 [`KEYINFO FILE <keyfile> SSH`](keyinfo.md) prints it. The portal's installers
-check the Pkg programs they download this way.
+check the pkg programs they download this way.
 
 ## Examples
 
@@ -41,7 +41,7 @@ $ pkg SIGN notes.txt KEY my.key OUT notes.txt.sshsig SSH NAMESPACE release-notes
 signed notes.txt with b01be86b74a9c904
 $ echo "me $(pkg KEYINFO FILE my.key SSH)" > allowed_signers
 $ ssh-keygen -Y verify -f allowed_signers -I me -n release-notes -s notes.txt.sshsig < notes.txt
-Good "release-notes" signature for me with ED25519 key SHA256:PPZl4M3yvLN4lYp+jbvRLHiETiDjdUKQz64Y/h218V0
+Good "release-notes" signature for me with ED25519 key SHA256:fW2w/kkgbBDUSo/yPAU2qk1YnmZQPQgg3ms6u95GAnU
 ```
 
 ## Records (`MACHINE`)

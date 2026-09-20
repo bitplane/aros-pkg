@@ -2,13 +2,13 @@
 <!-- Copyright (c) 2026 John Knipper -->
 
 
-# Developing Pkg
+# Developing pkg
 
-How Pkg is built and tested, on the host, on hosted AROS and on native AROS,
+How pkg is built and tested, on the host, on hosted AROS and on native AROS,
 how it is used as a library, and the state of its pieces. For using or
-publishing with Pkg, start at the [README](../README.md). Related:
-[the container](container.md), [AROS defects found while building Pkg](aros-defects.md),
-[how Pkg was established](history.md), [GOAL.md](../GOAL.md), [OPEN.md](../OPEN.md).
+publishing with pkg, start at the [README](../README.md). Related:
+[the container](container.md), [AROS defects found while building pkg](aros-defects.md),
+[how pkg was established](history.md), [GOAL.md](../GOAL.md), [OPEN.md](../OPEN.md).
 
 ## Setting up
 
@@ -19,7 +19,7 @@ make install                      # pkg, pkg.h, libpkg.a and the skill into ~/.l
 pkg KEYGEN FILE ~/.pkg-dev.key    # the publisher key, once per publisher
 ```
 
-To put Pkg on AROS machines, build it for their CPUs (`sh tools/build-aros.sh`
+To put pkg on AROS machines, build it for their CPUs (`sh tools/build-aros.sh`
 for aarch64, `sh tools/build-aros-x86_64.sh` for x86_64) and make a channel
 that carries it. Both compile Mbed TLS in, from `third_party/mbedtls` with the
 configuration beside it (`pkg_mbedtls_config.h`: a TLS 1.2 and 1.3 client,
@@ -40,7 +40,7 @@ Execute DEPOT:Install-Pkg DEPOT:          ; a volume that is the channel
 
 The script finds the build that runs on that machine and it installs the
 signed `pkg` package into `SYS:` (or a root given after the channel); from
-then on Pkg is a package like any other, upgraded with `Pkg UPGRADE pkg`.
+then on pkg is a package like any other, upgraded with `Pkg UPGRADE pkg`.
 `tests/native-x86_64.sh` does exactly this on native AROS, where the aarch64
 build is tried first and does not run.
 
@@ -163,7 +163,7 @@ a test probe that asks a mounted AFS+ volume which handler revision serves it.
 macOS is installed through the `MacRW:` share, verified, listed, removed, and a
 tampered payload is refused with AmigaDOS seeing the error.
 
-`tests/aros-handler.sh` is M3. It installs the real AFS+ handler with Pkg, over
+`tests/aros-handler.sh` is M3. It installs the real AFS+ handler with pkg, over
 four boots, so that a restart is a restart:
 
 | Boot | What happens | What the handler itself reports |
@@ -198,7 +198,7 @@ Four things the hosted runs established, none of them guessed beforehand:
 
 ## Native AROS in QEMU
 
-`sh tools/build-aros-x86_64.sh` builds Pkg for native AROS on x86_64 with the
+`sh tools/build-aros-x86_64.sh` builds pkg for native AROS on x86_64 with the
 Homebrew LLVM (which knows the `x86_64-unknown-aros` triple but predefines none
 of the AROS macros, so the script does) against the SDK of a nightly
 linux-x86_64 system, linking with a `collect-aros` it builds for x86_64 from the
@@ -208,8 +208,8 @@ AROS sources.
 QEMU, nothing hosted and no host share: Guru, Function and identify.library are
 taken out of the ISO itself, published on the host (the architecture read from
 their ELF headers: x86_64), and the ISO is rebuilt without them, with the
-channel, Pkg and the sequence in `S:User-Startup`. From its own startup AROS
-installs Guru with its dependency, runs Guru from the image mounted through Pkg
+channel, pkg and the sequence in `S:User-Startup`. From its own startup AROS
+installs Guru with its dependency, runs Guru from the image mounted through pkg
 MOUNTLIST with the system's own FFS (no handler component: the native system
 has one), upgrades, rolls back, verifies, refuses to remove identify while Guru
 needs it, and removes Guru and the orphan. Results leave through the second
@@ -218,8 +218,8 @@ before the root's libraries are reachable.
 
 ## Windows, macOS and Linux
 
-`make build/pkg.exe` cross-builds Pkg for x86_64 Windows with mingw-w64;
-`src/pkg_fs_win32.c` is the host layer. Paths stay UTF-8 inside Pkg and go
+`make build/pkg.exe` cross-builds pkg for x86_64 Windows with mingw-w64;
+`src/pkg_fs_win32.c` is the host layer. Paths stay UTF-8 inside pkg and go
 through the wide API, so names outside the ANSI code page work, and the
 command line is read back as UTF-16 for the same reason. Replacement is
 `MoveFileExW` with write-through, a signing key is created with a DACL for
@@ -228,7 +228,7 @@ its owner alone from the first instant, randomness comes from
 `make build/pkg-macos` builds a universal binary, and
 `make build/pkg-linux-x86_64` or `-aarch64` a static Linux one with zig.
 
-`sh tools/make-test-kit.sh` writes `build/pkg-test-kit.zip`: Pkg for the
+`sh tools/make-test-kit.sh` writes `build/pkg-test-kit.zip`: pkg for the
 four targets, the contract channel, `tests/contract-steps.txt` (the sequence
 hosted AROS runs too), the reference answers, and `run.ps1` for PowerShell
 5.1 on Windows or PowerShell 7 anywhere. It compares every exit code and
@@ -255,7 +255,7 @@ unpatched one back.
 
 `tests/native-system.sh` checks it in QEMU from an empty disk, all of it in
 a Shell window on the Workbench screen: partition, format and copy as
-InstallAROS does, Pkg adopting each package, GRUB, a reboot from the disk;
+InstallAROS does, pkg adopting each package, GRUB, a reboot from the disk;
 there VERIFY ALL, a program deleted and one overwritten by accident and
 Shell-Startup edited, VERIFY ALL naming each, REPAIR ALL, and the restored
 program running. `PKG_DISPLAY=cocoa` shows the screen while it runs; it is
@@ -317,7 +317,7 @@ Goals and milestones: [GOAL.md](../GOAL.md). What remains: [OPEN.md](../OPEN.md)
 | Machine contract, `MACHINE` or `PKG_OUTPUT=machine` | Built: `tests/e2e.sh` on macOS, `tests/aros-contract.sh` compares macOS and hosted AROS line for line |
 | Image route, `KIND image` and `IMAGE` | Built: FFS images, validated by amitools in `tests/image.sh`, mounted by the AROS FFS handler in `tests/goal2.sh` |
 | `Depends`, resolution, orphans, `REMOVE ORPHANS` | Built: `tests/deps.sh` on macOS, `tests/goal2.sh` on hosted AROS |
-| Removing Pkg itself, and moving to an incompatible Pkg | Built: [Removing Pkg](removing.md), proven by `tests/aros-remove-pkg.sh` on hosted AROS |
+| Removing pkg itself, and moving to an incompatible pkg | Built: [Removing pkg](removing.md), proven by `tests/aros-remove-pkg.sh` on hosted AROS |
 | `STATUS`, `UPGRADE ALL`: checking and updating a root, unattended | Built: `tests/status.sh` on macOS, 67 checks; on hosted AROS in the contract, AmigaDOS and ARexx |
 
 ## The version a build says it is
@@ -325,12 +325,12 @@ Goals and milestones: [GOAL.md](../GOAL.md). What remains: [OPEN.md](../OPEN.md)
 `PKG_VERSION_RELEASE` in `include/pkg.h` is the release, and stays put until
 one is declared. What a binary reports is that release, a patch number and the
 day it was built: `1.7.0+20260920`. The build passes the last two in, so a
-binary always says which day it came from, and Pkg orders them as it orders any
+binary always says which day it came from, and pkg orders them as it orders any
 version: `1.7.0+20260920` comes after `1.7`, a later day after an earlier one,
 and a raised patch after both.
 
 ```sh
-make build/pkg && ./build/pkg HELP | head -1     # Pkg 1.7.0+20260920 (20.09.2026)
+make build/pkg && ./build/pkg HELP | head -1     # pkg 1.7.0+20260920 (20.09.2026)
 ```
 
 Raise `PATCH` when a release changes in a way people should be able to ask for

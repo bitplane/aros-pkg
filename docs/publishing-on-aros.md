@@ -2,10 +2,10 @@
 
 This guide takes an AROS machine with nothing on it to a package of your
 own program on the portal, installed and updated by other people through
-Pkg, in the order you do it: put Pkg on the machine, make your key, lay out
+pkg, in the order you do it: put pkg on the machine, make your key, lay out
 the program, publish it, try it as a user would, register on the portal,
 push, publish a new version. Every command is shown as you type it in the
-Shell, with what it prints; all of it was run on AROS with Pkg 1.6 against
+Shell, with what it prints; all of it was run on AROS with pkg 1.6 against
 the portal. [Publishing packages](publishing.md) is the same subject on a
 Mac or a PC, with more on descriptions, dependencies and archives; this
 guide points there rather than repeat it.
@@ -13,12 +13,12 @@ guide points there rather than repeat it.
 The example is `Greet`, a small program that says hello. Two drawers hold
 its builds: `Work:src/Greet` and, later, `Work:src/Greet-1.1`.
 
-## 1. Put Pkg on the machine
+## 1. Put pkg on the machine
 
-Pkg is not on a stock AROS yet. There are three ways to put it there.
+pkg is not on a stock AROS yet. There are three ways to put it there.
 
 **With a network and `wget`** (AROS One, Icaros, or the nightly with its
-contrib), paste these two lines in the Shell; the script fetches the Pkg
+contrib), paste these two lines in the Shell; the script fetches the pkg
 for your CPU, which then installs the signed `pkg` package from the portal:
 
 ```amigados
@@ -31,7 +31,7 @@ If `wget` ends at once without a word, it wants its settings file first:
 
 **On Macaros, or any AROS hosted on your computer**, run
 `curl -fsSL https://aros-pkg.azurewebsites.net/install | sh` in the
-computer's terminal. Besides Pkg for the computer, it puts the AROS drawer
+computer's terminal. Besides pkg for the computer, it puts the AROS drawer
 in the folder AROS shares (`~/AROS/Shared`), checked against the portal's
 signed checksums, and prints the line to paste in the AROS Shell:
 
@@ -53,15 +53,15 @@ Execute MacRW:Pkg-aarch64/Install-Pkg MacRW:Pkg-aarch64
 Execute Work:Pkg-aarch64/Install-Pkg Work:Pkg-aarch64
 ```
 
-The script checks that the bare Pkg in the drawer runs on this machine,
-then that Pkg installs the signed `pkg` package from the drawer into
+The script checks that the bare pkg in the drawer runs on this machine,
+then that pkg installs the signed `pkg` package from the drawer into
 `SYS:`, checking its signature and every file as it does for any package.
 What you have afterwards is `SYS:C/Pkg`, the copy from the signed package:
 
 ```
 This machine runs the aarch64 build.
 installed pkg 1.6 into SYS:
-Pkg is in SYS:C. Try: Pkg HELP.
+pkg is in SYS:C. Try: Pkg HELP.
 ```
 
 Add a root after the drawer to install elsewhere than `SYS:`
@@ -70,7 +70,7 @@ Add a root after the drawer to install elsewhere than `SYS:`
 If `Execute` itself fails (*object not found*, *error while creating
 temporary file*), the machine has no `T:` assign, which AmigaDOS needs for
 any script that takes arguments: `Assign T: RAM:` and run it again. If the
-script says *None of the Pkg builds in the channel's Bootstrap drawer runs on
+script says *None of the pkg builds in the channel's Bootstrap drawer runs on
 this machine*, the drawer is for another CPU: it names the CPUs it holds.
 
 `Pkg HELP` lists every verb and keyword; [Reference](reference.md) has each in full.
@@ -96,13 +96,13 @@ key written to Work:keys/my.key, readable by you alone
 ```
 
 The key is made on the machine, from AROS's own random source. An older
-AROS has none: there Pkg asks you, in a Shell window, to press keys at
+AROS has none: there pkg asks you, in a Shell window, to press keys at
 random and makes the key from the moment of each one, and from a script or
 the ARexx port it refuses (exit 17) rather than make a key that could be
 guessed. A key made on a Mac or a PC with `pkg KEYGEN FILE my.key` is the
 same kind of file, if you would rather carry one over.
 
-Tell Pkg where it is, once for this session and once for every boot:
+Tell pkg where it is, once for this session and once for every boot:
 
 ```amigados
 SetEnv PKG_SIGNKEY Work:keys/my.key
@@ -135,7 +135,7 @@ Work:src/Greet/
     C/Greet
 ```
 
-Pkg takes the package's name and version from the program's `$VER:`
+pkg takes the package's name and version from the program's `$VER:`
 string, the one `Version` prints, and its CPU from the executable itself.
 `Greet` carries `$VER: Greet 1.0 (19.9.2026)`, so the package is `greet`
 1.0 for `aarch64`, with nothing to type. A program without `$VER:`, or a
@@ -180,7 +180,7 @@ version only.
 
 ## 5. Publish
 
-A channel is a drawer that Pkg fills; the first `PUBLISH` into it creates
+A channel is a drawer that pkg fills; the first `PUBLISH` into it creates
 it. Keep the channel apart from the sources.
 
 ```amigados
@@ -208,7 +208,7 @@ Package  Version  Kind         Arch     Status  Signer
 greet    1.0      application  aarch64  ok      abf41c8fb2fc84f9
 ```
 
-`ok` means Pkg checked the signature and the files of that entry, as it
+`ok` means pkg checked the signature and the files of that entry, as it
 will on every machine that installs it.
 
 ## 6. Try it as a user would
@@ -349,12 +349,12 @@ upgraded greet from 1.0 to 1.1 in SYS:: 2 placed, 0 removed
 The channel is the drawer `Work:mychannel`, and only that: copy it to a
 stick, a share or a disk image, and anyone installs from it with
 `Pkg INSTALL greet ROOT SYS: CHANNEL <the drawer as they see it>`, or serve
-it from any web server ([Channels](channels.md)). Pkg checks the signatures
+it from any web server ([Channels](channels.md)). pkg checks the signatures
 on their machine, so the way the drawer travels does not matter.
 
 ## When something is refused
 
-Pkg refuses rather than guess, says why in one line, and its exit code is
+pkg refuses rather than guess, says why in one line, and its exit code is
 the class of the refusal; a Shell script tests it with `If WARN` or
 `FailAt`. The ones you meet when publishing:
 
@@ -370,9 +370,9 @@ the class of the refusal; a Shell script tests it with `If WARN` or
 | *the key of … may not push to …* | 14 | push to your own channel, the one you registered |
 | a payload refused, rule *Binaries* | 20 | your key publishes by link: publish from an `https` archive with `UPSTREAM`, or ask for file uploads |
 | *this system has no random source* | 17 | an older AROS: run `KEYGEN` in a Shell window, not from a script (section 2) |
-| *Software Failure* on `MANIFEST` or `PUBLISH` | | that is Pkg 1.1: take the current Pkg from the Downloads page, or type `Stack 1000000` first |
+| *Software Failure* on `MANIFEST` or `PUBLISH` | | that is pkg 1.1: take the current pkg from the Downloads page, or type `Stack 1000000` first |
 | *no executable in the drawer* (a warning, still published) | 0 | the drawer holds a script or a placeholder, not the build; or say `ARCH generic` on purpose |
 
 `Pkg <command> DRYRUN` runs every check and writes nothing; `TRACE
-RAM:trace.txt` writes every step Pkg took, for when the one line is not
+RAM:trace.txt` writes every step pkg took, for when the one line is not
 enough. [Reference](reference.md) lists every verb and exit code.

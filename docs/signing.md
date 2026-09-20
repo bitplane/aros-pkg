@@ -4,7 +4,7 @@
 # Signatures and trust
 
 What is signed, by whom, what is checked where, what a key change means for
-you, and how to check a package yourself without Pkg.
+you, and how to check a package yourself without pkg.
 
 ## What is signed
 
@@ -20,7 +20,7 @@ Signature: db6a2def66e78c15ceccbf022c74953d93b72bf8c15fa1055ef903e5d7355d47...
 
 The files themselves are not signed one by one; they do not need to be.
 The manifest lists each file's SHA-256, the signature covers the manifest,
-and Pkg refuses any file whose bytes do not hash to what the manifest says.
+and pkg refuses any file whose bytes do not hash to what the manifest says.
 So a valid signature on the manifest vouches for every byte of the package.
 
 The channel's `index` names each version by the SHA-256 of its manifest, and
@@ -38,7 +38,7 @@ and what the portal shows on a package page.
 The portal holds no signing key. It cannot sign a package, alter one, or
 sign a replacement: it can only refuse to publish. The same is true of
 anyone who copies or mirrors a channel: the files are what the publisher
-signed, or Pkg refuses them.
+signed, or pkg refuses them.
 
 Nobody vouches for who a publisher *is*. The key is the identity; a name
 beside it on the portal is a label its maintainers attached when they gave
@@ -47,7 +47,7 @@ package comes from where it says, compare the key with these:
 
 | Key | Publisher | Signs |
 |---|---|---|
-| `43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077` | JKN, the author of Pkg | the `pkg` channel: Pkg itself, from 1.1 |
+| `43c550967bc18dfec7cf3a7cd01297d09450fd364a0e34d8e58aef623cef3077` | JKN, the author of pkg | the `pkg` channel: pkg itself, from 1.1 |
 | `a974a917b19cfc46eb462510fa21f95013932bfbda7c8f343e06a3e988f7bde7` | aros-development-team | the `contrib-nightly` channel |
 
 The portal's [publisher pages](https://aros-pkg.azurewebsites.net/publishers)
@@ -55,7 +55,7 @@ show the same keys and everything each has signed.
 
 ## What is checked, and where
 
-**On your machine, by Pkg, at every install, upgrade, verify and repair:**
+**On your machine, by pkg, at every install, upgrade, verify and repair:**
 
 - the signature of the manifest, under the key the `.sig` names (refused
   with exit 13 when absent or invalid);
@@ -64,7 +64,7 @@ show the same keys and everything each has signed.
 - that the signer is the key **pinned** for this package on this machine
   (exit 14 when it is not; see below).
 
-**On the portal, before a push is published:** the portal runs Pkg itself
+**On the portal, before a push is published:** the portal runs pkg itself
 on the uploaded channel (`SHOW ... METADATA`), so the same signature and
 digest checks apply; then two rules of its own: a package keeps the key of
 its first version (a push signed by another key is refused), and a
@@ -82,7 +82,7 @@ root, for that package. From then on:
 
 - a version signed by the same key installs, upgrades and repairs as usual;
 - a version signed by **another** key is refused (exit 14), whoever
-  published it and wherever it comes from, and Pkg prints both keys.
+  published it and wherever it comes from, and pkg prints both keys.
 
 That refusal is the point of the system: it is what stops a channel or a
 mirror from replacing a program under you. It is also what you see when a
@@ -94,12 +94,12 @@ repository, a person you know). If the new key is theirs, accept it once:
 pkg UPGRADE hello ROOT SYS: CHANNEL DEPOT:channel ACCEPTKEY <the new key>
 ```
 
-Pkg never accepts a new key by itself, and never prints a command with the
-new key filled in for you to paste; an assistant that drives Pkg is told
-the same ([Pkg with an AI assistant](agents.md)).
+pkg never accepts a new key by itself, and never prints a command with the
+new key filled in for you to paste; an assistant that drives pkg is told
+the same ([pkg with an AI assistant](agents.md)).
 
-Pre-release builds of Pkg (0.3 to 0.5) were signed by the aros-development-team
-key and are no longer in the `pkg` channel; Pkg 1.1 was its first version. A
+Pre-release builds of pkg (0.3 to 0.5) were signed by the aros-development-team
+key and are no longer in the `pkg` channel; pkg 1.1 was its first version. A
 test machine that still has one of those builds sees the refusal above on its
 next `UPGRADE pkg` and accepts the JKN key with `ACCEPTKEY`. A fresh install
 needs nothing: the channel's first version and its newest carry the same key.
@@ -120,8 +120,8 @@ in a password manager or on an encrypted disk is enough.
 
 ## The installers
 
-`curl ... | sh` and `install.ps1` run before Pkg exists on the machine, so
-they cannot use Pkg to check what they download. They fetch
+`curl ... | sh` and `install.ps1` run before pkg exists on the machine, so
+they cannot use pkg to check what they download. They fetch
 `Bootstrap/SHA256SUMS` and `Bootstrap/SHA256SUMS.sig` from the channel and
 verify the signature with OpenSSH, which every macOS, Linux and Windows
 has, against the channel owner's key embedded in the script; then they
@@ -144,7 +144,7 @@ Bootstrap/linux-x86_64/pkg: OK
 ```
 
 The `ssh-ed25519` line is JKN's key as the portal's trust page prints it;
-the same key in Pkg's own hex form is `43c55096...3077` above.
+the same key in pkg's own hex form is `43c55096...3077` above.
 
 `pkg SIGN <file> KEY <keyfile> OUT <sig> SSH NAMESPACE <ns>` writes such a
 signature and `pkg KEYINFO FILE <keyfile> SSH` prints the key in
@@ -153,7 +153,7 @@ same way ([`SIGN`](commands/sign.md), [`KEYINFO`](commands/keyinfo.md)).
 
 ## Checking a package by hand
 
-Pkg does this at every install, and `SHOW` does it for a whole channel:
+pkg does this at every install, and `SHOW` does it for a whole channel:
 
 ```console
 $ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
@@ -162,7 +162,7 @@ pkg      1.7.0    application  aarch64  ok      5ff18d3fe14e383e
 pkg      1.7.0    application  x86_64   ok      5ff18d3fe14e383e
 ```
 
-To check without trusting Pkg at all, three files and one script suffice.
+To check without trusting pkg at all, three files and one script suffice.
 `tools/verify-manifest.py` in the repository is plain Python 3 with no
 module beyond the standard library; it implements the Ed25519 check from
 RFC 8032 in sixty readable lines, so you can read what it does:

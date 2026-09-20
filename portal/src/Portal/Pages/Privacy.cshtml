@@ -8,17 +8,17 @@
     var days = Usage.All().Select(u => u.Day).Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList();
 }
 <h1>What this portal knows about you</h1>
-<p class="lead">Nothing that points at a person. Installing and reading need no account, and the portal keeps no address, no identifier and no record of a single request. What it does keep is a daily tally of which Pkg builds asked for something, so that we can see how Pkg spreads and when an old version has gone. This page says exactly that, and <a href="/api/usage">/api/usage</a> hands over everything there is.</p>
+<p class="lead">Nothing that points at a person. Installing and reading need no account, and the portal keeps no address, no identifier and no record of a single request. What it does keep is a daily tally of which pkg builds asked for something, so that we can see how pkg spreads and when an old version has gone. This page says exactly that, and <a href="/api/usage">/api/usage</a> hands over everything there is.</p>
 
-<h2 class="label">What Pkg sends</h2>
-<p>Every request Pkg makes carries one line about itself and nothing else:</p>
+<h2 class="label">What pkg sends</h2>
+<p>Every request pkg makes carries one line about itself and nothing else:</p>
 <div class="cmd"><code>User-Agent: Pkg/1.7.0+20260920 (aros; aarch64)</code></div>
 <p>Its version, the system it was built for and the CPU. No name, no key, no machine identifier, no list of what you have installed, and nothing about your machine beyond those three words. A channel you serve yourself sees the same line and does with it whatever your server does.</p>
 
 <h2 class="label">What the portal keeps</h2>
-<p>One tally per day, per build, per kind of request: <code>day, version, system, cpu, kind, count</code>. A line reads “on this day, this many channel reads came from Pkg 1.7.0+20260920 on aros/aarch64”. The kinds are channel reads, packages taken and pushes. It lives in one file in the portal's own state, it is shown on <a href="/statistics">Statistics</a>, and it is served whole at <a href="/api/usage">/api/usage</a>@(days.Count > 0 ? $": {days.Count} day{(days.Count == 1 ? "" : "s")} so far, from {days[0]} to {days[^1]}" : ", empty until a Pkg asks for something").</p>
-<p>Anything that is not Pkg, a browser or a tool of your own, counts as <code>other</code> in all three words. A day holds at most a few hundred different builds; past that the rest of that day counts as <code>other</code> too, so nobody can grow that file by inventing names.</p>
-<p>Besides that, the portal counts how many times each package and each Pkg download has been fetched, in one number each, with nothing attached.</p>
+<p>One tally per day, per build, per kind of request: <code>day, version, system, cpu, kind, count</code>. A line reads “on this day, this many channel reads came from pkg 1.7.0+20260920 on aros/aarch64”. The kinds are channel reads, packages taken and pushes. It lives in one file in the portal's own state, it is shown on <a href="/statistics">Statistics</a>, and it is served whole at <a href="/api/usage">/api/usage</a>@(days.Count > 0 ? $": {days.Count} day{(days.Count == 1 ? "" : "s")} so far, from {days[0]} to {days[^1]}" : ", empty until a pkg asks for something").</p>
+<p>Anything that is not pkg, a browser or a tool of your own, counts as <code>other</code> in all three words. A day holds at most a few hundred different builds; past that the rest of that day counts as <code>other</code> too, so nobody can grow that file by inventing names.</p>
+<p>Besides that, the portal counts how many times each package and each pkg download has been fetched, in one number each, with nothing attached.</p>
 
 <h2 class="label">What it does not keep</h2>
 <ul>
@@ -27,7 +27,7 @@
     <li>No record of a single request: what was asked, and when, is never written down.</li>
     <li>No cookie that follows you. The portal sets a cookie only when you sign in to publish, and one that remembers your choice of theme, in your browser alone.</li>
     <li>No tracking script, no analytics service, no font or image from anywhere else: every page is served by this portal and nothing else is fetched.</li>
-    <li>No list of what you installed. The portal never learns what a machine holds; Pkg keeps that on your own disk.</li>
+    <li>No list of what you installed. The portal never learns what a machine holds; pkg keeps that on your own disk.</li>
 </ul>
 
 <h2 class="label">What the hosting platform logs</h2>

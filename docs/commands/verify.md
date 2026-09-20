@@ -20,7 +20,7 @@ right. Exit 0 when everything is intact or edited; 12 when anything is
 missing or changed.
 
 `VERIFY ALL` gives one row per package and lists the damaged files under
-their package. Pkg overwrites no changed file by itself: `REPAIR` does, on
+their package. pkg overwrites no changed file by itself: `REPAIR` does, on
 request.
 
 ## Examples
@@ -61,4 +61,4 @@ per package, `packages:`, `summary:`, and `class:`/`code:` when damaged.
 
 ## Related
 
-[REPAIR](repair.md), [Using Pkg](../using.md#check-and-repair).
+[REPAIR](repair.md), [Using pkg](../using.md#check-and-repair).

@@ -10,7 +10,7 @@ Pkg PORT [<portname>]
 
 ## What it does
 
-On AROS, keeps running and serves every Pkg command on an ARexx port, `PKG`
+On AROS, keeps running and serves every pkg command on an ARexx port, `PKG`
 by default. A script sends the command line as a message; on success
 `RESULT` holds what the command printed, on refusal `RC` is the exit class
 and `LASTERROR` the refusal text. Nothing else needs ARexx: the same verbs
@@ -32,4 +32,4 @@ ELSE SAY RESULT
 ## Related
 
 [Reference: the ARexx port](../reference.md#the-arexx-port),
-[Pkg with an AI assistant](../agents.md).
+[pkg with an AI assistant](../agents.md).

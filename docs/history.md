@@ -1,9 +1,9 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 John Knipper -->
 
-# How Pkg was established
+# How pkg was established
 
-The record of the goal sequences that proved Pkg, kept as history. The goals
+The record of the goal sequences that proved pkg, kept as history. The goals
 themselves are in [GOAL.md](../GOAL.md); what remains in [OPEN.md](../OPEN.md).
 Nothing here is a promise about the current tool: the guides describe that.
 
@@ -25,7 +25,7 @@ Nothing here is a promise about the current tool: the guides describe that.
    with RC 12 and RC 14, their class codes, each for its own reason, read back
    with `LASTERROR`.
 
-Afterwards AROS mounts the volume with the handler Pkg left in place and it
+Afterwards AROS mounts the volume with the handler pkg left in place and it
 reports revision 14. A second boot runs the same script with one expectation
 sabotaged, and must see it stop at that line with an error reaching AmigaDOS:
 a sequence that cannot fail proves nothing.
@@ -47,7 +47,7 @@ What it took, beyond the tool:
   for one rebuilt from its sources with `tools/build-aros-unpack.sh`. The
   bootstrap uses the `minigzip` AROS ships instead: `Pkg` is one file, so that
   file compressed is its plain archive. The `Unpack` defect is AROS's; see
-  [AROS defects found while building Pkg](aros-defects.md).
+  [AROS defects found while building pkg](aros-defects.md).
 
 ```sh
 sh tools/build-aros.sh && sh tools/build-aros-regina.sh
@@ -110,7 +110,7 @@ on Windows) the first time they are needed; those named by their digest
 are never fetched again, the index and withdrawals are fetched once per
 run. Every check applies as for a local channel: nothing downloaded is
 trusted before the signature and the digests say so. Plain HTTP is spoken
-by Pkg itself (redirects and chunked replies included), which is enough
+by pkg itself (redirects and chunked replies included), which is enough
 since integrity comes from the signatures and what 68k machines need;
 HTTPS goes through the system's `curl` on macOS, Linux and Windows. An
 unreachable host is refused with 17, a URL with no channel with 11.
@@ -126,7 +126,7 @@ published on this machine to a portal that serves channels (the API agreed
 with the portal: plan, files, commit). It asks the portal which files it
 lacks, sends only those, a file over 32 MiB in parts that resume where the
 portal says it got to, then commits the local index; the portal merges it,
-checks the result with Pkg itself and answers in this program's records
+checks the result with pkg itself and answers in this program's records
 (`published:`, `refused:`, `summary:`), which PUSH relays. Signing never
 leaves this machine. The key is the publisher's, in `PKG_PUSHKEY`: it goes
 in a header file readable by its owner alone, never on a command line, and
@@ -250,7 +250,7 @@ data on any CPU are not counted as 68k programs: data-only hunk files such
 as deficons.prefs, classic fonts (their code starts with the
 `moveq #n,d0; rts` stub) and keymaps in a `Keymaps` drawer.
 
-### An AROS installed without Pkg
+### An AROS installed without pkg
 
 InstallAROS copies the system with no package database. When INSTALL finds
 one of the package's files already there, byte for byte the package's, it

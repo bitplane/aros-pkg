@@ -57,7 +57,7 @@ pkg manifest: channel needs a value
 | Exit | When |
 |---|---|
 | 11 | a `DESCRIPTION`, `CHANGES`, `README` or `INFO` file cannot be read; a path an `INFO` file names in `Files` is not in the drawer |
-| 20 | the `INFO` file is malformed, or holds a value Pkg refuses; the message names the file, the line and the key |
+| 20 | the `INFO` file is malformed, or holds a value pkg refuses; the message names the file, the line and the key |
 | 20 | no drawer; executables for two CPUs in one drawer; `CONFIG` or `FILES` naming what is not there; `DEPENDS` malformed; `.ameta` naming a file the drawer lacks |
 
 ## Related

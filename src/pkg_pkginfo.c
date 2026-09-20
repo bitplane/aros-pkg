@@ -118,7 +118,7 @@ static int add_path(struct pkg_strs *out, const char *v, const char *key,
         return -1;
     }
     if (strchr(v, ',') != NULL) {
-        snprintf(err, errlen, "%s: \"%s\" holds a comma, which separates paths in Pkg's "
+        snprintf(err, errlen, "%s: \"%s\" holds a comma, which separates paths in pkg's "
                  "FILES list; write one path per %s line", key, v, key);
         return -1;
     }
@@ -172,8 +172,8 @@ int pkg_pkginfo_parse(const char *text, size_t len, struct pkg_pkginfo *pi,
                 return -1;
             }
             if (n != PKGINFO_FORMAT) {
-                snprintf(err, errlen, "it is pkginfo %d and this Pkg reads pkginfo %d: Pkg is "
-                         "older than the file. Update Pkg", n, PKGINFO_FORMAT);
+                snprintf(err, errlen, "it is pkginfo %d and this pkg reads pkginfo %d: pkg is "
+                         "older than the file. Update pkg", n, PKGINFO_FORMAT);
                 return -1;
             }
             seen_format = 1;

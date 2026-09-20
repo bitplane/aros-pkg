@@ -33,4 +33,4 @@ pkg image: "nosuch" is not a directory
 ## Related
 
 [MOUNTLIST](mountlist.md), [PUBLISH](publish.md),
-[Using Pkg](../using.md#programs-as-images).
+[Using pkg](../using.md#programs-as-images).

@@ -1,4 +1,4 @@
-Pkg installs, updates and removes software on AROS, and publishes it. Every package is signed, every file is checked before anything is written, and an update you did not ask for never happens: Pkg refuses and tells you why.
+pkg installs, updates and removes software on AROS, and publishes it. Every package is signed, every file is checked before anything is written, and an update you did not ask for never happens: pkg refuses and tells you why.
 
 It keeps a whole AROS system current: an installation made with InstallAROS is taken over as it is, then updated from each nightly, checked with VERIFY ALL and mended with REPAIR ALL. Files you edit, such as S:Startup-Sequence, are never overwritten; the new version is set down beside yours.
 

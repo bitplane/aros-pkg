@@ -1,8 +1,8 @@
 # Reference
 
-Every command, keyword and environment variable of Pkg, the output a
+Every command, keyword and environment variable of pkg, the output a
 program reads, and the ARexx port. For how to use them, see
-[Using Pkg](using.md) and [Publishing packages](publishing.md).
+[Using pkg](using.md) and [Publishing packages](publishing.md).
 
 ## Command form
 
@@ -96,7 +96,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | `ACCEPTKEY` | a public key in full, 64 hexadecimal digits | `INSTALL`, `UPGRADE`, `PUBLISH` |
 | `FILE` | a key file | `KEYGEN`, `KEYINFO` |
 | `KEY` | a key file; for `CHECKSIG`, the public key expected | `SIGN`, `CHECKSIG` |
-| `SSH` | OpenSSH's formats instead of Pkg's | `SIGN`, `KEYINFO` |
+| `SSH` | OpenSSH's formats instead of pkg's | `SIGN`, `KEYINFO` |
 | `NAMESPACE` | what an SSH signature is for, the word `ssh-keygen -Y verify -n` names | `SIGN` with `SSH` |
 | `OUT` | a file to write | `SIGN`, `IMAGE`, `MOUNTLIST` |
 | `TO` | the portal channel's address | `PUSH` |
@@ -123,7 +123,7 @@ missing one.
 | `METADATA` | `SHOW`: checks everything but archives |
 | `MACHINE` | answers in `key: value` lines (below) |
 
-`TRACE <file>` writes every step Pkg takes, every file it reads, writes or
+`TRACE <file>` writes every step pkg takes, every file it reads, writes or
 removes, and every check and choice, to find out why something happened.
 `LOG <file>` appends everything printed to a file as well, without the
 progress counter; AROS has no `tee`.
@@ -230,7 +230,7 @@ Every answer has a `result:` line: `installed`, `upgraded`, `downgraded`,
 | `winner:`, `satisfies:`, `loaded:` | `RESOLVE`: the copy taken (`memory` for a loaded one), whether it meets `VERSION`, a copy in memory on AROS |
 | `program:`, `library:` | `RESOLVE <program>`: the program, then each library it names, where it is taken from and the verdict |
 | `kind-from:`, `depends-from:`, `config-from:`, `about-from:` | `PUBLISH`: the fields taken from the version published before |
-| `ignored:` | `SHOW`: a manifest key Pkg does not know, kept in the signed text and never acted on; a misspelt known key shows up here |
+| `ignored:` | `SHOW`: a manifest key pkg does not know, kept in the signed text and never acted on; a misspelt known key shows up here |
 
 ## The ARexx port
 
@@ -247,7 +247,7 @@ rx "address PKG; options results; 'LIST ROOT SYS: MACHINE'; say result"
 
 ## The library
 
-Pkg is also a C library, `libpkg`: `include/pkg.h` declares one function per
+pkg is also a C library, `libpkg`: `include/pkg.h` declares one function per
 verb, taking the same options as a structure, and answers through
 callbacks with the same records `MACHINE` prints. `make build/libpkg.a`
 builds it; `examples/basic.c` is the shortest program on it.

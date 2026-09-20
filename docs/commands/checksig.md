@@ -13,7 +13,7 @@ pkg CHECKSIG <file> FILE <sigfile> [KEY <public key>]
 Checks the detached signature `<sigfile>` (the `Signer:` and `Signature:`
 lines `SIGN` writes) over `<file>`, and says which public key signed it. With
 `KEY`, the signer must be that key (exit 14 when it is another). A missing or
-bad signature is exit 13. It needs nothing but Pkg, so it works on AROS,
+bad signature is exit 13. It needs nothing but pkg, so it works on AROS,
 where there is no `ssh-keygen`; the portal checks signed pushes with it.
 
 ## Examples

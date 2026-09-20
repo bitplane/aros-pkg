@@ -942,7 +942,7 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
             if (pkg_fs_read(tmp, &b, &bl) == 0) {
                 const char *r = strstr((const char *)b, "reason: "), *nx = strstr((const char *)b, "next: ");
                 int rl = r ? (int)strcspn(r + 8, "\r\n") : 0, nl = nx ? (int)strcspn(nx + 6, "\r\n") : 0;
-                snprintf(err, errlen, "%.*s%s%.*s", rl ? rl : 40, rl ? r + 8 : "the server asks for a newer Pkg",
+                snprintf(err, errlen, "%.*s%s%.*s", rl ? rl : 40, rl ? r + 8 : "the server asks for a newer pkg",
                          nl ? ". " : "", nl, nl ? nx + 6 : "");
                 free(b);
             }
@@ -1139,7 +1139,7 @@ static int http_get_once(const char *url, int tls, int fd, char *location, size_
         const char *r = strstr(body, "reason: "), *nx = strstr(body, "next: ");
         int rl = r ? (int)strcspn(r + 8, "\r\n") : 0, nl = nx ? (int)strcspn(nx + 6, "\r\n") : 0;
         net_close(s);
-        snprintf(err, errlen, "%.*s%s%.*s", rl ? rl : 40, rl ? r + 8 : "the server asks for a newer Pkg",
+        snprintf(err, errlen, "%.*s%s%.*s", rl ? rl : 40, rl ? r + 8 : "the server asks for a newer pkg",
                  nl ? ". " : "", nl, nl ? nx + 6 : "");
         return -1;
     }

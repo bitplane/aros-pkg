@@ -4,15 +4,15 @@
 # Distributing builds for several platforms
 
 AROS runs on several CPUs (aarch64, x86_64, m68k, and more), and a program
-built for one does not run on another. Pkg publishes one *version* of a
+built for one does not run on another. pkg publishes one *version* of a
 program with one *build per CPU*, and each machine installs the build it can
 run. This guide is for a publisher who ships more than one build, and for
 the person who runs a channel that serves several kinds of machine. For
 publishing itself, read [Publishing packages](publishing.md) first.
 
-## What Pkg knows about a build
+## What pkg knows about a build
 
-Pkg reads the CPU from the executables themselves: an ELF header says
+pkg reads the CPU from the executables themselves: an ELF header says
 aarch64 or x86_64, a hunk header says m68k. A drawer whose executables agree
 gets that architecture; a drawer with none (data, fonts, catalogs, scripts)
 is `generic` and installs everywhere. A drawer that mixes CPUs is refused,
@@ -67,7 +67,7 @@ mytool   1.0      application  x86_64   ok      b4caa1c2c6c4df56
 ```
 
 The two drawers should be the same release: same `$VER:` string, same files
-apart from the binaries. Pkg checks the version and warns when a `$VER:`
+apart from the binaries. pkg checks the version and warns when a `$VER:`
 contradicts `VERSION`; it does not compare the drawers' contents.
 
 `WITHDRAW mytool VERSION 1.1 ARCH x86_64` withdraws one build; without
@@ -77,7 +77,7 @@ contradicts `VERSION`; it does not compare the drawers' contents.
 
 At `INSTALL`, the machine's CPU is, in this order: `ARCH <cpu>` on the
 command; what the root recorded at its first CPU-specific install; on AROS,
-the CPU Pkg itself runs on. A root on a Mac or a PC that has never been told
+the CPU pkg itself runs on. A root on a Mac or a PC that has never been told
 gets its first CPU-specific package only with `ARCH`, and remembers it. From
 then on dependencies, upgrades and rollbacks stay on that CPU, and a version
 offered only for another CPU is reported as such by `STATUS`
@@ -85,12 +85,12 @@ offered only for another CPU is reported as such by `STATUS`
 
 `generic` packages install on every root.
 
-## Pkg itself, for every AROS machine
+## pkg itself, for every AROS machine
 
-Pkg is distributed the same way, as a package. `make aros-channel
+pkg is distributed the same way, as a package. `make aros-channel
 CHANNEL=<dir>` publishes each AROS build present under `build/` (aarch64,
 x86_64, m68k when built) into a channel, with an `Install-Pkg` script that
-picks the build for the machine it runs on and installs Pkg into `SYS:` as a
+picks the build for the machine it runs on and installs pkg into `SYS:` as a
 signed package, so later versions arrive with `Pkg UPGRADE pkg`:
 
 ```sh

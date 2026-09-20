@@ -1,24 +1,24 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 John Knipper -->
 
-# Moving an existing distribution to Pkg
+# Moving an existing distribution to pkg
 
 You already ship software: LhA archives on Aminet, a nightly tarball, an
 `Installer` script, a directory people copy into `SYS:`, or a package
-manager of your own. This guide says what maps onto what, what Pkg takes
+manager of your own. This guide says what maps onto what, what pkg takes
 over as it is, and what you change. Read [Publishing packages](publishing.md)
 for the commands.
 
 ## What stays where it is
 
-**Your archives.** Pkg does not need to host your files. `PUBLISH` from an
+**Your archives.** pkg does not need to host your files. `PUBLISH` from an
 archive with `UPSTREAM <url>` signs a description of the files and records
 where the archive is; a machine downloads the archive from your server,
 once, checks it against the size and SHA-256 you signed, and installs from
 it. Your hosting, mirrors and download statistics stay as they are
 ([Packages from someone else's archive](publishing.md#packages-from-someone-elses-archive)).
 
-**Your version numbers.** Pkg reads the version from the `$VER:` string of
+**Your version numbers.** pkg reads the version from the `$VER:` string of
 the program, the one `Version` prints on AROS. Keep numbering as you do. For
 a nightly, `BUILD <date>` appends the date (`2.1+20260918`) so each nightly
 is a newer version and an unchanged nightly publishes nothing.
@@ -33,18 +33,18 @@ place does not reinstall them. `INSTALL` compares each file with the
 package's and *adopts* the identical ones: nothing is written, and the
 package is recorded as installed, so `VERIFY`, `UPGRADE` and `REMOVE` work
 from then on. This is how an AROS system installed by InstallAROS is put
-under Pkg after the fact: install the `aros-base` and `aros-tools` packages
+under pkg after the fact: install the `aros-base` and `aros-tools` packages
 over it, and the answer lists the files as `adopted`.
 
 ## What changes
 
-**One drawer is one package.** Pkg installs a drawer's files under the root
+**One drawer is one package.** pkg installs a drawer's files under the root
 as they are laid out in the drawer (`C/`, `Libs/`, `S/`, your own drawer).
 An archive that contains several independent programs becomes several
 packages: `FILES` picks the paths of each.
 
 **Dependencies are declared.** If your program needs a library that ships
-separately, say so: `DEPENDS "sdl2 >= 2.0"`. Pkg installs it first and
+separately, say so: `DEPENDS "sdl2 >= 2.0"`. pkg installs it first and
 refuses to remove it while your program needs it. `MANIFEST` warns when a
 program opens a `.library` that no dependency provides, and `RESOLVE` shows
 what a machine would load ([Libraries](libraries.md)).
@@ -71,7 +71,7 @@ your archive for people who install by hand.
 
 ## From another package manager
 
-| You have | With Pkg |
+| You have | With pkg |
 |---|---|
 | A repository index | a *channel*: a directory of signed manifests and files, served by any web server or a share ([Channels](channels.md)) |
 | Package metadata | the manifest, derived from the drawer by `MANIFEST`; catalogue fields as keywords or from a `.readme` |

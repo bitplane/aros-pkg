@@ -40,7 +40,7 @@ Two channels offering the same package name under **different keys** is
 refused (exit 14, `next: ask-requester`), naming both channels and both
 keys, as long as this root has pinned no key for that name. Adding a channel
 is never a way to replace someone's package quietly, and which key is the
-publisher's is not Pkg's decision. Install once from the channel whose key
+publisher's is not pkg's decision. Install once from the channel whose key
 is right, with `CHANNEL <that one>`: the root pins that key, and from then
 on only the channels whose chosen version carries it count for that name.
 
@@ -95,4 +95,4 @@ per channel in order, `count:`, `root:`, `summary:`. `REMOVE`:
 ## Related
 
 [SEARCH](search.md), [INSTALL](install.md), [STATUS](status.md),
-[Channels](../channels.md), [Using Pkg](../using.md).
+[Channels](../channels.md), [Using pkg](../using.md).

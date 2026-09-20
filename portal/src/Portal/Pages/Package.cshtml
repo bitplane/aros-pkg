@@ -25,7 +25,7 @@
     var isLatest = v.Version == p.Latest.Version;
     ViewData["Title"] = $"{p.Name} {v.Version}";
     var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
-    // Pkg itself is already there once bootstrapped: what one does next is keep it current.
+    // pkg itself is already there once bootstrapped: what one does next is keep it current.
     const int maxFiles = 1500;
     var openFiles = m.Files.Count <= 40;
 }
@@ -51,7 +51,7 @@
 }
 @if (v.Withdrawn)
 {
-    <p class="note warn">Its publisher withdrew this version. Pkg no longer installs or upgrades to it, and asking for it by version is refused.</p>
+    <p class="note warn">Its publisher withdrew this version. pkg no longer installs or upgrades to it, and asking for it by version is refused.</p>
 }
 else if (!isLatest)
 {
@@ -60,7 +60,7 @@ else if (!isLatest)
 
 @if (p.Name == "pkg")
 {
-    <p class="note">New to Pkg? <a href="/downloads">Download it</a> first: this command is for keeping it up to date.</p>
+    <p class="note">New to pkg? <a href="/downloads">Download it</a> first: this command is for keeping it up to date.</p>
 }
 <h2 class="label" id="install">Install it</h2>
 <partial name="_Install" model="(p, v, url)" />
@@ -193,7 +193,7 @@ else if (!isLatest)
             }
         </dd>
         <dt>First seen</dt><dd>@Site.Date(v.Published)</dd>
-        <dt>Signed by</dt><dd><a href="/publishers/@v.Signer">@(Publishers.Names().GetValueOrDefault(v.Signer ?? "") ?? "key")</a> <code title="@v.Signer">@Site.Short(v.Signer)</code> <span class="muted small">Ed25519; Pkg pins this key at the first install · <a href="/trust">what this means</a></span></dd>
+        <dt>Signed by</dt><dd><a href="/publishers/@v.Signer">@(Publishers.Names().GetValueOrDefault(v.Signer ?? "") ?? "key")</a> <code title="@v.Signer">@Site.Short(v.Signer)</code> <span class="muted small">Ed25519; pkg pins this key at the first install · <a href="/trust">what this means</a></span></dd>
         <dt>Manifest</dt><dd><a href="/@ch.Name/objects/@(v.Line.Digest).manifest">@Site.Short(v.Line.Digest)</a> · <a href="/@ch.Name/objects/@(v.Line.Digest).sig">signature</a></dd>
     </dl>
 </section>
@@ -217,7 +217,7 @@ else if (!isLatest)
         <dt>Signer</dt><dd><a href="/publishers/@v.Signer"><code>@Site.Short(v.Signer)</code></a></dd>
     </dl>
     <div class="cmd"><code>@show</code><button class="copy" data-copy="@show">Copy</button></div>
-    <p class="muted small">Checks the signature and digests of every version of @p.Name in the channel. To check it without Pkg: <a href="/trust">by hand</a>.</p>
+    <p class="muted small">Checks the signature and digests of every version of @p.Name in the channel. To check it without pkg: <a href="/trust">by hand</a>.</p>
     <p class="small"><a href="@issue" rel="nofollow noopener">Report a problem with this version</a></p>
 </section>
 <section>

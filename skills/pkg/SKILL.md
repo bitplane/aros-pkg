@@ -1,11 +1,11 @@
 ---
 name: pkg
-description: Drive Pkg, the AROS package tool, on behalf of a person - publish a program or a system component into a channel, install, upgrade, roll back, verify and remove it in a root, check a root for updates and update everything (unattended too), inspect a channel, mount an application image, on macOS, Linux, Windows or AROS. Use when asked to package, ship, install, update or remove AROS software, or to explain a Pkg refusal.
+description: Drive pkg, the AROS package tool, on behalf of a person - publish a program or a system component into a channel, install, upgrade, roll back, verify and remove it in a root, check a root for updates and update everything (unattended too), inspect a channel, mount an application image, on macOS, Linux, Windows or AROS. Use when asked to package, ship, install, update or remove AROS software, or to explain a pkg refusal.
 ---
 
-# Pkg, for agents
+# pkg, for agents
 
-Pkg moves AROS software from where it is built to where it runs, signed at
+pkg moves AROS software from where it is built to where it runs, signed at
 every step. Most people will never type its commands; you will. Decisions that belong to whoever requested the work (called the requester
 below: a person, or a supervising agent that holds the authority) are never
 taken by the tool, and must not be taken by you. The tool is
@@ -24,20 +24,20 @@ to the person rather than editing their shell profile. Without installing,
 `make` builds `build/pkg`. `pkg HELP` names the version and lists every verb
 and keyword.
 
-To put Pkg on an AROS machine: build it for each CPU (`sh tools/build-aros.sh`
+To put pkg on an AROS machine: build it for each CPU (`sh tools/build-aros.sh`
 for aarch64, `sh tools/build-aros-x86_64.sh` for x86_64; `make` alone builds
 only the host's `pkg`), then `make aros-channel CHANNEL=<dir>` with
 `PKG_SIGNKEY` set. On AROS the directory has another name, the one that
 machine gives it (a shared volume `DEPOT:`, a drawer `Work:channel`); the
 person, or a startup script, runs `Execute <ch>/Install-Pkg <ch>` with that
 name, `Execute DEPOT:Install-Pkg DEPOT:` for a volume root. Never tell the
-person a host path to type on AROS. Never copy a Pkg binary into C: by hand:
+person a host path to type on AROS. Never copy a pkg binary into C: by hand:
 installed through its channel, it is verified and can upgrade itself.
-Pkg in a channel is signed like any package, by whoever makes that
+pkg in a channel is signed like any package, by whoever makes that
 channel; a machine that installs it from there trusts that key for `pkg`.
-Putting Pkg and the person's programs in the same channel is the simple
+Putting pkg and the person's programs in the same channel is the simple
 case: one location for the friend, one key.
-Programs that link Pkg instead of running it use `include/pkg.h`, which
+Programs that link pkg instead of running it use `include/pkg.h`, which
 lists every field each operation answers; its `item` callback gives the
 multi-field records with their fields apart; `examples/basic.c` and
 `examples/browse.c` show both uses.
@@ -94,7 +94,7 @@ choice with its reason. Read it before guessing.
   cookie it is lower-cased (`Guru` becomes `guru`, `identify.library`
   stays). Other commands refer to it by exactly that name.
 
-**Kinds.** The first version of a package names one; Pkg refuses to guess.
+**Kinds.** The first version of a package names one; pkg refuses to guess.
 Later versions take it from the last one published (`kind-from:`).
 
 | `KIND` | For | Installed as |
@@ -107,12 +107,12 @@ Later versions take it from the last one published (`kind-from:`).
 
 When unsure between `image` and `application`, it is `image`; the
 requester decides if they want otherwise. Keep a package's kind from one
-version to the next: Pkg warns when it changes.
+version to the next: pkg warns when it changes.
 
 **Several CPUs.** One version may be published for several CPUs (aarch64
 for hosted AROS, x86_64 for native, m68k); the architecture is read from
 the binaries. When installing from a host into a root for an AROS machine,
-pass `ARCH <cpu>` the first time; the root remembers it. Pkg running on
+pass `ARCH <cpu>` the first time; the root remembers it. pkg running on
 AROS knows its own CPU and needs no `ARCH` (so `Install-Pkg` passes none).
 A refusal "offered for several CPUs" means exactly that. Publish each CPU's build separately,
 same name and version.
@@ -125,7 +125,7 @@ to run, and names the components it needs with `DEPENDS`.
 ## Rules
 
 0. **An `ignored:` record is not an error.** A manifest may carry keys for
-   other distribution systems; Pkg keeps them and reports them. If an
+   other distribution systems; pkg keeps them and reports them. If an
    ignored key looks like a known one misspelt (`Categroy`), tell the
    requester; do not fix the manifest yourself.
 1. **Publishing is permanent.** A channel has no unpublish. Run the command
@@ -133,7 +133,7 @@ to run, and names the components it needs with `DEPENDS`.
    `architecture:`, `depends:`, `file:` and `signer:`; compare them with the
    versions already published (`SHOW <name> CHANNEL <dir>`). When unsure,
    publish to a scratch channel first.
-2. **Never pass `ACCEPTKEY` or `DOWNGRADE` on your own.** Pkg never suggests
+2. **Never pass `ACCEPTKEY` or `DOWNGRADE` on your own.** pkg never suggests
    them; only the person's answer does.
 3. **Never change `.pkg/` in a root, or `objects/` in a channel, by hand**;
    reading them does no harm, but `LIST`, `SHOW` and `TRACE` say the same
@@ -143,7 +143,7 @@ to run, and names the components it needs with `DEPENDS`.
    clean up what is left; otherwise show them the `orphan:` lines `REMOVE`
    printed.
 5. **One key per publisher, kept.** Every later version of a package must be
-   signed with the key that signed its first version; Pkg refuses to publish
+   signed with the key that signed its first version; pkg refuses to publish
    it otherwise. So: if the package already exists in the channel (`SHOW
    <name> CHANNEL <dir>` names its signer), find that key and use it, never
    make a new one (`pkg KEYINFO FILE <keyfile>` names the public key a file
@@ -177,7 +177,7 @@ it does: the package goes into a channel on this disk, and nothing reaches
 a portal until `PUSH`. Never tell the person their package is published on
 a portal because `PUBLISH` succeeded.
 
-Name and version come from the drawer's `$VER` cookie when it has one; Pkg
+Name and version come from the drawer's `$VER` cookie when it has one; pkg
 refuses with 20, listing them, when cookies name different programs. Then
 pass `NAME`, and `VERSION` follows from that program's cookie; if the only
 cookie has another name (`afs.handler` packaged as `afs-handler`), its
@@ -188,7 +188,7 @@ mixed CPUs are refused. Host metadata is left out and each file named in a
 `.backdrop`), `Icon\r`, `Thumbs.db`, `desktop.ini`. `Name.info` icons stay.
 
 PUBLISH creates the channel directory if it does not exist (`hint:` says
-so). A program shows `architecture: generic` only when Pkg found no
+so). A program shows `architecture: generic` only when pkg found no
 executable header in it: for a real AROS binary that means the drawer holds
 something else than the build (a script, a copy, the wrong file); check.
 
@@ -249,7 +249,7 @@ Tell the requester about each `.pkgnew`: merging it is their call. An
 UPGRADE refused with 15 because a file "was edited" means that file was not
 declared: never overwrite the edit, report it.
 
-**Protection bits and comments.** On AROS, Pkg publishes each file's own.
+**Protection bits and comments.** On AROS, pkg publishes each file's own.
 On a Mac, Linux or Windows, the files have none, so they come from a text
 file named `.ameta` in each drawer directory (one per directory, the format
 of the planning repository's `docs/features/file-metadata/ameta.md`):
@@ -264,7 +264,7 @@ comment Starts%20the%20tool
 `prot` is the AROS protection word (0x40 Script, 0x01 Delete forbidden, ...),
 the comment is percent-escaped UTF-8. Owner Execute comes from the host mode
 instead: `chmod +x` the programs, and a file without it installs with Execute
-forbidden. Everything else is allowed unless `.ameta` says so. Pkg refuses a
+forbidden. Everything else is allowed unless `.ameta` says so. pkg refuses a
 malformed or stale `.ameta` line, a comment over 79 characters or outside
 Latin-1, naming it; it never packages `.ameta` itself. The attributes go in
 the signed manifest (`Protect:`, `Comment:`), into an image's file headers,
@@ -272,7 +272,7 @@ onto the files on AROS, and into `.ameta` again when installing into a
 folder on a host.
 
 **The wrong program in the drawer** is the commonest slip: an old build, or
-another program copied under the new one's name. Pkg warns when a file's
+another program copied under the new one's name. pkg warns when a file's
 `$VER` names another program than its file name says, and refuses a name
 taken from a cookie that would replace a published package of another kind.
 Read the dry run's `name:`, `version:` and `version-from:` against what the
@@ -283,14 +283,14 @@ names the package.
 published in the channel, and says so (`kind-from:`, `depends-from:`); pass
 them only to change them, `DEPENDS none` for a version that needs nothing.
 `ARCH` comes from the binaries as always. Before publishing it,
-check that the drawer holds the new build: Pkg warns when `VERSION`
+check that the drawer holds the new build: pkg warns when `VERSION`
 contradicts the program's own `$VER` cookie (often the old build copied by
 mistake), when a dependency of the previous version is missing, and when
 the kind changes. The dry run compares the new version with the last one
 published, file by file: `compared-with:`, then `changed:` (with old and new
 size), `same:`, `added:`, `gone:`. A program that should have changed and
 shows `same:`, or changed by a few bytes while its `$VER` still gives the old
-version (Pkg warns about that one by name), is the old build: ask rather
+version (pkg warns about that one by name), is the old build: ask rather
 than publish it.
 
 **One CPU ahead of another** (an x86_64 fix, the aarch64 build not ready):
@@ -402,7 +402,7 @@ and that is the exit code: do what `next:` says, and once the requester
 has decided (a new key: on their word, `UPGRADE <that name> ...
 ACCEPTKEY <key>`), run UPGRADE ALL again; it takes what waited.
 
-**Unattended.** Pkg has no scheduler and no daemon, and needs neither:
+**Unattended.** pkg has no scheduler and no daemon, and needs neither:
 nothing it does ever prompts or reads stdin, so a startup script, cron,
 launchd or the Task Scheduler runs these lines as they are. When the
 person asks for updates to happen by themselves, write that line into
@@ -436,12 +436,12 @@ Nothing published is ever deleted; three things are possible instead.
   requester's decision.
 - **Its files in the channel are damaged** (SHOW says `integrity` or
   `signature`): its publisher publishes the same drawer again, same name and
-  version, same key. Pkg writes the damaged objects again and answers
+  version, same key. pkg writes the damaged objects again and answers
   `repaired`. Without the original drawer and key it cannot be repaired:
   say so, and WITHDRAW it if the key is at hand.
 - **Meanwhile**, anyone can install an intact version by asking for it
   with `VERSION`. A withdrawn version is skipped on its own; a damaged one
-  is not: Pkg refuses rather than quietly installing something older.
+  is not: pkg refuses rather than quietly installing something older.
 
 ## Running an application image on AROS
 
@@ -523,4 +523,4 @@ with `options results`, RESULT is the output and RC the class code, and
 
 `tools/make-test-kit.sh` writes `build/pkg-test-kit.zip`, which runs the
 contract sequence on Windows, macOS or Linux with `run.ps1` and writes
-`report.txt`. Ask the person to run it on a host Pkg has not met before.
+`report.txt`. Ask the person to run it on a host pkg has not met before.

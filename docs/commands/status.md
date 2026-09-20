@@ -55,4 +55,4 @@ not installed: exit 11, `next: use-install`.
 ## Related
 
 [UPGRADE](upgrade.md) and `UPGRADE ALL`, [VERIFY](verify.md),
-[Using Pkg](../using.md#keep-it-current).
+[Using pkg](../using.md#keep-it-current).

@@ -68,5 +68,5 @@ image's catalogue fields.
 
 ## Related
 
-[Using Pkg](../using.md#programs-as-images), [IMAGE](image.md),
+[Using pkg](../using.md#programs-as-images), [IMAGE](image.md),
 [INSTALL](install.md).

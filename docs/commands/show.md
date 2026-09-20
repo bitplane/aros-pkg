@@ -59,7 +59,7 @@ version (and its fields apart for a program), `problem:` for a bad one,
 `tag:`, `author:`, `homepage:`, `repository:`, `license:`,
 `distribution:`, `description:`, `changes:`) for `SHOW <name>`, `count:`,
 `bad:`, `warning:` when a package is signed by more than one key,
-`ignored: name version key` for each manifest key Pkg does not know (for a
+`ignored: name version key` for each manifest key pkg does not know (for a
 person: `ignored, for other systems: X-Aminet-Type` under the row).
 
 ## Related

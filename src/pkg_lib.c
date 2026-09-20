@@ -747,7 +747,7 @@ static int cmd_keygen(const struct pkg_options *a)
         int typed = machine ? -2 : pkg_fs_random_typed(seed, sizeof seed);
         if (typed == -2)
             return refuse_c(17, "this system has no random source, and a key made without one could be "
-                            "guessed: run KEYGEN in a Shell window, where Pkg makes it from the moments "
+                            "guessed: run KEYGEN in a Shell window, where pkg makes it from the moments "
                             "you press keys, or make the key on a Mac or a PC and bring the file here");
         if (typed != 0)
             return refuse_c(17, "the key was not made: typing stopped before there was enough of it");
@@ -795,7 +795,7 @@ static int load_key(const char *path, struct key *k)
         || fromhex(seed, sizeof seed, seedhex) != 0
         || fromhex(pk, sizeof pk, pubhex) != 0) {
         free(buf);
-        return refuse_c(12, "\"%s\" is not a Pkg key file", path);
+        return refuse_c(12, "\"%s\" is not a pkg key file", path);
     }
     memset(buf, 0, len);
     free(buf);
@@ -1427,9 +1427,12 @@ static int cookie(const struct loaded *f, char *name, size_t nl, char *ver, size
             name[a++] = (char)tolower(p[k++]);
         name[a] = '\0';
         while (k < f->len && p[k] == ' ') k++;
-        while (k < f->len && ((p[k] >= '0' && p[k] <= '9') || p[k] == '.') && b + 1 < vl)
+        /* digits and dots, then one +build if the program carries one:
+         * "$VER: pkg 1.7.0+20260920" is published as that whole version, not
+         * as 1.7.0, so two builds of one day and the next are two versions. */
+        while (k < f->len && ((p[k] >= '0' && p[k] <= '9') || p[k] == '.' || p[k] == '+') && b + 1 < vl)
             ver[b++] = (char)p[k++];
-        while (b > 0 && ver[b - 1] == '.') b--;
+        while (b > 0 && (ver[b - 1] == '.' || ver[b - 1] == '+')) b--;
         ver[b] = '\0';
         if (a > 0 && b > 0 && pkg_check_name(name) == NULL && pkg_check_version(ver) == NULL)
             return 1;
@@ -2678,7 +2681,7 @@ static int build(const struct pkg_options *a, struct built *out)
     if (kind_src == NULL && strcmp(verb_name, "publish") == 0) {
         drawer_free(&d);
         return refuse_c(20, "no KIND given, and no version of %s is published in this channel to "
-                        "take it from; Pkg does not guess what a package is. KIND image for "
+                        "take it from; pkg does not guess what a package is. KIND image for "
                         "a program people run, installed as one volume to mount; application "
                         "for a program installed as loose files; library, device (handlers "
                         "too), class, font or catalog for what other programs use, in Libs, "
@@ -3954,7 +3957,7 @@ static int fetch_from_dir(const char *dir, struct fetched *f, const char *prefix
         if (full == NULL) { refuse("out of memory"); goto done; }
         if (pkg_fs_read(full, &buf, &len) != 0) {
             refuse_c(11, "the unpacked archive at %s lacks %s, which %s's signed manifest lists; "
-                     "unpack the archive again, or leave UNPACKED off and let Pkg read the "
+                     "unpack the archive again, or leave UNPACKED off and let pkg read the "
                      "archive. Nothing was installed", dir, rel, what);
             free(full);
             goto done;
@@ -4130,7 +4133,7 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
     {
         size_t k;
         for (k = 0; k < f->m.ignored.n; k++)
-            tr("%s: ignored the key %s, which Pkg does not know", what, f->m.ignored.v[k]);
+            tr("%s: ignored the key %s, which pkg does not know", what, f->m.ignored.v[k]);
     }
     if (strcmp(f->m.name, e->name) != 0 || pkg_version_cmp(f->m.version, e->version) != 0
         || (f->m.payload == NULL) == (f->m.source == NULL)) {
@@ -4545,7 +4548,7 @@ static int ameta_set(const char *root, const char *rel, unsigned long long prot,
         pkg_ameta_init(&a);
         if (id.exists && t_read(path, &buf, &len) != 0) break;
         if (id.exists && (pkg_ameta_parse(buf, len, &a) != 0 || !a.usable)) {
-            warn("%s is not an .ameta this Pkg can write: %s's attributes were not recorded",
+            warn("%s is not an .ameta this pkg can write: %s's attributes were not recorded",
                  path, rel);
             free(buf); pkg_ameta_free(&a);
             attempt = 5;
@@ -4773,7 +4776,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             return refuse_c(15, "\"%s\" was edited since %s %s was installed, and %s %s ships it too; "
                           "nothing was changed. The edit belongs to whoever made it: the requester decides whether "
                           "to keep it elsewhere first. A publisher who means it to be edited declares it "
-                          "with CONFIG, and Pkg then keeps the edit", of->path, old->name, old->version,
+                          "with CONFIG, and pkg then keeps the edit", of->path, old->name, old->version,
                           m->name, m->version);
         }
     }
@@ -5058,7 +5061,7 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
     }
     if (e->withdrawn)
         return refuse_n(18, "ask-requester", "%s %s was withdrawn by its publisher in %s; nothing "
-                        "was changed. Installing it anyway is the requester's decision, and Pkg "
+                        "was changed. Installing it anyway is the requester's decision, and pkg "
                         "does not take it", e->name, e->version, chan_of(e));
     if (min != NULL && pkg_version_cmp(e->version, min) < 0)
         return refuse_c(16, "%s needs %s >= %s, and the highest the channel offers is %s; "
@@ -5367,7 +5370,7 @@ static int cmd_mountlist(const struct pkg_options *a)
     }
     if (a->out == NULL)
         hint("Mount reads the entry from a file named after the device: add OUT <file>, "
-             "for example OUT RAM:%s, and Pkg writes it", m.name);
+             "for example OUT RAM:%s, and pkg writes it", m.name);
     if (!handler[0])
         hint("no FFS handler is installed in this root, so the entry relies on the system's. "
              "Native AROS has one; hosted AROS built on macOS has none: there, install one "
@@ -6097,7 +6100,7 @@ static int cmd_publish(const struct pkg_options *a)
         && (strcmp(b.m.kind, "image") == 0 || strcmp(b.m.kind, "application") == 0
             || strcmp(b.m.kind, "library") == 0 || strcmp(b.m.kind, "device") == 0
             || strcmp(b.m.kind, "class") == 0))
-        warn("no executable in the drawer: kind %s is usually a program, and Pkg found no ELF or "
+        warn("no executable in the drawer: kind %s is usually a program, and pkg found no ELF or "
              "hunk header, so it is published as generic, for every CPU. Check the drawer holds "
              "the build, not a script or a placeholder", b.m.kind);
     /* A version is named by its manifest, which names its payload. */
@@ -6992,7 +6995,7 @@ static int cmd_verify(const struct pkg_options *a)
             if (!machine)
                 say_result("%s %s: moved by hand, every file intact where it is now", m.name, m.version);
             hint("moving an installed drawer is the person's right, and the package stays listed. "
-                 "REMOVE and UPGRADE act on the places Pkg recorded: the moved files are left "
+                 "REMOVE and UPGRADE act on the places pkg recorded: the moved files are left "
                  "where they are, and an upgrade installs beside them");
             pkg_manifest_free(&m);
             return 0;
@@ -8006,9 +8009,9 @@ static int cmd_remove(const struct pkg_options *a)
     /* Pkg removing itself leaves the root's records and pinned keys, which a
      * later Pkg picks up; say so, since nothing else would. */
     if (!dryrun && strcmp(m.name, "pkg") == 0)
-        hint("Pkg is gone, but %s%s.pkg still holds what is installed, the keys pinned for it "
-             "and the downloads; a later Pkg takes over from there, and the guide to removing "
-             "Pkg says what to delete when nothing should stay", a->root,
+        hint("pkg is gone, but %s%s.pkg still holds what is installed, the keys pinned for it "
+             "and the downloads; a later pkg takes over from there, and the guide to removing "
+             "pkg says what to delete when nothing should stay", a->root,
              *a->root && strchr(":/", a->root[strlen(a->root) - 1]) ? "" : "/");
     pkg_manifest_free(&m);
     return 0;
@@ -8210,7 +8213,7 @@ static int cmd_channel(const struct pkg_options *a)
         }
         if (cl.n >= PKG_MAX_CHANNELS) {
             chanlist_free(&cl);
-            return refuse_c(15, "%s already lists %d channels, which is as many as Pkg reads at "
+            return refuse_c(15, "%s already lists %d channels, which is as many as pkg reads at "
                             "once; remove one first", a->root, PKG_MAX_CHANNELS);
         }
         if (!dryrun) {
@@ -8609,7 +8612,7 @@ static int api_words(const char *channel, const char *const *words, unsigned nwo
                 || !json_str(rec, "version", x.version, sizeof x.version)
                 || !json_str(rec, "channel", chn, sizeof chn)) {
                 free(buf);
-                tr("a record of the portal's answer is not what Pkg expects: reading %s the long way",
+                tr("a record of the portal's answer is not what pkg expects: reading %s the long way",
                    channel);
                 goto out;
             }
@@ -9336,6 +9339,7 @@ static int push_path_ok(const char *rel)
             if (!((plat[k] >= 'a' && plat[k] <= 'z') || (plat[k] >= '0' && plat[k] <= '9')
                   || plat[k] == '-' || plat[k] == '_'))
                 return 0;
+        /* the file itself: Pkg on AROS, as AmigaDOS names a command, pkg on a host */
         return strcmp(slash + 1, "Pkg") == 0 || strcmp(slash + 1, "pkg") == 0
                || strcmp(slash + 1, "pkg.exe") == 0;
     }
@@ -9490,7 +9494,7 @@ static int push_send(struct push_auth *pa, const char *method, const char *url, 
         char why[500] = "", nx[500] = "";
         answer_field(out, "reason", why, sizeof why);
         answer_field(out, "next", nx, sizeof nx);
-        snprintf(err, errlen, "%s%s%s", why[0] ? why : "the portal asks for a newer Pkg", nx[0] ? ". " : "", nx);
+        snprintf(err, errlen, "%s%s%s", why[0] ? why : "the portal asks for a newer pkg", nx[0] ? ". " : "", nx);
         return -1;
     }
     return 0;

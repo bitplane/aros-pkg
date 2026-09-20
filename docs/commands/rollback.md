@@ -47,4 +47,4 @@ rolled back helloworld from 1.1 to 1.0 in aros: 2 placed, 0 removed
 
 ## Related
 
-[UPGRADE](upgrade.md), [Using Pkg](../using.md#go-back).
+[UPGRADE](upgrade.md), [Using pkg](../using.md#go-back).

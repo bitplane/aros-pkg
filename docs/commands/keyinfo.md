@@ -12,7 +12,7 @@ pkg KEYINFO FILE <keyfile> [SSH]
 
 Prints the public key of a key file, the part you may share: it is what
 `SHOW` prints as the signer and what `ACCEPTKEY` takes. Checks that the file
-is a Pkg key and that its public half matches its secret (exit 12 when it
+is a pkg key and that its public half matches its secret (exit 12 when it
 is damaged).
 
 With `SSH`, prints the same key as OpenSSH writes one, `ssh-ed25519`, the
@@ -29,9 +29,9 @@ key written to my.key, readable by you alone
 $ pkg KEYINFO FILE my.key
 my.key holds the public key e7b8fc13ae67ec39af29ad1e2ee75e2396109320d24d4c8e6f0662f1f4e429f8
 $ pkg KEYINFO FILE my.key SSH
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMbHZTekukTHuaTA7px2CAjMXNjZvrHEGqyLV4Q3g7xh my
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPgF3OD5jHTVVnR2cKnhCjg110tAoccGu7L8/3CrsoYO my
 $ pkg KEYINFO FILE channel/index    # exits 12
-pkg keyinfo: "channel/index" is not a Pkg key file
+pkg keyinfo: "channel/index" is not a pkg key file
   next: stop here: the bytes or signatures are not what was published, and no keyword or other channel makes that safe
 ```
 

@@ -76,8 +76,8 @@
 }
 @if (usage.Count > 0)
 {
-    <h2 class="label">Pkg in use</h2>
-    <p class="muted">Totals only: for each day, how many channel reads, package downloads and pushes came from each Pkg version, system and CPU. Those three words are all Pkg says about itself, and all the portal keeps: no addresses, no identifiers, no count of people. <a href="/privacy">What is kept, and what is not</a>.</p>
+    <h2 class="label">pkg in use</h2>
+    <p class="muted">Totals only: for each day, how many channel reads, package downloads and pushes came from each pkg version, system and CPU. Those three words are all pkg says about itself, and all the portal keeps: no addresses, no identifiers, no count of people. <a href="/privacy">What is kept, and what is not</a>.</p>
     <div class="stats">
         <div><strong>@usage.Where(u => u.Kind == Usage.Reads).Sum(u => u.Count).ToString("N0")</strong><span>channel reads</span></div>
         <div><strong>@usage.Where(u => u.Kind == Usage.Downloads).Sum(u => u.Count).ToString("N0")</strong><span>packages taken</span></div>
@@ -99,7 +99,7 @@
     <section>
         <h3 class="label">By version</h3>
         <table class="list">
-            <thead><tr><th>Pkg</th><th class="hide-s">Systems</th><th class="num">Reads</th><th class="num">Packages</th></tr></thead>
+            <thead><tr><th>pkg</th><th class="hide-s">Systems</th><th class="num">Reads</th><th class="num">Packages</th></tr></thead>
             <tbody>
             @foreach (var g in usage.GroupBy(u => u.Version).OrderByDescending(g => g.Sum(u => u.Count)).Take(12))
             {
@@ -135,10 +135,10 @@
 }
 
 <h2 class="label">Downloads</h2>
-<p class="muted small">Counted here: signed packages the portal serves, and the ways of getting Pkg. Not counted: archives such as the nightly contrib build, which come straight from their makers' servers, and manifests, which every Pkg reads just to look at a channel.</p>
+<p class="muted small">Counted here: signed packages the portal serves, and the ways of getting pkg. Not counted: archives such as the nightly contrib build, which come straight from their makers' servers, and manifests, which every pkg reads just to look at a channel.</p>
 <div class="stats">
     <div><strong class="@(payloadDownloads == 0 ? "zero" : "")">@payloadDownloads.ToString("N0")</strong><span>package downloads</span></div>
-    <div><strong class="@(getPkg.Sum(k => k.Value) == 0 ? "zero" : "")">@getPkg.Sum(k => k.Value).ToString("N0")</strong><span>Pkg downloads</span></div>
+    <div><strong class="@(getPkg.Sum(k => k.Value) == 0 ? "zero" : "")">@getPkg.Sum(k => k.Value).ToString("N0")</strong><span>pkg downloads</span></div>
 </div>
 @if (getPkg.Count > 0 || mostDownloaded.Count > 0)
 {
@@ -160,7 +160,7 @@
     <section>
         @if (getPkg.Count > 0)
         {
-            <h3 class="label">Pkg, by download</h3>
+            <h3 class="label">pkg, by download</h3>
             <table class="list">
                 <tbody>
                 @foreach (var k in getPkg)
@@ -193,7 +193,7 @@
 @if (upstream.Count > 0)
 {
     <h2 class="label">Archives kept by their makers</h2>
-    <p class="muted small">Packages whose files stay in an archive published elsewhere. The portal holds none of these bytes; Pkg downloads each archive once and checks it against the signed manifest.</p>
+    <p class="muted small">Packages whose files stay in an archive published elsewhere. The portal holds none of these bytes; pkg downloads each archive once and checks it against the signed manifest.</p>
     <div class="stats">
         <div><strong>@upstream.Count</strong><span>archive@(upstream.Count == 1 ? "" : "s")</span></div>
         <div><strong>@Site.Size(upstream.Sum(u => u.Size))</strong><span>not stored on the portal</span></div>

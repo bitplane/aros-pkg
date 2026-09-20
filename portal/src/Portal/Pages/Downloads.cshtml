@@ -5,7 +5,7 @@
 @inject IOptions<PortalOptions> Options
 @{
     ViewData["Title"] = "Downloads";
-    // Pkg comes from the channel that carries it: "pkg" unless pinned elsewhere.
+    // pkg comes from the channel that carries it: "pkg" unless pinned elsewhere.
     var pkgHome = Catalogue.Pinned().FirstOrDefault(p => p.Name == "pkg")?.Channel ?? "pkg";
     var ch = Catalogue.Get(pkgHome);
     var pkg = ch?.Packages.GetValueOrDefault("pkg");
@@ -13,7 +13,7 @@
 <h1 class="sr-only">Downloads</h1>
 @if (ch is null || pkg is null)
 {
-    <p class="muted">Pkg is not published yet.</p>
+    <p class="muted">pkg is not published yet.</p>
     return;
 }
 @{
@@ -32,14 +32,14 @@
         "linux-x86_64" => "Linux x86_64", "linux-arm64" => "Linux aarch64", _ => "Windows",
     };
 }
-<p class="lead">Pkg @pkg.Latest.Version, the one program that installs the rest. Let it install itself with one line; it lands as a signed package, and <code>Pkg UPGRADE pkg</code> keeps it current from then on.</p>
+<p class="lead">pkg @pkg.Latest.Version, the one program that installs the rest. Let it install itself with one line; it lands as a signed package, and <code>Pkg UPGRADE pkg</code> keeps it current from then on.</p>
 
 <div class="grid">
 <div>
     <h2 class="label">On AROS</h2>
     <p>With a network and <code>wget</code> (AROS One, Icaros, the nightly with its contrib), in a Shell:</p>
     <div class="cmd lines"><code>@getpkg</code><button class="copy" data-copy="@getpkg">Copy</button></div>
-    <p class="muted small">It fetches the Pkg for this machine's CPU, which then installs the signed <code>pkg</code> package from the portal. If <code>wget</code> ends at once without a word, it wants its settings file first: <code>Echo "" &gt;ENV:wgetcfg</code>. Without a network, take the drawer for your CPU on the right, copy it over, and run <code>Execute &lt;drawer&gt;/Install-Pkg &lt;drawer&gt;</code>.</p>
+    <p class="muted small">It fetches the pkg for this machine's CPU, which then installs the signed <code>pkg</code> package from the portal. If <code>wget</code> ends at once without a word, it wants its settings file first: <code>Echo "" &gt;ENV:wgetcfg</code>. Without a network, take the drawer for your CPU on the right, copy it over, and run <code>Execute &lt;drawer&gt;/Install-Pkg &lt;drawer&gt;</code>.</p>
 
     <h2 class="label">On macOS and Linux</h2>
     <p>In a terminal, to manage a hosted AROS, a disk image or a drawer from your computer:</p>
@@ -53,12 +53,12 @@
 
     <h2 class="label">Then</h2>
     <div class="cmd"><code>@upgrade</code><button class="copy" data-copy="@upgrade">Copy</button></div>
-    <p class="muted">keeps everything you installed current, Pkg included. Taking something out again: <a href="/docs/removing">Removing software</a>. Where packages come from: <a href="/channels">Channels</a>.</p>
+    <p class="muted">keeps everything you installed current, pkg included. Taking something out again: <a href="/docs/removing">Removing software</a>. Where packages come from: <a href="/channels">Channels</a>.</p>
 </div>
 <aside class="rail">
     <div class="card">
         <span class="eyebrow">Every file, for a machine that cannot fetch its own</span>
-        <span class="card-title">Download Pkg @pkg.Latest.Version</span>
+        <span class="card-title">Download pkg @pkg.Latest.Version</span>
         <span class="muted small">This is the way we like least: a file you download installs nothing by itself, and you check it yourself against the <a href="/trust">signed checksums</a>. The lines on the left do both for you.</span>
         <ul class="files">
         @foreach (var cpu in cpus)
@@ -72,7 +72,7 @@
             <li><a href="/get/@ch.Name/@platform">@HostName(platform)</a><span class="muted">@Site.Size(f.Size)</span></li>
         }
         </ul>
-        <span class="muted small">An AROS drawer is a channel of its own: unpack it and run <code>Execute &lt;drawer&gt;/Install-Pkg &lt;drawer&gt;</code>, which installs the signed package through Pkg's own checks.</span>
+        <span class="muted small">An AROS drawer is a channel of its own: unpack it and run <code>Execute &lt;drawer&gt;/Install-Pkg &lt;drawer&gt;</code>, which installs the signed package through pkg's own checks.</span>
     </div>
     <div class="card">
         <span class="eyebrow">Check what you downloaded</span>

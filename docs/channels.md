@@ -1,16 +1,16 @@
 # Channels
 
-A channel is where packages are published and where Pkg finds them: a
+A channel is where packages are published and where pkg finds them: a
 directory, or the same directory served over HTTP. It holds only signed
 files, so it can live anywhere, a disk, a share, a web server, without
-being trusted: Pkg checks every signature and every file itself.
+being trusted: pkg checks every signature and every file itself.
 
 ## Where a channel can be
 
 - **A directory** on a disk, a share or an image: `CHANNEL Work:channel` on
   AROS, `CHANNEL channel` on a Mac or a PC. This is how AROS reads channels.
 - **A web address**: `CHANNEL https://aros-pkg.azurewebsites.net/contrib-nightly`,
-  or `http://`. On macOS, Linux and Windows, Pkg reads a channel over the
+  or `http://`. On macOS, Linux and Windows, pkg reads a channel over the
   network exactly as it reads a directory, and keeps what it downloaded in
   a cache (`PKG_CACHE`, else `~/.cache/pkg`, or `%LOCALAPPDATA%\pkg-cache`
   on Windows). On AROS it is the same over `http://`, once the machine's
@@ -53,7 +53,7 @@ a channel whose packages live in someone else's archive:
   that does not answer to all three, or one a read cannot use, is thrown
   away and made again. Deleting it costs one slow install, nothing else.
 - `upstream/<sha256>/<archive>.d/`: a directory you unpacked the archive
-  into yourself (`tar xjf <archive> -C <that directory>`). Pkg reads it
+  into yourself (`tar xjf <archive> -C <that directory>`). pkg reads it
   without being told, and `UNPACKED <dir>` names one anywhere else. Every
   file is still weighed and hashed against the signed manifest.
 
@@ -82,11 +82,11 @@ sdl2 2.30 aarch64 07a2f17b1001fdf631e75e8b562f3a621da1f678cb8f6c3737f5cd383a0c92
 - `index`: one line per published version and CPU: name, version, CPU, and
   the SHA-256 of that version's description, its *manifest*.
 - A manifest is `key: value` lines, `Format: pkg-manifest 1` first. Keys
-  Pkg knows are read strictly; a key it does not know is kept in the signed
+  pkg knows are read strictly; a key it does not know is kept in the signed
   text, never acted on, and reported by `SHOW` as `ignored`, so a package
   can carry lines for other distribution systems, and a misspelt key
-  (`Categroy:`) is seen rather than silently lost. A `Format` Pkg does not
-  know is refused: a change Pkg must understand gets a new format number.
+  (`Categroy:`) is seen rather than silently lost. A `Format` pkg does not
+  know is refused: a change pkg must understand gets a new format number.
 - `objects/<digest>.manifest`: the manifest, named by its own SHA-256, and
   `<digest>.sig`, its signature. The manifest lists every file of the
   package with its size and SHA-256.
@@ -136,7 +136,7 @@ notes    1.0      image  generic  ok      5ff18d3fe14e383e
 $ kill %1
 ```
 
-Pkg follows redirects and understands chunked replies. For `https` it uses
+pkg follows redirects and understands chunked replies. For `https` it uses
 the system's `curl` on macOS, Linux and Windows, and its own client over
 Mbed TLS on AROS.
 
@@ -145,7 +145,7 @@ Mbed TLS on AROS.
 The package portal at `https://aros-pkg.azurewebsites.net` serves channels
 this way, over `https` and over plain `http`, and shows each package on a
 web page: its versions, dependencies, files,
-signer and catalogue. **Downloads** is where a newcomer starts (Pkg for
+signer and catalogue. **Downloads** is where a newcomer starts (pkg for
 every CPU and host), **Statistics** shows what each channel holds, and
 **Documentation** is these guides.
 
@@ -160,13 +160,13 @@ What the portal holds and enforces:
 - A package keeps the key of its first version: a push signed by another
   key is refused (14). A published file never changes (15), and a push
   never removes anything.
-- Every push is checked by the portal running Pkg itself (`SHOW ... METADATA`)
+- Every push is checked by the portal running pkg itself (`SHOW ... METADATA`)
   before anything is published. What that proves and what it cannot:
   [Signatures and trust](signing.md).
-- A portal can name the oldest Pkg it still works with (`Portal:Policy:MinPkg`).
-  An older Pkg is refused when it pushes, and when it reads if the portal
-  says so, with the version to update to; the channel Pkg itself comes
-  from, its bootstraps and the installers stay open to every version. Pkg
+- A portal can name the oldest pkg it still works with (`Portal:Policy:MinPkg`).
+  An older pkg is refused when it pushes, and when it reads if the portal
+  says so, with the version to update to; the channel pkg itself comes
+  from, its bootstraps and the installers stay open to every version. pkg
   names its version in `User-Agent` since 1.5.
 - A channel can be **unlisted**: served like any other to whoever has its
   address, and shown nowhere on the site (home page, search, statistics,
@@ -181,15 +181,15 @@ What the portal holds and enforces:
 - What the installers hand out is signed: `Bootstrap/SHA256SUMS` lists the
   SHA-256 of every host build, the AROS `Pkg` binaries, `Install-Pkg` and
   `ReadMe`, and `SHA256SUMS.sig` is that list signed by the channel owner's
-  key in OpenSSH's format, so `ssh-keygen -Y verify` checks it before Pkg
+  key in OpenSSH's format, so `ssh-keygen -Y verify` checks it before pkg
   exists on the machine ([Signatures and trust](signing.md#the-installers)).
 
 Publishers upload with `PUSH`; see
 [Publishing](publishing.md#upload-to-the-portal).
 
-### What Pkg tells a channel, and what the portal keeps
+### What pkg tells a channel, and what the portal keeps
 
-Every request Pkg makes names Pkg's version, the system and the CPU it was
+Every request pkg makes names pkg's version, the system and the CPU it was
 built for, and nothing else:
 
 ```
@@ -203,7 +203,7 @@ channel reads, packages taken and pushes. A line says "on this day, this
 many channel reads came from this build", and that is the whole of it: no
 addresses, no identifiers, no record of a single request, and no count of
 people, since a tally cannot tell one machine asking a hundred times from
-a hundred machines asking once. Anything that is not Pkg counts as
+a hundred machines asking once. Anything that is not pkg counts as
 `other`, and so does the rest of a day once a few hundred different builds
 have been seen, which is what stops invented names from growing the file.
 
@@ -244,7 +244,7 @@ Settings, in `appsettings.json` or as environment variables with `__`
 | Setting | Meaning |
 |---|---|
 | `Portal:DataDir` | where channels, staging and state live |
-| `Portal:PkgPath` | the Pkg binary that checks pushes |
+| `Portal:PkgPath` | the pkg binary that checks pushes |
 | `Portal:Keys` | `name:sha256-of-key:channel,channel;...`, one entry per publisher |
 | `Portal:PublicUrl` | the address shown in the commands on the pages |
 | `Portal:Pinned` | packages shown first on the home page, `channel/name` |

@@ -139,7 +139,7 @@ static int load_cas(char *err, size_t errlen)
     }
     rc = mbedtls_x509_crt_parse(&cas, pkg_ca_pem, (size_t)pkg_ca_pem_len + 1);
     if (rc < 0 || cas.version == 0) {
-        snprintf(err, errlen, "this Pkg was built without certificate authorities: rebuild it, "
+        snprintf(err, errlen, "this pkg was built without certificate authorities: rebuild it, "
                  "or name a bundle with PKG_CAFILE");
         mbedtls_x509_crt_free(&cas);
         return -1;
@@ -164,7 +164,7 @@ static void verify_words(unsigned long flags, const char *host, char *err, size_
 {
     char now[32];
     if (flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED) {
-        snprintf(err, errlen, "%s sends a certificate from an authority this Pkg does not know: if it is "
+        snprintf(err, errlen, "%s sends a certificate from an authority this pkg does not know: if it is "
                  "your own authority, name its file with PKG_CAFILE", host);
     } else if (flags & MBEDTLS_X509_BADCERT_CN_MISMATCH) {
         snprintf(err, errlen, "the certificate %s sends is made out to another name: name the channel with "

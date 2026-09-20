@@ -45,7 +45,7 @@ host_platforms="macos-arm64 macos-x86_64 linux-x86_64 linux-arm64 windows-x86_64
 # A build that did not say which day it came from is never published.
 for b in "$repo_root/build/aros/Pkg" "$repo_root/build/aros-x86_64/Pkg" "$pkg"; do
     [ -e "$b" ] || continue
-    if strings "$b" 2> /dev/null | grep -q '\$VER: Pkg .*+00000000'; then
+    if strings "$b" 2> /dev/null | grep -qi '\$VER: pkg .*+00000000'; then
         echo "make-aros-channel: $b was built without its day (+00000000); build it again" >&2
         exit 1
     fi
@@ -141,10 +141,10 @@ EOF
 Delete RAM:pkgboot.out QUIET >NIL:
 If "\$pkgboot" EQ ""
     If "\$pkgnoprobe" EQ "yes"
-        Echo "Pkg could not try its builds here: the lines above say which and why."
+        Echo "pkg could not try its builds here: the lines above say which and why."
     Else
-        Echo "None of the Pkg builds in the channel's Bootstrap drawer runs on this machine."
-        Echo "It holds Pkg for:$aros_cpus. For another CPU, take that CPU's drawer from the Downloads page."
+        Echo "None of the pkg builds in the channel's Bootstrap drawer runs on this machine."
+        Echo "It holds pkg for:$aros_cpus. For another CPU, take that CPU's drawer from the Downloads page."
         Echo "To see AROS's own reason, run one yourself: <CHANNEL>/Bootstrap/<cpu>/Pkg HELP"
     EndIf
     Assign PKGCH: REMOVE
@@ -152,12 +152,12 @@ If "\$pkgboot" EQ ""
 EndIf
 "\$pkgboot" INSTALL pkg ROOT "<ROOT>" CHANNEL PKGCH:
 If ERROR
-    Echo "Pkg did not install itself; the lines above say why."
+    Echo "pkg did not install itself; the lines above say why."
     Assign PKGCH: REMOVE
     Quit 20
 EndIf
 Assign PKGCH: REMOVE
-Echo "Pkg is in <ROOT>C. Try: Pkg HELP."
+Echo "pkg is in <ROOT>C. Try: Pkg HELP."
 Echo "To upgrade later, with the network started:"
 Echo "  Pkg UPGRADE pkg ROOT <ROOT> CHANNEL $channel_url"
 Echo "Without a network, bring the newer drawer from $homepage"
@@ -166,7 +166,7 @@ EOF
 } > "$ch/Install-Pkg"
 
 cat > "$ch/ReadMe" <<EOF
-This is a Pkg channel. To put Pkg on an AROS machine that can reach it:
+This is a pkg channel. To put pkg on an AROS machine that can reach it:
 
     Execute <this directory>/Install-Pkg <this directory>
 

@@ -1,4 +1,4 @@
-# Using Pkg
+# Using pkg
 
 This guide is for keeping software on an AROS system: finding it, installing
 it, keeping it current, checking it, repairing it and removing it.
@@ -95,12 +95,12 @@ $ pkg INSTALL helloworld VERSION 1.0 ROOT aros CHANNEL channel
 installed helloworld 1.0 into aros: 2 files, payload 7959be27f4ef, signed by 5ff18d3fe14e383e
 ```
 
-Without `VERSION`, Pkg installs the newest version. `helloworld` needs the
-library `hellolib`, so Pkg installs that first; everything is fetched and
+Without `VERSION`, pkg installs the newest version. `helloworld` needs the
+library `hellolib`, so pkg installs that first; everything is fetched and
 checked before a single file is placed, so a failure anywhere leaves your
 system as it was.
 
-The first time you install a package, Pkg remembers the key that signed it.
+The first time you install a package, pkg remembers the key that signed it.
 A later version signed by another key is refused (exit 14) until you
 decide, with `ACCEPTKEY` and the new key in full, that the change is
 legitimate.
@@ -121,7 +121,7 @@ any of them refused with.
 ### Where the files come from
 
 Some channels, the AROS contrib channel among them, publish packages whose
-files stay inside one large archive the AROS build makes. Pkg downloads that
+files stay inside one large archive the AROS build makes. pkg downloads that
 archive once into its cache and says where it put it. The first install that
 reads it writes a **block map** beside it, so every later install
 decompresses only the blocks holding its own files instead of the whole
@@ -136,7 +136,7 @@ and, with it, the cache directory, which `PKG_CACHE` moves elsewhere.
 
 If you would rather unpack the archive yourself, `UNPACKED <dir>` reads the
 files from a directory holding what the archive holds
-(`<dir>/<prefix>/<path>`). Unpack it into the cache and Pkg finds it without
+(`<dir>/<prefix>/<path>`). Unpack it into the cache and pkg finds it without
 being told:
 
 ```
@@ -185,7 +185,7 @@ nothing needs an update: 3 packages, none with a newer version in the channel
 the packages that need it, and goes as far as it can: a package it cannot
 update is named with the reason, and the others are updated anyway. Its
 exit code is the worst class of what it refused, not the first, which is
-what every Pkg command given several things to do does. It never downgrades
+what every pkg command given several things to do does. It never downgrades
 and never accepts a new key; those are decisions you make one package at a
 time. With several channels listed, `STATUS` and `UPGRADE ALL` name the
 channel each new version comes from.
@@ -202,7 +202,7 @@ nothing needs an update: 3 packages, none with a newer version in the channel
 ### Files you edit
 
 Some files are meant to be edited: preferences, startup scripts. A package
-declares them, and Pkg never overwrites your version. When a new version of
+declares them, and pkg never overwrites your version. When a new version of
 such a file arrives, it is set down beside yours with `.pkgnew` added to its
 name, and you merge what you want:
 
@@ -219,7 +219,7 @@ Colour=Blue
 ```
 
 Any other file you changed stops the update of that package (exit 15),
-because Pkg does not know whether the change is damage or your work.
+because pkg does not know whether the change is damage or your work.
 
 ### Go back
 
@@ -286,8 +286,8 @@ $ pkg REMOVE helloworld ROOT aros
 removed helloworld 1.0 from aros: 1 file removed, 1 kept
 ```
 
-Pkg removes only files that are as it installed them; a file you changed
-stays, and Pkg says so. A library installed only because something needed
+pkg removes only files that are as it installed them; a file you changed
+stays, and pkg says so. A library installed only because something needed
 it becomes an *orphan* when nothing needs it any more; remove orphans in
 one go:
 
@@ -296,9 +296,9 @@ $ pkg REMOVE ORPHANS ROOT aros
 nothing to remove: every installed package is wanted or needed by one that is
 ```
 
-Pkg refuses to remove a package that another installed package needs, and
-names which. To take Pkg itself off the system, or to move to a Pkg that
-cannot read this one's database, see [Removing Pkg](removing.md).
+pkg refuses to remove a package that another installed package needs, and
+names which. To take pkg itself off the system, or to move to a pkg that
+cannot read this one's database, see [Removing pkg](removing.md).
 
 ## Programs as images
 
@@ -353,7 +353,7 @@ SDL2.library resolves to Game/libs/SDL2.library 2.0
 [Libraries](libraries.md) explains the order AROS searches in, and what
 each verdict means.
 
-## When Pkg refuses
+## When pkg refuses
 
 A refusal says what happened, and the line after it what to do. The exit
 code names the kind of problem:
@@ -380,7 +380,7 @@ Codes 12, 13 and 14 protect you: never work around them. On AROS every
 refusal is 10 or more, so a script catches all of them with `If ERROR`,
 and `$RC` holds the exact code.
 
-For a script or a program that reads Pkg's answers, add `MACHINE`: every
+For a script or a program that reads pkg's answers, add `MACHINE`: every
 answer is then `key: value` lines, the same on every system.
 
 ```console
@@ -393,5 +393,5 @@ count: 3
 ```
 
 The [reference](reference.md) lists every line a command can answer. To
-find out why something happened, add `TRACE <file>`: Pkg writes every step
+find out why something happened, add `TRACE <file>`: pkg writes every step
 it took, every file it touched and every check it made.

@@ -46,7 +46,7 @@
 <p class="small"><a href="/channels/@ch.Name/feed">Feed of new versions</a> (Atom) · <a href="/api/search?channel=@ch.Name">as JSON</a></p>
 <h2 class="label">Use this channel</h2>
 <div class="cmd"><code>Pkg STATUS ROOT SYS: CHANNEL @url</code><button class="copy" data-copy="Pkg STATUS ROOT SYS: CHANNEL @url">Copy</button></div>
-<p class="muted small">Pkg reads this address on AROS as on a Mac or a PC. What you install is proven by its signature, not by the connection.</p>
+<p class="muted small">pkg reads this address on AROS as on a Mac or a PC. What you install is proven by its signature, not by the connection.</p>
 
 @if (builds.Count > 0)
 {
@@ -120,7 +120,7 @@
 @if (ch.Archives.Count > 0 || ch.Upstream.Count > 0)
 {
     <h2 class="label">Source archives</h2>
-    <p class="muted small">Packages whose files stay inside a published archive, such as a nightly contrib build. Pkg takes each package's files out and checks them one by one.</p>
+    <p class="muted small">Packages whose files stay inside a published archive, such as a nightly contrib build. pkg takes each package's files out and checks them one by one.</p>
     <ul class="plain">
     @foreach (var a in ch.Archives)
     {

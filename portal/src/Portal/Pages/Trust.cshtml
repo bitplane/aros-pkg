@@ -6,10 +6,10 @@
 @inject Publishers Publishers
 @{
     ViewData["Title"] = "Trust and signatures";
-    // The project's key: the one that signed the first published version of Pkg.
+    // The project's key: the one that signed the first published version of pkg.
     var pkgHome = Catalogue.Pinned().FirstOrDefault(p => p.Name == "pkg")?.Channel ?? "pkg";
     var pkg = Catalogue.Package(pkgHome, "pkg");
-    // Pkg's key now: the maintainers' transfer if any, else the key of its first version.
+    // pkg's key now: the maintainers' transfer if any, else the key of its first version.
     var firstKey = pkg?.Versions.OrderBy(v => v.Published).FirstOrDefault()?.Signer;
     var projectKey = Publishers.OwnerOf(pkgHome, "pkg", firstKey);
     var names = Publishers.Names();
@@ -23,28 +23,28 @@
 <div class="grid trust">
 <div>
 <h1>Who made this, and is it what they made?</h1>
-<p class="lead">Those are the two questions Pkg answers before anything touches your disk. Every package version is signed by the person who published it, and Pkg checks the signature and every file on your machine, every time, and tells you in plain words. This site holds no signing key: it cannot sign, change or replace a package, only refuse to publish one.</p>
+<p class="lead">Those are the two questions pkg answers before anything touches your disk. Every package version is signed by the person who published it, and pkg checks the signature and every file on your machine, every time, and tells you in plain words. This site holds no signing key: it cannot sign, change or replace a package, only refuse to publish one.</p>
 
 <h2 class="label">What you will see</h2>
 <p class="muted small">Each state has its own mark as well as its colour: <span class="s-ok"><span class="dot" data-mark="✓" aria-hidden="true"></span>it installs</span>, <span class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>it stops and asks you</span>, <span class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>it refuses.</span></p>
 <table class="list states">
     <tbody>
-        <tr><td class="s-ok"><span class="dot" data-mark="✓" aria-hidden="true"></span>ok</td><td>The signature matches the manifest, every file matches the manifest, and the key is the one your machine remembers for this package. Pkg installs.</td></tr>
-        <tr><td class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>key changed</td><td>This version is signed by another key than the one pinned at the first install. Pkg stops (exit 14), prints both keys, and goes on only if you accept the new one with <code>ACCEPTKEY</code>.</td></tr>
-        <tr><td class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>withdrawn</td><td>The publisher withdrew this version. It stays in the channel so nothing that refers to it breaks, and Pkg no longer installs it.</td></tr>
-        <tr><td class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>file differs</td><td>A file does not match the size and SHA-256 its manifest gives. Pkg refuses (exit 12) before it has written anything.</td></tr>
-        <tr><td class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>bad signature</td><td>The manifest is not what its publisher signed, or is not signed. Pkg refuses (exit 13).</td></tr>
+        <tr><td class="s-ok"><span class="dot" data-mark="✓" aria-hidden="true"></span>ok</td><td>The signature matches the manifest, every file matches the manifest, and the key is the one your machine remembers for this package. pkg installs.</td></tr>
+        <tr><td class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>key changed</td><td>This version is signed by another key than the one pinned at the first install. pkg stops (exit 14), prints both keys, and goes on only if you accept the new one with <code>ACCEPTKEY</code>.</td></tr>
+        <tr><td class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>withdrawn</td><td>The publisher withdrew this version. It stays in the channel so nothing that refers to it breaks, and pkg no longer installs it.</td></tr>
+        <tr><td class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>file differs</td><td>A file does not match the size and SHA-256 its manifest gives. pkg refuses (exit 12) before it has written anything.</td></tr>
+        <tr><td class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>bad signature</td><td>The manifest is not what its publisher signed, or is not signed. pkg refuses (exit 13).</td></tr>
     </tbody>
 </table>
 
 @if (projectKey is not null)
 {
-    <h2 class="label">Pkg's key</h2>
-    <p>Pkg itself is signed with this Ed25519 key@(names.GetValueOrDefault(projectKey) is { } owner ? $", the publisher {owner}" : ""). If it matters to you that the Pkg you install is the real one, compare it with the <em>Signer</em> that Pkg shows:</p>
+    <h2 class="label">pkg's key</h2>
+    <p>pkg itself is signed with this Ed25519 key@(names.GetValueOrDefault(projectKey) is { } owner ? $", the publisher {owner}" : ""). If it matters to you that the pkg you install is the real one, compare it with the <em>Signer</em> that pkg shows:</p>
     <div class="cmd wrapcode"><code>@keyLine</code><button class="copy" data-copy="@keyLine">Copy</button></div>
     @foreach (var old in earlier)
     {
-        <p class="note">Earlier versions of Pkg were signed by <a href="/publishers/@old">@(names.GetValueOrDefault(old) ?? Site.Short(old))</a> (<code>@Site.Short(old)</code>). A machine that installed one of them refuses the new key once, as Pkg should: accept it with <code>ACCEPTKEY @keyLine</code> after comparing it with the key above.</p>
+        <p class="note">Earlier versions of pkg were signed by <a href="/publishers/@old">@(names.GetValueOrDefault(old) ?? Site.Short(old))</a> (<code>@Site.Short(old)</code>). A machine that installed one of them refuses the new key once, as pkg should: accept it with <code>ACCEPTKEY @keyLine</code> after comparing it with the key above.</p>
     }
     <p class="muted small">Every key that signs packages here has its page: <a href="/publishers">Publishers</a>.</p>
 }
@@ -54,7 +54,7 @@
 
 <h2 class="label">What this site checks before it publishes</h2>
 <ol>
-    <li><strong>Pkg's own checks.</strong> Every upload is checked by Pkg itself: each signature, each digest, each withdrawal.</li>
+    <li><strong>pkg's own checks.</strong> Every upload is checked by pkg itself: each signature, each digest, each withdrawal.</li>
     <li><strong>A package keeps the key of its first version.</strong> A new version signed by another key is refused.</li>
     <li><strong>A published file never changes.</strong> An upload that would replace one is refused; a version can only be withdrawn by its publisher.</li>
 </ol>
@@ -69,17 +69,17 @@
     @if (pol.Push)
     {
         <li>@(pol.BinariesAllowed
-            ? "Binaries only from publishers the maintainers allow to upload them; every other publisher publishes by link: the signed manifest names an archive on an https server, and Pkg downloads it from there."
-            : "No binaries at all: every publisher publishes by link, the signed manifest naming an archive on an https server that Pkg downloads and checks.")</li>
+            ? "Binaries only from publishers the maintainers allow to upload them; every other publisher publishes by link: the signed manifest names an archive on an https server, and pkg downloads it from there."
+            : "No binaries at all: every publisher publishes by link, the signed manifest naming an archive on an https server that pkg downloads and checks.")</li>
         <li>Archives @(pol.Hosts.Count == 0 ? "on any https server" : $"on these hosts only: {string.Join(", ", pol.Hosts)}").</li>
         <li>@(pol.NewChannels ? "A publisher's first push may create its channel." : "Channels are created by the maintainers.")</li>
     }
     @if (pol.MinPkg.Trim().Length > 0)
     {
-        <li>This portal works with Pkg @pol.MinPkg.Trim() or later: an older one is told to update@(pol.MinPkgReads ? ", for reading channels as for pushing; the channel Pkg comes from stays open to every version" : " when it pushes").</li>
+        <li>This portal works with pkg @pol.MinPkg.Trim() or later: an older one is told to update@(pol.MinPkgReads ? ", for reading channels as for pushing; the channel pkg comes from stays open to every version" : " when it pushes").</li>
     }
     <li>@(pol.SignedPush ? "A publisher may push with requests signed by their own key instead of a key from the portal; nothing secret travels, and the portal holds no secret of theirs." : "A push needs https and a key from the portal.")</li>
-    <li>@(pol.PlainHttp ? "Everything is served over https. Plain http answers for one thing: the channel Pkg comes from and the scripts that install it, so that a Pkg older than 1.6, which has no TLS of its own, can reach one that has." : "Everything is served over https only, the way up included.")</li>
+    <li>@(pol.PlainHttp ? "Everything is served over https. Plain http answers for one thing: the channel pkg comes from and the scripts that install it, so that a pkg older than 1.6, which has no TLS of its own, can reach one that has." : "Everything is served over https only, the way up included.")</li>
 </ul>
 @if (pol.Note.Length > 0)
 {
@@ -92,11 +92,11 @@
 <p>To publish here: <a href="/publishers#publish">Publish on this portal</a>. What this portal knows about the people who use it, which is nothing that points at one: <a href="/privacy">Privacy</a>.</p>
 <p class="muted small">The same rules as JSON: <a href="/api/policy">/api/policy</a>. A refusal they cause names the rule, its value and this note.</p>
 
-<h2 class="label">What Pkg checks on your machine</h2>
-<p>At every install, upgrade, verify and repair: the manifest's signature, every file against the manifest, and that the signer is the key remembered for that package on your machine. The first version you install pins its key. A later version signed by another key is refused, with both keys printed. It may be a publisher who changed keys, or someone replacing a program under you; only you can tell, by asking the publisher somewhere you trust. If the new key is theirs, <code>ACCEPTKEY</code> followed by the new key accepts it, once. Pkg never decides that for you.</p>
+<h2 class="label">What pkg checks on your machine</h2>
+<p>At every install, upgrade, verify and repair: the manifest's signature, every file against the manifest, and that the signer is the key remembered for that package on your machine. The first version you install pins its key. A later version signed by another key is refused, with both keys printed. It may be a publisher who changed keys, or someone replacing a program under you; only you can tell, by asking the publisher somewhere you trust. If the new key is theirs, <code>ACCEPTKEY</code> followed by the new key accepts it, once. pkg never decides that for you.</p>
 <p>The connection proves nothing and does not need to: a channel read over https, from a USB stick or a shared drawer is checked the same way. https is what this portal serves, because a connection nobody can read or change is worth having; it is not what makes a package safe.</p>
 
-<h2 class="label">Check a package yourself, without Pkg</h2>
+<h2 class="label">Check a package yourself, without pkg</h2>
 <p>Three downloads and a verifier of about sixty lines of plain Python 3, following RFC 8032, that you can read first:</p>
 @if (example is not null)
 {
@@ -118,7 +118,7 @@
                  $"echo 'pkg namespaces=\"aros-pkg-bootstrap\" {sshKey}' > signers\n" +
                  "ssh-keygen -Y verify -f signers -I pkg -n aros-pkg-bootstrap -s SHA256SUMS.sig < SHA256SUMS\n" +
                  "shasum -a 256 pkg     # compare with its line in SHA256SUMS";
-    <h2 class="label">Checking the Pkg you download</h2>
+    <h2 class="label">Checking the pkg you download</h2>
     <p>The installers and the programs on <a href="/downloads">Downloads</a> are listed with their SHA-256 in <code>Bootstrap/SHA256SUMS</code>, signed by this key in OpenSSH's format. <code>/install</code> and <code>/install.ps1</code> check that signature and the file before installing anything; by hand, with the ssh-keygen every Mac, Linux and Windows 10 or 11 machine has:</p>
     <div class="cmd wrapcode"><code>@sshKey</code><button class="copy" data-copy="@sshKey">Copy</button></div>
     <pre><code>@byHand</code></pre>
@@ -133,6 +133,6 @@
     <div class="card"><span class="eyebrow">Keys</span><strong>Ed25519, 64 hex characters</strong><span class="muted small">Shown in full on every package's page and on the publisher's.</span></div>
     <div class="card"><span class="eyebrow">Publishers</span><strong>A key, and a GitHub account</strong><span class="muted small">A ✓ beside a publisher means their GitHub account is verified. The key stays the identity.</span></div>
     <div class="card"><span class="eyebrow">Channels</span><strong>Public, or unlisted</strong><span class="muted small">An unlisted channel is served to whoever has its address and shown nowhere on the site.</span></div>
-    <div class="card"><span class="eyebrow">Withdrawn</span><strong>Never silently removed</strong><span class="muted small">Pkg refuses to install it, and says why.</span></div>
+    <div class="card"><span class="eyebrow">Withdrawn</span><strong>Never silently removed</strong><span class="muted small">pkg refuses to install it, and says why.</span></div>
 </aside>
 </div>

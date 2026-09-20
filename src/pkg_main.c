@@ -28,7 +28,7 @@
 
 /* The AmigaDOS version cookie: `Version C:Pkg` reads it, and publishing Pkg
  * with Pkg takes its name and version from it. */
-const char pkg_version_cookie[] = "$VER: Pkg " PKG_VERSION_STRING " (" PKG_BUILD_DAY ")";
+const char pkg_version_cookie[] = "$VER: pkg " PKG_VERSION_STRING " (" PKG_BUILD_DAY ")";
 
 #ifdef __AROS__
 static const int on_aros = 1;
@@ -297,7 +297,7 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
             for (j2 = 0; w[j2] && j2 + 1 < sizeof up && w[j2] != '='; j2++)
                 up[j2] = (char)toupper((unsigned char)w[j2]);
             up[j2] = '\0';
-            return usage_errorf("\"%s\": Pkg keywords have no dashes and take their value "
+            return usage_errorf("\"%s\": pkg keywords have no dashes and take their value "
                                 "as the next word, as in ROOT <dir>%s%s", argv[i],
                                 up[0] ? "; here perhaps " : "", up);
         } else if (a->target == NULL) {

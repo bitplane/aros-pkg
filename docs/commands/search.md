@@ -32,7 +32,7 @@ A portal channel is asked first at its own `/api/search`, one request per
 word, the answers intersected by name so that every word still has to match.
 Reading two hundred manifests over the network to answer one question is
 minutes of waiting, and the portal answers the same question itself in one
-round trip. If the portal has no such API, or answers something Pkg cannot
+round trip. If the portal has no such API, or answers something pkg cannot
 read, the channel is read the long way instead and nothing is said about it:
 the answer is the same, only slower.
 

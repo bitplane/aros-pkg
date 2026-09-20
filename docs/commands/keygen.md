@@ -19,11 +19,11 @@ so keep the file with your secrets and back it up. `SIGN <keyfile>` on
 `PUBLISH`, or `PKG_SIGNKEY`, names it.
 
 The 32 bytes the key is made from come from the system's random source, on
-AROS as anywhere else: AROS gathers entropy in `entropy.resource`, and Pkg
+AROS as anywhere else: AROS gathers entropy in `entropy.resource`, and pkg
 reads it through `getentropy`.
 
 On an AROS old enough to have neither, there is no source at all, and the
-clock, free memory and the task's address can all be guessed, so Pkg asks
+clock, free memory and the task's address can all be guessed, so pkg asks
 the person at the Shell window to press keys at random and hashes the moment
 of each one, read from the CPU's cycle counter and the system clock, with
 what was typed. A key press counts for 4 bits (2 without a cycle counter), a
