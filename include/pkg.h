@@ -62,7 +62,7 @@
 #define PKG_H
 
 #define PKG_API_VERSION 1   /* stays 1 until the first official release */
-#define PKG_VERSION_STRING "1.6.1"   /* the tool's own version, as in its $VER */
+#define PKG_VERSION_STRING "1.7"   /* the tool's own version, as in its $VER */
 
 /* What every request to a channel says about this Pkg: its version, the
  * system and the CPU it was built for, all known when it is compiled. The

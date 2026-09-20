@@ -1,2 +1,7 @@
-On Windows, a package holding a file whose name is not plain ASCII, such as Catalogs/français/AiRcOS.catalog, was refused with "cannot stage ... No such file or directory": the file was opened under the machine's code page instead of its real name. Fixed, and the same for a cache or a user folder whose name holds such a character or a space.
-PUBLISH and MANIFEST take INFO <file>: a .pkginfo file a port carries, saying what the package is (name, version, kind, the catalogue fields, its dependencies and which installed files belong to it), so that packaging it needs no hand-written table.
+Installing from a big archive is fast after the first time: Pkg keeps a map of the archive beside it and then decompresses only the blocks a package's files lie in. On the 637 MB contrib nightly the first install takes as long as before, the next ones a fraction of a second. Every file is still checked against its signed SHA-256.
+INSTALL takes several names at once (INSTALL aircos amichess ...): one pass over the archive serves them all, each is reported, and the rest go ahead when one fails.
+UNPACKED <dir> installs from an archive you extracted yourself; the files are checked the same way. Pkg now says where it reads from and where its cache is.
+A root keeps a list of channels: CHANNEL ADD <url>, CHANNEL LIST, CHANNEL REMOVE. Commands without CHANNEL ask every listed channel. Two channels offering the same package under different keys are refused, never chosen between silently.
+SEARCH <words> finds packages by name, description, tags, category or the libraries they provide; on a portal it asks the portal.
+PACKAGE is a second name for PUBLISH, and PUBLISH says how to send the package on to a portal.
+The list of libraries AROS ships now holds bsdsocket.library, miami.library and the network drivers, so publishing a network program no longer warns about them.
