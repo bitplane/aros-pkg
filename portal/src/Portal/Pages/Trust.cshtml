@@ -79,7 +79,7 @@
         <li>This portal works with Pkg @pol.MinPkg.Trim() or later: an older one is told to update@(pol.MinPkgReads ? ", for reading channels as for pushing; the channel Pkg comes from stays open to every version" : " when it pushes").</li>
     }
     <li>@(pol.SignedPush ? "A publisher may push with requests signed by their own key instead of a key from the portal; nothing secret travels, and the portal holds no secret of theirs." : "A push needs https and a key from the portal.")</li>
-    <li>@(pol.PlainHttp ? "Channels answer over https and plain http." : "Everything is served over https only.")</li>
+    <li>@(pol.PlainHttp ? "Everything is served over https. Plain http answers for one thing: the channel Pkg comes from and the scripts that install it, so that a Pkg older than 1.6, which has no TLS of its own, can reach one that has." : "Everything is served over https only, the way up included.")</li>
 </ul>
 @if (pol.Note.Length > 0)
 {
@@ -94,7 +94,7 @@
 
 <h2 class="label">What Pkg checks on your machine</h2>
 <p>At every install, upgrade, verify and repair: the manifest's signature, every file against the manifest, and that the signer is the key remembered for that package on your machine. The first version you install pins its key. A later version signed by another key is refused, with both keys printed. It may be a publisher who changed keys, or someone replacing a program under you; only you can tell, by asking the publisher somewhere you trust. If the new key is theirs, <code>ACCEPTKEY</code> followed by the new key accepts it, once. Pkg never decides that for you.</p>
-<p>The connection proves nothing and does not need to: a channel read over plain http, from a USB stick or a shared drawer is checked the same way.</p>
+<p>The connection proves nothing and does not need to: a channel read over https, from a USB stick or a shared drawer is checked the same way. https is what this portal serves, because a connection nobody can read or change is worth having; it is not what makes a package safe.</p>
 
 <h2 class="label">Check a package yourself, without Pkg</h2>
 <p>Three downloads and a verifier of about sixty lines of plain Python 3, following RFC 8032, that you can read first:</p>

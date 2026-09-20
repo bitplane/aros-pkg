@@ -156,7 +156,24 @@ if (Environment.GetEnvironmentVariable("WEBSITE_SITE_NAME") is not null)
         ctx.Request.Scheme = ctx.Request.Headers.ContainsKey("X-ARR-SSL") ? "https" : "http";
         await next();
     });
-if (!app.Environment.IsDevelopment()) app.UseExceptionHandler("/Error");
+// A machine asks in records and is answered in records, whatever happens: an
+// unexpected failure says so in Pkg's own form and is never an empty body. What
+// went wrong is kept for the maintainers (/_admin/failures), with nothing about
+// who asked. The pages keep the error page.
+static bool ForMachines(PathString path) =>
+    path.StartsWithSegments("/api") || path.Value is { } v
+    && (v.Contains("/_push/", StringComparison.Ordinal) || v.StartsWith("/_admin", StringComparison.Ordinal));
+app.UseWhen(ctx => ForMachines(ctx.Request.Path), branch => branch.UseExceptionHandler(err => err.Run(async ctx =>
+{
+    var ex = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+    Portal.Push.Failures.Note(opts.StateDir, $"{ctx.Request.Method} {ctx.Request.Path}", ex);
+    ctx.Response.StatusCode = 500;
+    ctx.Response.ContentType = "text/plain; charset=utf-8";
+    await ctx.Response.WriteAsync(Record.Refused(17,
+        $"the portal could not finish this request ({ex?.GetType().Name ?? "unknown"})",
+        "try again; if it happens again, tell the portal's maintainers, who can read what went wrong").ToString());
+})));
+if (!app.Environment.IsDevelopment()) app.UseWhen(ctx => !ForMachines(ctx.Request.Path), b => b.UseExceptionHandler("/Error"));
 
 // Unlisted: nothing here is to be indexed. No HTTPS redirect and no HSTS,
 // because classic 68k clients speak plain HTTP; signatures carry integrity.
@@ -172,13 +189,45 @@ app.Use(async (ctx, next) =>
     ctx.Response.Headers.XFrameOptions = "DENY";
     await next();
 });
-// Portal:Policy:PlainHttp off: this instance answers over https only.
-if (!opts.Policy.PlainHttp)
+// AROS speaks https since Pkg 1.6, so plain http is left open for one thing:
+// letting a Pkg from before it, which has no TLS, reach the version that does.
+// That is the channel Pkg comes from and the scripts that install it; anything
+// else asked over http is sent to this portal's https address. A Pkg too old to
+// follow is told so in its own form rather than left with a broken connection.
+// Only a portal that knows its own https address does any of this: one served
+// over plain http alone, on a desk or a LAN, is left exactly as it is.
+if (opts.PublicUrl.StartsWith("https:", StringComparison.OrdinalIgnoreCase))
+{
+    var home = opts.PublicUrl.TrimEnd('/');
+    var pkgChannel = opts.Pinned.Split(',', ';')[0].Split('/')[0].Trim();
+    bool TheWayUp(PathString path) =>
+        opts.Policy.PlainHttp
+        && (path.StartsWithSegments("/" + pkgChannel) || path.StartsWithSegments("/get/" + pkgChannel)
+            || path.Value is "/Get-Pkg" or "/install" or "/install.sh" or "/install.ps1" or "/health" or "/robots.txt");
     app.Use(async (ctx, next) =>
     {
-        if (ctx.Request.IsHttps) { await next(); return; }
-        ctx.Response.Redirect($"https://{ctx.Request.Host}{ctx.Request.PathBase}{ctx.Request.Path}{ctx.Request.QueryString}", permanent: true, preserveMethod: true);
+        // What carries a key refuses on its own, and says so: sending it on to
+        // https would not unsay the key that already travelled in the clear.
+        var carriesAKey = ctx.Request.Path.Value is { } p2
+            && (p2.Contains("/_push/", StringComparison.Ordinal) || p2.StartsWith("/_admin", StringComparison.Ordinal));
+        if (ctx.Request.IsHttps || carriesAKey || TheWayUp(ctx.Request.Path)) { await next(); return; }
+        var ua = ctx.Request.Headers.UserAgent.ToString();
+        var version = ua.StartsWith("Pkg/", StringComparison.Ordinal) ? ua[4..].Split(' ')[0] : ua.StartsWith("Pkg", StringComparison.Ordinal) ? "0" : null;
+        if (version is null || Portal.Channels.PkgVersion.Order.Compare(version, "1.6") >= 0)
+        {
+            // A browser, and every Pkg that speaks https, simply goes there.
+            ctx.Response.Redirect($"{home}{ctx.Request.PathBase}{ctx.Request.Path}{ctx.Request.QueryString}", permanent: true, preserveMethod: true);
+            return;
+        }
+        var plain = "http://" + home[(home.IndexOf("://", StringComparison.Ordinal) + 3)..];
+        ctx.Response.StatusCode = 426;
+        ctx.Response.ContentType = "text/plain; charset=utf-8";
+        await ctx.Response.WriteAsync(Record.Refused(20,
+            $"this portal serves its channels over https, and this is {(version == "0" ? "a Pkg older than 1.5" : "Pkg " + version)}, which has no way to speak it",
+            $"upgrade first, which plain http stays open for: Pkg UPGRADE pkg ROOT SYS: CHANNEL {plain}/{pkgChannel}, "
+            + $"then read this channel at {home}").ToString());
     });
+}
 // Portal:Policy:MinPkg: an older Pkg is told to update, in its own record form.
 if (opts.Policy.MinPkg.Trim().Length > 0)
     app.Use(async (ctx, next) =>
@@ -258,6 +307,9 @@ admin.MapPost("/restore/{stamp}", async (HttpContext http, string stamp, Portal.
     Results2.Text(await s.Restore((string)http.Items["admin"]!, stamp, http.RequestAborted)));
 
 admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog()));
+
+// What the portal failed to answer, and why: for whoever has to find out.
+admin.MapGet("/failures", () => Results2.Text(Portal.Push.Failures.Read(opts.StateDir)));
 
 // ---- the push API, under each channel ---------------------------------------
 
@@ -381,7 +433,7 @@ app.MapGet("/see/{key}", (HttpContext http, string key, Portal.Channels.Catalogu
 }).RequireRateLimiting("admin");
 
 // Get-Pkg: the same for an AROS machine with a network and wget, over plain
-// http since AROS has no TLS. An AmigaDOS script, Latin-1 like the Shell.
+// http, the one way up for a Pkg older than 1.6. Latin-1, like the Shell.
 app.MapGet("/Get-Pkg", (HttpContext http, Portal.Channels.Catalogue c, Portal.Channels.Downloads d) =>
 {
     var channel = opts.Pinned.Split(',', ';')[0].Split('/')[0].Trim();
@@ -446,11 +498,9 @@ app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], async (HttpContext http, 
     // checks every file it takes out against the signed manifest.
     if (kind == ChannelPaths.Kind.Archive && File.Exists(full + ".url") && !File.Exists(full))
     {
-        var at = File.ReadAllText(full + ".url").Trim();
-        // https clients go straight there; r2.dev answers only https, so a
-        // plain-http client (68k, no TLS) gets the bytes through the portal.
-        if (http.Request.IsHttps || !at.StartsWith("https:", StringComparison.Ordinal)) return Results.Redirect(at);
-        return await Relay(http, at);
+        // Straight to where its maker publishes it: every Pkg speaks https, and
+        // what comes back is checked against the signed manifest either way.
+        return Results.Redirect(File.ReadAllText(full + ".url").Trim());
     }
     if (!File.Exists(full)) return Results.NotFound();
     var info = new FileInfo(full);
@@ -467,24 +517,6 @@ app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], async (HttpContext http, 
 
 app.Run();
 
-// Relay an archive held elsewhere, Range included, for a client that cannot follow https.
-static async Task<IResult> Relay(HttpContext http, string url)
-{
-    var req = new HttpRequestMessage(HttpMethods.IsHead(http.Request.Method) ? HttpMethod.Head : HttpMethod.Get, url);
-    if (http.Request.Headers.Range.Count > 0) req.Headers.TryAddWithoutValidation("Range", http.Request.Headers.Range.ToString());
-    var resp = await http.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("r2")
-        .SendAsync(req, HttpCompletionOption.ResponseHeadersRead, http.RequestAborted);
-    http.Response.RegisterForDispose(resp);
-    http.Response.StatusCode = (int)resp.StatusCode;
-    foreach (var h in new[] { "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified" })
-        if (resp.Headers.TryGetValues(h, out var v) || resp.Content.Headers.TryGetValues(h, out v))
-            http.Response.Headers[h] = v.ToArray();
-    http.Response.ContentType = resp.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-    http.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
-    if (!HttpMethods.IsHead(http.Request.Method))
-        await (await resp.Content.ReadAsStreamAsync(http.RequestAborted)).CopyToAsync(http.Response.Body, http.RequestAborted);
-    return Results.Empty;
-}
 
 static async Task<string> ReadBody(HttpContext http)
 {

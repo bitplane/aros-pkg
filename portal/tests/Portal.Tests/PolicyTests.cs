@@ -186,6 +186,48 @@ public class PolicyTests
     }
 
     [Fact]
+    public async Task Plain_http_is_left_open_only_for_the_way_to_a_newer_Pkg()
+    {
+        using var s = new Site(new() { ["Portal:Pinned"] = "pkg/pkg", ["Portal:PublicUrl"] = "https://portal.test" });
+        s.Publish("pkg", "Format: pkg-manifest 1\nName: pkg\nVersion: 1.7.0+20260920\nArchitecture: generic\nKind: data\n", K1);
+        s.Publish("other", "Format: pkg-manifest 1\nName: thing\nVersion: 1.0\nArchitecture: generic\nKind: data\n", K1);
+        var c = s.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("http://localhost"), AllowAutoRedirect = false });
+        async Task<HttpResponseMessage> Get(string url, string agent, string accept = "*/*")
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.TryAddWithoutValidation("User-Agent", agent);
+            req.Headers.TryAddWithoutValidation("Accept", accept);
+            return await c.SendAsync(req);
+        }
+        // the way up stays open to the Pkg that has no way to https
+        Assert.Equal(HttpStatusCode.OK, (await Get("/pkg/index", "Pkg")).StatusCode);
+        Assert.NotEqual(HttpStatusCode.PermanentRedirect, (await Get("/Get-Pkg", "Pkg")).StatusCode);   // let through; 404 here, for want of a Bootstrap drawer
+        Assert.Equal(HttpStatusCode.OK, (await Get("/install", "curl/8")).StatusCode);
+        // everything else: a browser is sent to https
+        var browser = await Get("/other/index", "Mozilla/5.0", "text/html");
+        Assert.Equal(HttpStatusCode.PermanentRedirect, browser.StatusCode);   // 308: the method is kept
+        Assert.StartsWith("https://", browser.Headers.Location!.ToString());
+        // and a Pkg is told what to do about it, in its own form
+        // a Pkg that speaks https is simply sent there
+        Assert.Equal(HttpStatusCode.PermanentRedirect, (await Get("/other/index", "Pkg/1.7.0+20260920 (aros; aarch64)")).StatusCode);
+        var old = await Get("/other/index", "Pkg/1.4 (aros; aarch64)");
+        Assert.Equal((HttpStatusCode)426, old.StatusCode);
+        var body = await old.Content.ReadAsStringAsync();
+        Assert.Contains("over https", body);
+        Assert.Contains("UPGRADE pkg ROOT SYS: CHANNEL http://portal.test/pkg", body);
+        Assert.Contains("then read this channel at https://portal.test", body);
+    }
+
+    [Fact]
+    public async Task With_plain_http_off_even_the_way_up_goes_to_https()
+    {
+        using var s = new Site(new() { ["Portal:Policy:PlainHttp"] = "false", ["Portal:Pinned"] = "pkg/pkg", ["Portal:PublicUrl"] = "https://portal.test" });
+        var c = s.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("http://localhost"), AllowAutoRedirect = false });
+        var r = await c.GetAsync("/pkg/index");
+        Assert.Equal(HttpStatusCode.PermanentRedirect, r.StatusCode);
+    }
+
+    [Fact]
     public async Task The_policy_is_readable_as_json()
     {
         using var s = new Site(new() { ["Portal:Policy:Binaries"] = "off", ["Portal:Policy:LinkHosts"] = "github.com, sourceforge.net" });

@@ -109,7 +109,7 @@ public class ApiTests : IClassFixture<ApiTests.Factory>
     [Fact]
     public async Task One_address_answers_a_readme_with_the_badge_and_a_person_with_the_page()
     {
-        var c = f.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var c = f.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
         // a README asks for an image: the badge, by name alone, no channel to write down
         var img = new HttpRequestMessage(HttpMethod.Get, "/b/sdltool");
         img.Headers.TryAddWithoutValidation("Accept", "image/avif,image/webp,*/*");

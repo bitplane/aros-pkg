@@ -30,7 +30,10 @@ public sealed class PortalPolicy
     /// The maintainers' API, /_admin.
     public bool Admin { get; set; } = true;
 
-    /// Channels also answer over plain http (machines without TLS).
+    /// Plain http answers for the channel Pkg comes from and the scripts that
+    /// install it: the way a Pkg older than 1.6, which has no TLS, reaches one
+    /// that has. Everything else on http goes to https, or is told to upgrade.
+    /// Off: https only, and such a Pkg can no longer update itself from here.
     /// Off: every http request is sent to https.
     public bool PlainHttp { get; set; } = true;
 
