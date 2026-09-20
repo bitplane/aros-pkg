@@ -18,6 +18,9 @@ PKG=${PKG:-./build/pkg}
 R=${R:-./build/test_archive}
 PKG=$(cd "$(dirname "$PKG")" && pwd)/$(basename "$PKG")
 R=$(cd "$(dirname "$R")" && pwd)/$(basename "$R")
+for need in "$PKG" "$R"; do
+    [ -x "$need" ] || { echo "fastarchive: missing $need (make build/pkg build/test_archive)" >&2; exit 69; }
+done
 T=$(mktemp -d "${TMPDIR:-/tmp}/pkg-fastarchive.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
