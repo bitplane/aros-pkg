@@ -291,12 +291,19 @@ int pkg_fs_interactive(void)
 
 int pkg_fs_write_new(const char *path, const void *buf, size_t len)
 {
+    /* The wide call, like every other here: fopen would read the UTF-8 name
+     * in the machine's code page, and "français" would name a drawer that
+     * does not exist. */
+    wchar_t *w;
     FILE *f;
     if (mkparents(path) != 0) return -1;
-    f = fopen(path, "wb");
+    w = wide(path);
+    if (w == NULL) return -1;
+    f = _wfopen(w, L"wb");
+    free(w);
     if (f == NULL) return -1;
     if ((len > 0 && fwrite(buf, 1, len, f) != len) || fclose(f) != 0) {
-        remove(path);
+        pkg_fs_unlink(path);
         return -1;
     }
     return 0;
@@ -641,6 +648,51 @@ void pkg_fs_unlock_dir(void *lock)
 
 #include <process.h>
 
+/* An environment variable as UTF-8, caller frees: getenv would give the
+ * machine's code page, which is not what the rest of Pkg takes paths in. */
+static char *env_utf8(const char *name)
+{
+    wchar_t *wn = wide(name);
+    const wchar_t *v = wn ? _wgetenv(wn) : NULL;
+    free(wn);
+    return v != NULL && v[0] != L'\0' ? narrow(v) : NULL;
+}
+
+/* curl.exe with these arguments, waited for. The arguments go as UTF-16, so
+ * a path under C:\Users\Michał arrives whole, and one holding a space is
+ * quoted, since Windows hands a program one command line and not a list. */
+static intptr_t run_curl(const char *const *argv)
+{
+    const wchar_t *wargv[32];
+    wchar_t *own[32];
+    int n, k;
+    intptr_t rc = -1;
+    for (n = 0; argv[n] != NULL && n < 31; n++) {
+        const char *a = argv[n];
+        int quote = (strchr(a, ' ') != NULL || strchr(a, '\t') != NULL) && a[0] != '"';
+        if (quote) {
+            size_t l = strlen(a);
+            char *q = (char *)malloc(l + 3);
+            if (q == NULL) { own[n] = NULL; break; }
+            q[0] = '"'; memcpy(q + 1, a, l); q[l + 1] = '"'; q[l + 2] = '\0';
+            own[n] = wide(q);
+            free(q);
+        } else {
+            own[n] = wide(a);
+        }
+        if (own[n] == NULL) break;
+        wargv[n] = own[n];
+    }
+    if (argv[n] == NULL) {
+        wargv[n] = NULL;
+        rc = _wspawnvp(_P_WAIT, L"curl.exe", wargv);
+    } else {
+        errno = EINVAL;
+    }
+    for (k = 0; k < n; k++) free(own[k]);
+    return rc;
+}
+
 /* curl.exe ships with Windows 10 and later: http and https both go through
  * it, with no shell in between. */
 int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
@@ -651,8 +703,11 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
     if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
     snprintf(tmp, dl + 8, "%s.part", dest);
     if (mkparents(tmp) != 0) { free(tmp); snprintf(err, errlen, "cannot create the cache directory"); return -1; }
-    rc = _spawnlp(_P_WAIT, "curl.exe", "curl.exe", "-s", "-f", "-L", "--max-redirs", "5",
-                 "-A", "\"" PKG_USER_AGENT "\"", "-o", tmp, url, (char *)NULL);
+    {
+        const char *argv[] = { "curl.exe", "-s", "-f", "-L", "--max-redirs", "5",
+                               "-A", PKG_USER_AGENT, "-o", tmp, url, NULL };
+        rc = run_curl(argv);
+    }
     if (rc == -1) { free(tmp); snprintf(err, errlen, "fetching a channel needs curl.exe, part of Windows 10 and later"); return -1; }
     if (rc == 22) { pkg_fs_unlink(tmp); free(tmp); return 1; }
     if (rc != 0) { pkg_fs_unlink(tmp); free(tmp); snprintf(err, errlen, "curl failed with exit code %d fetching %s", (int)rc, url); return -1; }
@@ -663,13 +718,16 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
 
 char *pkg_cache_dir(void)
 {
-    const char *e = getenv("PKG_CACHE"), *l = getenv("LOCALAPPDATA");
+    char *e = env_utf8("PKG_CACHE"), *l = env_utf8("LOCALAPPDATA");
     size_t n = 32 + (e ? strlen(e) : 0) + (l ? strlen(l) : 0);
     char *p = (char *)malloc(n);
-    if (p == NULL) return NULL;
-    if (e && *e) snprintf(p, n, "%s", e);
-    else if (l && *l) snprintf(p, n, "%s\\pkg-cache", l);
-    else snprintf(p, n, "pkg-cache");
+    if (p != NULL) {
+        if (e) snprintf(p, n, "%s", e);
+        else if (l) snprintf(p, n, "%s\\pkg-cache", l);
+        else snprintf(p, n, "pkg-cache");
+    }
+    free(e);
+    free(l);
     return p;
 }
 
@@ -683,7 +741,7 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     intptr_t rc;
     FILE *f;
     snprintf(codefile, sizeof codefile, "%s.code", out_file);
-    argv[n++] = "curl.exe"; argv[n++] = "-sS"; argv[n++] = "-A"; argv[n++] = "\"" PKG_USER_AGENT "\"";
+    argv[n++] = "curl.exe"; argv[n++] = "-sS"; argv[n++] = "-A"; argv[n++] = PKG_USER_AGENT;
     argv[n++] = "-X"; argv[n++] = method;
     if (body_file) {
         snprintf(data, sizeof data, "%s", body_file);
@@ -698,13 +756,19 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     argv[n] = NULL;
     {
         /* the status code goes to stdout: send it to a file */
-        FILE *saved = freopen(codefile, "w", stdout);
-        rc = _spawnvp(_P_WAIT, "curl.exe", argv);
+        wchar_t *wc = wide(codefile);
+        FILE *saved = wc ? _wfreopen(wc, L"w", stdout) : NULL;
+        free(wc);
+        rc = run_curl(argv);
         (void)saved;
         fflush(stdout);
     }
     if (rc == -1) { snprintf(err, errlen, "PUSH needs curl.exe, part of Windows 10 and later"); return -1; }
-    f = fopen(codefile, "r");
+    {
+        wchar_t *wc = wide(codefile);
+        f = wc ? _wfopen(wc, L"r") : NULL;
+        free(wc);
+    }
     *code = 0;
     if (f) { if (fscanf(f, "%d", code) != 1) *code = 0; fclose(f); }
     pkg_fs_unlink(codefile);

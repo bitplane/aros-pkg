@@ -38,6 +38,13 @@ PKG_SIGNKEY="$work/dev.key" "$pkg" PUBLISH "$work/lib" CHANNEL "$out/channel" \
 PKG_SIGNKEY="$work/dev.key" "$pkg" PUBLISH "$work/app" CHANNEL "$out/channel" \
     NAME happ VERSION 1 KIND image DEPENDS "hlib >= 1.0" > /dev/null
 
+# A file under a name that is not ASCII, as AROS catalogs are
+# (Catalogs/français): every host must place it under that very name.
+mkdir -p "$work/cat/Catalogs/français"
+printf 'un catalogue\n' > "$work/cat/Catalogs/français/Hello.catalog"
+PKG_SIGNKEY="$work/dev.key" "$pkg" PUBLISH "$work/cat" CHANNEL "$out/channel" \
+    NAME hcat VERSION 1.0 KIND catalog > /dev/null
+
 m12=$(awk '$1=="hello" && $2=="1.2"{print $4}' "$out/channel/index")
 p12=$(awk '/^Payload:/{print $2}' "$out/channel/objects/$m12.manifest")
 cp -R "$out/channel" "$out/tampered"

@@ -32,3 +32,5 @@ edit  -  -
 dmg   12 VERIFY hello ROOT {R} MACHINE
 rm    0  REMOVE hello ROOT {R} MACHINE
 h_nf  11 INSTALL nosuch ROOT {R} CHANNEL {CH}
+cat   0  INSTALL hcat ROOT {R} CHANNEL {CH} MACHINE
+catv  0  VERIFY hcat ROOT {R} MACHINE
