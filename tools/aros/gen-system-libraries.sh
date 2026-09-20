@@ -3,23 +3,50 @@
 # Copyright (c) 2026 John Knipper
 #
 # The libraries and devices AROS itself ships, which a program may open
-# without depending on a package: the .library files of Libs/ and Classes/,
-# the .device files of Devs/, and the modules of the boot images, read from
-# a nightly's boot ISO tree. Writes tools/aros/system-libraries.txt and
-# src/pkg_syslibs.h, which Pkg compiles in.
+# without depending on a package, read from a nightly's boot ISO tree.
+# Writes tools/aros/system-libraries.txt and src/pkg_syslibs.h, which Pkg
+# compiles in.
 #
 #     sh tools/aros/gen-system-libraries.sh <boot ISO tree>
+#
+# Three sources, because AROS keeps these things in more than one place and
+# an earlier version of this script, which read Libs/, Classes/ and Devs/
+# only, left PUBLISH warning that nothing provides bsdsocket.library:
+#
+#   1. every *.library and *.device file anywhere in the tree. The boot
+#      drawer carries its own copies, and network and storage drivers ship
+#      under Storage/. Developer/ is left out: its Debug/Tests drawers hold
+#      example libraries written as material for programmers (dummy.library,
+#      example.library), not facilities a program may assume are there.
+#   2. the modules inside the boot images, by their $VER cookie.
+#   3. what a system drawer implements without shipping a file of that name.
+#      AROS's TCP stack is one program, System/Network/AROSTCP/C/AROSTCP,
+#      and bsdsocket.library and miami.library live inside it. So every
+#      library or device name held by an executable under System/, kept only
+#      when AROS also ships Developer/include/libraries/<name>.h: the SDK
+#      header is what makes a name a documented system facility rather than
+#      one program's private library. Staying inside System/ keeps an
+#      application from whitelisting a library of its own this way.
 set -eu
 tree=${1:?usage: gen-system-libraries.sh <boot ISO tree>}
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 txt="$here/system-libraries.txt"
 hdr="$here/../../src/pkg_syslibs.h"
 {
-    ls "$tree/Libs" "$tree/Classes" 2>/dev/null | grep -E '\.library$' || true
-    ls "$tree/Devs" 2>/dev/null | grep -E '\.device$' || true
+    find "$tree" -path "$tree/Developer" -prune -o -type f \
+         \( -name '*.library' -o -name '*.device' \) -print | sed 's|.*/||'
     for f in "$tree"/boot/*.pkg.xz "$tree"/boot/*/*.pkg.xz; do
         [ -f "$f" ] || continue
         LC_ALL=C xz -dc "$f" | LC_ALL=C strings | LC_ALL=C grep -oE '^\$VER: [A-Za-z0-9_.-]+\.(library|device)' | sed 's/^\$VER: //'
+    done
+    find "$tree/System" -type f 2>/dev/null | while read -r f; do
+        case $(file -b "$f" 2>/dev/null) in
+            *executable*|*ELF*) ;;
+            *) continue ;;
+        esac
+        LC_ALL=C strings -a "$f" | LC_ALL=C grep -oE '^[A-Za-z0-9_.-]+\.(library|device)$'
+    done | LC_ALL=C sort -u | while read -r n; do
+        [ -f "$tree/Developer/include/libraries/${n%.*}.h" ] && echo "$n" || true
     done
 } | LC_ALL=C sort -fu > "$txt.new"
 mv "$txt.new" "$txt"
