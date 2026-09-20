@@ -394,9 +394,12 @@ form.inline { display: inline; margin-right: .6rem; }
 .docs .prose li { margin: 0.3em 0; }
 
 /* ---- footer ------------------------------------------------------------------------------------------ */
-.foot { width: 100%; margin-top: 64px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 24px; border-top: 1px solid var(--line); padding-top: 18px; padding-bottom: 36px; color: var(--muted); font-size: 0.85rem; }
-.foot a { color: var(--muted); }
-.foot a:hover { color: var(--fg); }
+/* The footer takes the whole width of the window, whatever the column the
+   page above it keeps to, and its links are links: the same colour as every
+   other on the site, underlined when the pointer is on them. */
+.foot { width: 100%; margin-top: 64px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; border-top: 1px solid var(--line); padding: 18px 24px 36px; color: var(--muted); font-size: 0.85rem; }
+.foot a { color: var(--name); }
+.foot a:hover { color: var(--name); text-decoration: underline; }
 .foot p { margin: 0; }
 .foot .build { flex-basis: 100%; font-size: 0.78rem; }
 
