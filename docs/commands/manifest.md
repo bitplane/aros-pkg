@@ -5,7 +5,7 @@
 
 The manifest PUBLISH would sign, to read before publishing.
 ```
-pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [README <file>] [SHORT ..] [DESCRIPTION <file>] [CATEGORY ..] [TAGS ..] [AUTHOR ..] [HOMEPAGE ..] [REPOSITORY ..] [LICENSE ..] [DISTRIBUTION ..] [CHANGES <file>] [ICON ..] [SCREENSHOT ..]
+pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [README <file>] [INFO <file>] [SHORT ..] [DESCRIPTION <file>] [CATEGORY ..] [TAGS ..] [AUTHOR ..] [HOMEPAGE ..] [REPOSITORY ..] [LICENSE ..] [DISTRIBUTION ..] [CHANGES <file>] [ICON ..] [SCREENSHOT ..]
 ```
 
 ## What it does
@@ -13,7 +13,8 @@ pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "a >= 1,
 Reads a drawer as `PUBLISH` would and prints the manifest, unsigned:
 name and version from the `$VER:` string of the program (or `NAME` and
 `VERSION`), the CPU from the executables' headers, the kind, dependencies,
-configuration files, every file with its size and SHA-256, the protection
+configuration files (or all of these from a `.pkginfo` the port carries,
+`INFO <file>`), every file with its size and SHA-256, the protection
 bits and comments from `.ameta`, the catalogue fields, and `Provides:` for
 each `.library` or `.device` the drawer ships. Host metadata no Amiga uses
 (`.DS_Store`, AppleDouble files, `.git`) is left out and listed. It also
@@ -55,7 +56,8 @@ pkg manifest: channel needs a value
 
 | Exit | When |
 |---|---|
-| 11 | a `DESCRIPTION`, `CHANGES` or `README` file cannot be read |
+| 11 | a `DESCRIPTION`, `CHANGES`, `README` or `INFO` file cannot be read; a path an `INFO` file names in `Files` is not in the drawer |
+| 12 | the `INFO` file is malformed, or holds a value Pkg refuses; the message names the file, the line and the key |
 | 20 | no drawer; executables for two CPUs in one drawer; `CONFIG` or `FILES` naming what is not there; `DEPENDS` malformed; `.ameta` naming a file the drawer lacks |
 
 ## Related

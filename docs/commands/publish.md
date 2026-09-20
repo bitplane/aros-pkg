@@ -5,7 +5,7 @@
 
 Publish a drawer as a version of a package.
 ```
-pkg PUBLISH <drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [ACCEPTKEY <key>] [UPSTREAM <url>] [README <file>] [<catalogue keywords>] [DRYRUN]
+pkg PUBLISH <drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [ACCEPTKEY <key>] [UPSTREAM <url>] [README <file>] [INFO <file>] [<catalogue keywords>] [DRYRUN]
 ```
 
 ## What it does
@@ -27,6 +27,15 @@ version of this package was signed by another key refuses this one (exit
 which the channel serves from `archives/`, or, with `UPSTREAM <url>`,
 downloads from where its makers publish it. `BUILD <date>` appends the date
 to the version for nightlies.
+
+`INFO <file>` reads a `.pkginfo` the port carries: its `Name`, `Version`,
+`Kind`, catalogue fields, `Depends`, `Files` and `Config` are used for what
+the command does not give, so packaging a port that carries one needs no
+keywords at all. A keyword on the line wins over the file, and the file
+wins over an Aminet `README` and over the last version published. With a
+drawer inside an archive, `INFO "!/<path>"` reads the file out of that
+archive. `Files` selects what is published, as `FILES` does, and a path it
+names that is not there is refused (exit 11).
 
 `KIND`: `image` (a program on one volume to mount), `application` (loose
 files), `library`, `device`, `class`, `font`, `catalog`, `startup`, `boot`,
@@ -74,7 +83,8 @@ published tool 2.1+20260918 to nightly: 1 file, from nightly.tar.bz2!/Top, signe
 `kind:`, `architecture:`, `channel:`, `files:`, `payload:` or `source:` and
 `upstream:`, `manifest:`, `signer:`, `depends:`, `config-files:`, `left-out:`,
 where each field came from (`name-from:`, `version-from:`, `arch-from:`,
-`kind-from:`, `depends-from:`, `config-from:`, `about-from:`), `same-as:`
+`kind-from:`, `depends-from:`, `config-from:`, `about-from:`, `info-from:`
+and `info-fields:`), `same-as:`
 when nothing changed, `first-signer:` around a key refusal.
 
 ## Refusals

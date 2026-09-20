@@ -218,6 +218,13 @@ portal: installs download the archive from there and PUSH does not upload it. Ke
 archive's own layout: files install at the paths the archive gives them. A
 nightly's version is the component's `$VER` plus the date: `2.1+20260918`.
 
+**A port that carries a `.pkginfo`** (`tools/contrib/PKGINFO.md`): `PUBLISH
+<drawer> INFO <file>` takes the name, version, kind, catalogue fields,
+`Depends`, `Config` and the package's paths (`Files`) from that file, so
+nothing else is needed on the line. A keyword you give wins over the file.
+`INFO "!/<path>"` reads it out of the archive a `"<archive>!/<top>"` drawer
+comes from.
+
 **Checking a system**: `VERIFY ALL ROOT <root>` for everything installed;
 `REPAIR ALL ROOT <root> CHANNEL <channel>` puts back what is missing or
 changed and keeps each change as `<file>.pkgold`. Tell the requester about

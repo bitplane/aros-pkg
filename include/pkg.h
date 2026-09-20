@@ -204,6 +204,12 @@ struct pkg_options {
     const char *short_desc, *description, *category, *tags, *author, *homepage;
     const char *repository, *license, *distribution, *changes, *icon, *screenshot;
     const char *readme;
+    const char *info;       /* publish, manifest: a .pkginfo file (pkg_pkginfo.h) the port
+                               carries, holding the name, version, kind, catalogue fields,
+                               dependencies, Files and Config. A keyword on the command line
+                               wins over it, and it wins over the readme and over what the
+                               last version published carried. "!/<path>" reads it from the
+                               archive the drawer is "<archive>!/<prefix>" of */
     const char *from;       /* resolve: the program's directory, and the current one */
     const char *upstream;   /* publish from an archive: the http(s) URL the archive is
                                downloaded from, recorded with its SHA-256 and size in the

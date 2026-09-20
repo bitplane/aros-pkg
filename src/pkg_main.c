@@ -164,6 +164,7 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "ICON",      offsetof(struct pkg_options, icon) },
         { "SCREENSHOT", offsetof(struct pkg_options, screenshot) },
         { "README",    offsetof(struct pkg_options, readme) },
+        { "INFO",      offsetof(struct pkg_options, info) },
         { "FROM",      offsetof(struct pkg_options, from) }
 };
 
@@ -323,11 +324,13 @@ static const struct { const char *group, *verb, *args, *what; } usage_lines[] = 
     { "Publishing", NULL, NULL, NULL },
     { NULL, "KEYGEN",    "FILE <keyfile>", "a signing key, readable by you alone" },
     { NULL, "KEYINFO",   "FILE <keyfile> [SSH]", "the public key a key file holds; SSH: as ssh-ed25519" },
-    { NULL, "MANIFEST",  "<drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"]",
+    { NULL, "MANIFEST",  "<drawer> [NAME n] [VERSION v] [ARCH a] [KIND k] [DEPENDS \"a >= 1, b\"] [INFO <file>]",
                          "the manifest PUBLISH would sign, to read before publishing" },
     { NULL, "PUBLISH",   "<drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH a]",
                          NULL },
     { NULL, "",          "[DEPENDS \"a >= 1, b\"] [CONFIG \"S/Startup-Sequence\"] [FILES \"C,Libs\"] [BUILD <date>]",
+                         NULL },
+    { NULL, "",          "[INFO <file>]: a .pkginfo the port carries says what the package is; keywords win",
                          "publish a drawer as a version; the channel is created when missing" },
     { NULL, "WITHDRAW",  "<name> VERSION v CHANNEL <dir> [SIGN <keyfile>]",
                          "a version nothing installs any more" },

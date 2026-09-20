@@ -37,6 +37,7 @@
 #include "pkg_ameta.h"
 #include "pkg_archive.h"
 #include "pkg_sha256.h"
+#include "pkg_pkginfo.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -1681,12 +1682,26 @@ struct built {
     char           kind_from[160];  /* KIND taken from this published version */
     char           deps_from[160];  /* DEPENDS too */
     char           config_from[160]; /* CONFIG too */
-    char           about_from[160]; /* the catalogue fields too */
+    char           about_from[1200];/* the catalogue fields too, or the .pkginfo */
+    char           info_from[1200]; /* INFO: the .pkginfo the fields were read from */
+    char           info_fields[200];/*   and which of them it gave */
     size_t         nconfig;         /* configuration files */
     unsigned       skipped;
     char         **left_out;
     size_t         nleft;
 };
+
+/* INFO: which fields this .pkginfo gave, for the line under the result. */
+static void say_info_from(const struct built *b)
+{
+    char what[300];
+    int cat = b->about_from[0] && strcmp(b->about_from, b->info_from) == 0;
+    if (b->info_from[0] == '\0') return;
+    snprintf(what, sizeof what, "%s%s%s", b->info_fields,
+             b->info_fields[0] && cat ? " and " : "", cat ? "the catalogue fields" : "");
+    if (what[0] != '\0')
+        say_detail("%s from %s", what, b->info_from);
+}
 
 static void built_free(struct built *b)
 {
@@ -2145,6 +2160,107 @@ static int aminet_readme(const char *path, struct pkg_about *a)
     return 0;
 }
 
+/* ---- INFO: a .pkginfo the port carries --------------------------------- */
+
+/* What INFO named, parsed, for the length of this build; freed when the next
+ * build reads one, since compose_about borrows its strings. */
+static struct pkg_pkginfo cur_info;
+static int have_info;
+static char info_shown[1200];
+
+/* One file's bytes out of an archive, for INFO "!/<path in archive>". */
+struct grab {
+    const char    *want;
+    unsigned char *data;
+    size_t         len, cap;
+    int            found, oom;
+};
+
+static int grab_want(const struct pkg_archive_entry *e, void *ctx)
+{
+    struct grab *g = (struct grab *)ctx;
+    return !e->is_dir && strcmp(e->path, g->want) == 0;
+}
+
+static int grab_data(const struct pkg_archive_entry *e, const unsigned char *buf,
+                     size_t len, void *ctx)
+{
+    struct grab *g = (struct grab *)ctx;
+    (void)e;
+    if (len == 0) { g->found = 1; return -1; }      /* it is whole: stop the walk */
+    if (g->len + len > g->cap) {
+        size_t ncap = g->cap ? g->cap : 4096;
+        unsigned char *w;
+        while (ncap < g->len + len) ncap *= 2u;
+        w = (unsigned char *)realloc(g->data, ncap);
+        if (w == NULL) { g->oom = 1; return -1; }
+        g->data = w;
+        g->cap = ncap;
+    }
+    memcpy(g->data + g->len, buf, len);
+    g->len += len;
+    return 0;
+}
+
+/* Read and parse the file INFO names: a path of the file system, or
+ * "!/<path>" inside the archive the drawer is a prefix of. */
+static int read_info(const struct pkg_options *a)
+{
+    char err[400], arch_file[1024], arch_prefix[1024];
+    unsigned char *buf = NULL;
+    size_t len = 0;
+    int line = 0, rc;
+
+    if (have_info) { pkg_pkginfo_free(&cur_info); have_info = 0; }
+    if (a->info[0] == '!' && a->info[1] == '/') {
+        struct grab g;
+        memset(&g, 0, sizeof g);
+        if (!pkg_archive_split(a->target ? a->target : "", arch_file, sizeof arch_file,
+                               arch_prefix, sizeof arch_prefix))
+            return refuse_c(20, "INFO \"%s\" reads the file out of the archive the package's "
+                            "files come from, and this is no archive: publish from "
+                            "\"<archive>!/<top dir>\", or give INFO a path of your file system",
+                            a->info);
+        g.want = a->info + 2;
+        snprintf(info_shown, sizeof info_shown, "%s!/%s", arch_file, g.want);
+        tr("reading %s out of %s", g.want, arch_file);
+        err[0] = '\0';
+        if (pkg_archive_walk(arch_file, grab_want, grab_data, &g, err, sizeof err) != 0
+            && !g.found) {
+            free(g.data);
+            if (g.oom) return refuse("out of memory");
+            return refuse_c(err[0] ? 12 : 11, "%s", err[0] ? err : "no file at that path in the archive");
+        }
+        if (!g.found) {
+            free(g.data);
+            return refuse_c(11, "the archive %s holds no \"%s\"; INFO names the path as the "
+                            "archive names it", arch_file, g.want);
+        }
+        buf = g.data;
+        len = g.len;
+    } else {
+        snprintf(info_shown, sizeof info_shown, "%s", a->info);
+        if (!pkg_fs_exists(a->info))
+            return refuse_c(11, "no .pkginfo at \"%s\"", a->info);
+        if (pkg_fs_read(a->info, &buf, &len) != 0)
+            return refuse_c(17, "cannot read \"%s\"", a->info);
+    }
+    rc = pkg_pkginfo_parse((const char *)buf, len, &cur_info, err, sizeof err, &line);
+    free(buf);
+    if (rc != 0) {
+        pkg_pkginfo_free(&cur_info);
+        if (line > 0)
+            return refuse_c(12, "%s, line %d: %s", info_shown, line, err);
+        return refuse_c(12, "%s: %s", info_shown, err);
+    }
+    have_info = 1;
+    tr("INFO %s: name %s, version %s, kind %s, %lu file%s", info_shown,
+       cur_info.name ? cur_info.name : "-", cur_info.version ? cur_info.version : "-",
+       cur_info.kind ? cur_info.kind : "-", (unsigned long)cur_info.files.n,
+       cur_info.files.n == 1 ? "" : "s");
+    return 0;
+}
+
 static int set_once(char **slot, const char *v)
 {
     free(*slot);
@@ -2194,6 +2310,28 @@ static int compose_about(const struct pkg_options *a, const char *name, const ch
         free(rd.short_desc); free(rd.category);
         pkg_strs_free(&rd.authors); pkg_strs_free(&rd.description);
         from[0] = '\0';
+    }
+    if (have_info) {
+        /* what the port says about itself: over the readme and over the last
+         * version, under the keywords below */
+        const struct pkg_about *pi = &cur_info.about;
+        int any = pi->short_desc || pi->description.n || pi->category || pi->tags.n
+                  || pi->authors.n || pi->homepage || pi->repository || pi->license
+                  || pi->distribution || pi->changes.n || pi->icon || pi->screenshots.n;
+        if (pi->short_desc) set_once(&out->short_desc, pi->short_desc);
+        if (pi->category) set_once(&out->category, pi->category);
+        if (pi->homepage) set_once(&out->homepage, pi->homepage);
+        if (pi->repository) set_once(&out->repository, pi->repository);
+        if (pi->license) set_once(&out->license, pi->license);
+        if (pi->distribution) set_once(&out->distribution, pi->distribution);
+        if (pi->icon) set_once(&out->icon, pi->icon);
+        if (pi->description.n) { pkg_strs_free(&out->description); strs_copy(&out->description, &pi->description); }
+        if (pi->changes.n) { pkg_strs_free(&out->changes); strs_copy(&out->changes, &pi->changes); }
+        if (pi->tags.n) { pkg_strs_free(&out->tags); strs_copy(&out->tags, &pi->tags); }
+        if (pi->authors.n) { pkg_strs_free(&out->authors); strs_copy(&out->authors, &pi->authors); }
+        if (pi->screenshots.n) { pkg_strs_free(&out->screenshots); strs_copy(&out->screenshots, &pi->screenshots); }
+        if (any) snprintf(from, fl, "%s", info_shown);
+        else from[0] = '\0';
     }
     if ((a->short_desc && set_once(&out->short_desc, a->short_desc))
         || (a->category && set_once(&out->category, a->category))
@@ -2291,14 +2429,16 @@ static int archive_digest(const char *archive, char hex[PKG_SHA256_HEXLEN + 1], 
 
 static int build(const struct pkg_options *a, struct built *out)
 {
+    static struct pkg_options eff;   /* the options with what INFO gave filled in */
+    int info_files = 0;
     struct drawer d;
     struct pkg_writer *w;
     char vname[65], vver[64];
     const char *from = NULL, *name, *version, *arch, *kind, *why;
-    const char *kind_src = a->kind, *deps_src = a->depends;
+    const char *kind_src, *deps_src;
     char arch_file[1024], arch_prefix[1024];
     char ikind[32], ideps[1024], ifrom[160], iconf[4096];
-    const char *conf_src = a->config;
+    const char *conf_src;
     char payload[PKG_SHA256_HEXLEN + 1];
     size_t i;
 
@@ -2307,6 +2447,42 @@ static int build(const struct pkg_options *a, struct built *out)
     pkg_manifest_init(&out->m);
     if (a->target == NULL)
         return refuse_c(20, "name the drawer to package");
+    if (have_info) { pkg_pkginfo_free(&cur_info); have_info = 0; }
+    if (a->info != NULL) {
+        /* A keyword on the line wins over the file; the file wins over the
+         * readme and over the last version published. */
+        if (read_info(a) != 0)
+            return 1;
+        eff = *a;
+        if (eff.name == NULL && cur_info.name) eff.name = cur_info.name;
+        if (eff.version == NULL && cur_info.version) eff.version = cur_info.version;
+        if (eff.kind == NULL && cur_info.kind) eff.kind = cur_info.kind;
+        if (eff.depends == NULL && cur_info.depends && cur_info.depends[0]) eff.depends = cur_info.depends;
+        if (eff.files == NULL && cur_info.files.n) eff.files = cur_info.files_line;
+        if (eff.config == NULL && cur_info.config.n) eff.config = cur_info.config_line;
+        info_files = eff.files == cur_info.files_line && cur_info.files.n > 0;
+        snprintf(out->info_from, sizeof out->info_from, "%s", info_shown);
+        {
+            /* what of it was used, for PUBLISH to say where the fields came from */
+            const struct { int given; const char *word; } gave[] = {
+                { eff.name == cur_info.name && cur_info.name != NULL, "name" },
+                { eff.version == cur_info.version && cur_info.version != NULL, "version" },
+                { eff.kind == cur_info.kind && cur_info.kind != NULL, "kind" },
+                { eff.depends == cur_info.depends && cur_info.depends != NULL, "dependencies" },
+                { info_files, "files" },
+                { eff.config == cur_info.config_line && cur_info.config.n > 0, "config" }
+            };
+            size_t g, at = 0;
+            for (g = 0; g < sizeof gave / sizeof gave[0]; g++)
+                if (gave[g].given && at < sizeof out->info_fields)
+                    at += (size_t)snprintf(out->info_fields + at, sizeof out->info_fields - at,
+                                           "%s%s", at ? ", " : "", gave[g].word);
+        }
+        a = &eff;
+    }
+    kind_src = a->kind;
+    deps_src = a->depends;
+    conf_src = a->config;
     if (a->upstream != NULL && !pkg_archive_split(a->target, arch_file, sizeof arch_file, arch_prefix,
                                                   sizeof arch_prefix))
         return refuse_c(20, "UPSTREAM says where the archive a package's files stay in is published; "
@@ -2362,6 +2538,26 @@ static int build(const struct pkg_options *a, struct built *out)
             refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
             drawer_free(&d);
             return 1;
+        }
+    }
+    if (info_files) {
+        /* Every path the .pkginfo claims must be there: a port that moved a
+         * file would otherwise publish a package quietly missing it. */
+        size_t f;
+        for (f = 0; f < cur_info.files.n; f++) {
+            const char *want = cur_info.files.v[f];
+            size_t wl = strlen(want), k;
+            int found = 0;
+            for (k = 0; k < d.n && !found; k++)
+                found = strcmp(d.v[k].rel, want) == 0
+                        || (strncmp(d.v[k].rel, want, wl) == 0 && d.v[k].rel[wl] == '/');
+            if (!found) {
+                refuse_c(11, "%s names \"%s\" in Files, and \"%s\" holds no such file or "
+                         "drawer; correct the .pkginfo, or publish what it describes",
+                         info_shown, want, a->target);
+                drawer_free(&d);
+                return 1;
+            }
         }
     }
     if (d.n == 0) {
@@ -5520,6 +5716,8 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
         if (b.config_from[0]) kv("config-from", "%s", b.config_from);
         if (b.about_from[0]) kv("about-from", "%s", b.about_from);
+        if (b.info_from[0]) kv("info-from", "%s", b.info_from);
+        if (b.info_fields[0]) kv("info-fields", "%s", b.info_fields);
         if (b.m.archive_url) kv("upstream", "%s", b.m.archive_url);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
         if (b.arch_from[0]) kv("arch-from", "%s", b.arch_from);
@@ -5544,6 +5742,7 @@ static int cmd_publish(const struct pkg_options *a)
                     : b.ver_from[0] ? "version" : "name", b.ver_from[0] ? b.ver_from : b.name_from);
             if (b.kind_from[0] || b.deps_from[0])
                 say_detail("%s from %s, published before", b.kind_from[0] && b.deps_from[0] ? "kind and dependencies" : b.kind_from[0] ? "kind" : "dependencies", b.kind_from[0] ? b.kind_from : b.deps_from);
+            say_info_from(&b);
         }
         if (new_channel)
             hint("there is no channel at %s yet: publishing creates it. Check it is the one "
@@ -5602,6 +5801,8 @@ static int cmd_publish(const struct pkg_options *a)
         if (b.nconfig) kv("config-files", "%lu", (unsigned long)b.nconfig);
         if (b.config_from[0]) kv("config-from", "%s", b.config_from);
         if (b.about_from[0]) kv("about-from", "%s", b.about_from);
+        if (b.info_from[0]) kv("info-from", "%s", b.info_from);
+        if (b.info_fields[0]) kv("info-fields", "%s", b.info_fields);
         if (b.m.archive_url) kv("upstream", "%s", b.m.archive_url);
         if (b.deps_from[0]) kv("depends-from", "%s", b.deps_from);
     } else if (b.ver_from[0] || b.name_from[0]) {
@@ -5612,6 +5813,8 @@ static int cmd_publish(const struct pkg_options *a)
         say_detail("%s from %s, published before", b.kind_from[0] && b.deps_from[0]
             ? "kind and dependencies" : b.kind_from[0] ? "kind" : "dependencies",
             b.kind_from[0] ? b.kind_from : b.deps_from);
+    if (!machine)
+        say_info_from(&b);
     for (i = 0; i < b.nleft; i++) {
         if (machine)
             kv("left-out", "%s", b.left_out[i]);
@@ -7622,7 +7825,8 @@ static int options_clean(const struct pkg_options *o)
         { "TAGS", o->tags }, { "AUTHOR", o->author }, { "HOMEPAGE", o->homepage },
         { "REPOSITORY", o->repository }, { "LICENSE", o->license },
         { "DISTRIBUTION", o->distribution }, { "CHANGES", o->changes }, { "ICON", o->icon },
-        { "SCREENSHOT", o->screenshot }, { "README", o->readme }, { "FROM", o->from }
+        { "SCREENSHOT", o->screenshot }, { "README", o->readme }, { "INFO", o->info },
+        { "FROM", o->from }
     };
     size_t i, j;
     for (i = 0; i < sizeof f / sizeof f[0]; i++)

@@ -147,6 +147,43 @@ to drop it. If your program comes with an Aminet `.readme`, `README
 <file>` takes its `Short:`, `Author:`, `Type:` and text for the fields you
 do not give.
 
+## A port that carries a `.pkginfo`
+
+A port of someone else's program has no `$VER` to read a version from and
+no `.readme` to describe itself, and which installed paths belong to it is
+known only to whoever wrote the port. A port that carries a `.pkginfo`
+beside its files says all of it, and `INFO <file>` reads it:
+
+```console
+$ printf 'Format: pkginfo 1\nName: mytool\nVersion: 1.0\nKind: application\nShort: Renames files by pattern\nCategory: util/misc\nAuthor: Jane Roe\nLicense: MIT\nDistribution: open-source\nFiles: C/MyTool\nDescription: MyTool renames files by pattern.\n' > MyTool/mytool.pkginfo
+$ pkg MANIFEST MyTool INFO MyTool/mytool.pkginfo
+Format: pkg-manifest 1
+Name: mytool
+Version: 1.0
+Architecture: x86_64
+Kind: application
+Short: Renames files by pattern
+Description: MyTool renames files by pattern.
+Category: util/misc
+Author: Jane Roe
+License: MIT
+Distribution: open-source
+Payload: bf9bc6edcb45a4a786709554952e6988649c6e6cc405595d86f54e3d1d8c87d4
+File: c93731985b65bf43460090b575902f0a6eca3ad030914fb0e58c0700569b2d85 94 C/MyTool
+Protect: 0x00000002 C/MyTool
+```
+
+Nothing else is needed on the line: the name, the version, the kind, the
+catalogue fields, `Depends`, `Config` and the paths the package is made of
+all come from the file. `Files:` picks them as `FILES` does, one path per
+line, a drawer meaning all of it, and a path the drawer does not hold is
+refused rather than quietly skipped. A keyword you type wins over the file,
+the file wins over a `README` and over the last version published, and a
+key Pkg does not know (`Upstream-Archive`, `Port-Maintainer`) is ignored,
+so a port may keep its own lines in the same file.
+[`tools/contrib/PKGINFO.md`](../tools/contrib/PKGINFO.md) is the format in
+full, for whoever writes the port.
+
 ## Dependencies
 
 ```console

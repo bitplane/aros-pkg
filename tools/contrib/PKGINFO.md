@@ -24,7 +24,8 @@ library, the program's own drawer otherwise).
 |---|---|
 | `Format: pkginfo 1` | first line |
 | `Name`, `Version`, `Kind` | as `PUBLISH` takes them: the version of the software, not of the port; a static library has no `$VER` to read it from |
-| `Short`, `Category`, `Tags`, `Author`, `Homepage`, `Repository`, `License`, `Distribution` | the catalogue fields, with the manifest's rules (Short at most 40 characters, an Aminet category, an SPDX licence expression) |
+| `Short`, `Category`, `Tags`, `Homepage`, `Repository`, `License`, `Distribution` | the catalogue fields, with the manifest's rules (Short at most 40 characters, an Aminet category, an SPDX licence expression) |
+| `Author` | repeatable, one person or team each |
 | `Description`, `Changes` | repeatable, one line each, an empty one is a paragraph break |
 | `Depends` | packages this one needs, as `PUBLISH DEPENDS` |
 | `Files` | repeatable: an installed path that belongs to the package, relative to the system root; a drawer means all of it. This is what the split tables guess today |
@@ -32,17 +33,25 @@ library, the program's own drawer otherwise).
 | `Upstream-Archive`, `Upstream-SHA256` | where the port's source came from |
 | `Port`, `Port-Maintainer` | where the port lives in contrib, and who to ask |
 
-Unknown keys are ignored, as in a manifest.
+Unknown keys are ignored, as in a manifest. So are an empty line and a line
+starting with `#`. A bad value is refused, naming the file, the line and
+the key.
 
 ## What Pkg does with it today
 
-Nothing yet: the fields of `mbedtls.pkginfo` were checked by giving them to
-`PUBLISH` as keywords, which accepts them all. To do, in this order:
+`PUBLISH <drawer> INFO <file>` and `MANIFEST <drawer> INFO <file>` read it:
+the name, the version, the kind, the catalogue fields, `Depends`, `Config`
+and `Files` are used for whatever the command does not give. A keyword on
+the line wins over the file; the file wins over an Aminet `README` and over
+what the last version published carried. `Files` selects what is published,
+as `FILES` does, and a path it names that the drawer does not hold is
+refused (exit 11) rather than skipped. With a drawer inside an archive,
+`INFO "!/<path>"` reads the file out of that archive.
 
-1. `PUBLISH ... INFO <file>`: read name, version, kind, the catalogue fields,
-   `Depends`, `Config` and `Files` from a `.pkginfo`; keywords still win.
-2. `tools/contrib/publish-nightly.sh`: for every `*.pkginfo` found in the
-   archive, publish that component from it and leave it out of the guessed
-   split; the hand-written tables shrink as ports gain their file.
-3. Propose the file to the AROS developers with the contrib findings, so
-   that new ports carry one from the start.
+`tools/contrib/publish-nightly.sh` extracts every `*.pkginfo` of the
+nightly in one pass, publishes each component from its own file, and leaves
+the paths it claims out of the guessed split, so nothing is published
+twice. The hand-written tables shrink as ports gain their file.
+
+Still to do: propose the file to the AROS developers with the contrib
+findings, so that new ports carry one from the start.

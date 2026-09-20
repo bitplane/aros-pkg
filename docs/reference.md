@@ -43,8 +43,8 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 |---|---|---|
 | [`KEYGEN`](commands/keygen.md) | `KEYGEN FILE <keyfile>` | Makes a signing key, readable by its owner alone. |
 | [`KEYINFO`](commands/keyinfo.md) | `KEYINFO FILE <keyfile> [SSH]` | Prints the public key a key file holds; `SSH` prints it as an `ssh-ed25519` line. |
-| [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."]` | Prints the description a publish would sign; writes nothing. |
-| [`PUBLISH`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. |
+| [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."] [INFO <file>]` | Prints the description a publish would sign; writes nothing. |
+| [`PUBLISH`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [INFO <file>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. |
 | [`WITHDRAW`](commands/withdraw.md) | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>]` | Marks a published version as withdrawn. |
 | [`PUSH`](commands/push.md) | `PUSH CHANNEL <channel> TO <url> [SIGN <keyfile>]` | Uploads a local channel to a portal: over `https` with the key in `PKG_PUSHKEY`, or, over `http` too, with requests signed by the publisher's key. |
 | [`IMAGE`](commands/image.md) | `IMAGE <drawer> OUT <file> [NAME <volume>]` | Writes a drawer as an FFS disk image. |
@@ -70,7 +70,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | `KIND` | `image`, `application`, `library`, `device`, `class`, `font`, `catalog`, `startup`, `boot`, `data`, `sdk` or `slave` | `PUBLISH`, `MANIFEST` |
 | `DEPENDS` | `"name >= version, name"`, or `none` | `PUBLISH`, `MANIFEST` |
 | `CONFIG` | `"path, drawer"`: the files people edit | `PUBLISH`, `MANIFEST` |
-| `FILES` | `"path, path"`: the paths of the drawer or archive that make up the package | `PUBLISH` |
+| `FILES` | `"path, path"`: the paths of the drawer or archive that make up the package | `PUBLISH`, `MANIFEST` |
 | `BUILD` | dotted numbers, such as the date of a nightly, added as `+build` | `PUBLISH` |
 | `UPSTREAM` | the `http` or `https` address an archive is published at | `PUBLISH` from an archive |
 | `SHORT` | one line, at most 40 characters | `PUBLISH`, `MANIFEST` |
@@ -86,6 +86,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | `ICON` | a path of the package: its icon | `PUBLISH`, `MANIFEST` |
 | `SCREENSHOT` | `"path, path"` of the package | `PUBLISH`, `MANIFEST` |
 | `README` | an Aminet `.readme`: fills `Short`, `Author`, `Type` and the text | `PUBLISH`, `MANIFEST` |
+| `INFO` | a `.pkginfo` a port carries: the name, version, kind, catalogue fields, `Depends`, `Files` and `Config`; keywords win over it | `PUBLISH`, `MANIFEST` |
 | `FROM` | the program's directory, for its current directory and `PROGDIR:` | `RESOLVE` |
 | `ARCHIVE` | the name of an archive in the channel | `SHOW` |
 | [`SIGN`](commands/sign.md) | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW`, `PUSH` |
