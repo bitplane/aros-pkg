@@ -152,10 +152,11 @@ public class AdminTests
         Assert.Equal(HttpStatusCode.NotFound, (await plain.GetAsync("/see/not-the-key")).StatusCode);
         var mine = g.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true });
         var home = await mine.GetStringAsync($"/see/{key}");                 // sets the cookie, lands on the home page
-        Assert.Contains("demo (unlisted)", home);
+        Assert.Contains("/channels/demo", home);
+        Assert.Contains(">unlisted<", home);                                // and it is marked as such
         Assert.Contains("\"name\":\"tool\"", await mine.GetStringAsync("/api/search?q=tool"));
         Assert.DoesNotContain("demo", await plain.GetStringAsync("/"));      // another browser still sees nothing
-        Assert.DoesNotContain("demo (unlisted)", await mine.GetStringAsync("/see/off"));
+        Assert.DoesNotContain("/channels/demo", await mine.GetStringAsync("/see/off"));
     }
 
     [Fact]

@@ -2,100 +2,98 @@
 @using Portal.Channels
 @inject Catalogue Catalogue
 @inject Search Search
+@inject Publishers Publishers
+@inject Portal.Accounts.Registry Registry
 @{
     var s = SearchQuery.From(Request.Query);
     var hits = Search.Run(s);
-    var all = Catalogue.Listed().SelectMany(c => c.Packages.Values).ToList();
-    var what = s.Q.Length > 0 ? $"“{s.Q}”" : s.Tag.Length > 0 ? $"tagged {s.Tag}" : s.Category.Length > 0 ? $"in {s.Category}" : null;
-    ViewData["Title"] = what is null ? "All packages" : $"Search: {what}";
-    var channels = Catalogue.ChannelNames().ToList();
-    var categories = all.Select(p => p.Latest.Manifest.Category).OfType<string>().Distinct().Order().ToList();
-    var kinds = all.Select(p => p.Kind).Distinct().Order().ToList();
-    var archs = all.SelectMany(p => p.Archs).Distinct().Order().ToList();
+    var what = s.Q.Length > 0 ? $"“{s.Q}”" : s.Tag.Length > 0 ? $"tagged {s.Tag}" : null;
+    ViewData["Title"] = what is null ? "Packages" : $"Search: {what}";
+    var total = Catalogue.Listed().Sum(c => c.Packages.Count);
+
+    // A facet counts what choosing it would give, the other choices kept as they are.
+    List<SearchHit> Without(Func<SearchQuery, SearchQuery> clear) => Search.Run(clear(s));
+    string Link(SearchQuery q)
+    {
+        var parts = new List<string>();
+        void Add(string k, string v) { if (v.Length > 0) parts.Add($"{k}={Uri.EscapeDataString(v)}"); }
+        Add("q", q.Q); Add("arch", q.Arch); Add("kind", q.Kind); Add("category", q.Category);
+        Add("channel", q.Channel); Add("tag", q.Tag); Add("sort", q.Sort);
+        return "/search" + (parts.Count > 0 ? "?" + string.Join("&", parts) : "");
+    }
+    var byArch = Without(q => q with { Arch = "" });
+    var byKind = Without(q => q with { Kind = "" });
+    var byCategory = Without(q => q with { Category = "" });
+    var byChannel = Without(q => q with { Channel = "" });
+    // Categories by their first part, "util/sys" under "util": a short list to choose from.
+    static string Top(string? c) => (c ?? "").Split('/')[0];
+    var sortName = s.Sort switch { "newest" => "newest first", "downloads" => "installs", _ => s.Q.Length > 0 ? "relevance" : "name" };
 }
-<h1>@(what is null ? "All packages" : $"Packages {(s.Q.Length > 0 ? "matching " : "")}{what}")</h1>
-<form class="filters" method="get" action="/search">
-    <input type="hidden" name="q" value="@s.Q" />
-    @if (s.Tag.Length > 0)
-    {
-        <input type="hidden" name="tag" value="@s.Tag" />
-    }
-    <label>Channel
-        <select name="channel" data-autosubmit>
-            <option value="">any</option>
-            @foreach (var c in channels)
-            {
-                <option value="@c" selected="@(c == s.Channel)">@c</option>
-            }
-        </select>
-    </label>
-    <label>Kind
-        <select name="kind" data-autosubmit>
-            <option value="">any</option>
-            @foreach (var k in kinds)
-            {
-                <option value="@k" selected="@(k == s.Kind)">@Site.KindLabel(k)</option>
-            }
-        </select>
-    </label>
-    <label>CPU
-        <select name="arch" data-autosubmit>
-            <option value="">any</option>
-            @foreach (var a in archs)
-            {
-                <option value="@a" selected="@(a == s.Arch)">@Site.ArchLabel(a)</option>
-            }
-        </select>
-    </label>
-    @if (categories.Count > 0)
-    {
-        <label>Category
-            <select name="category" data-autosubmit>
-                <option value="">any</option>
-                @foreach (var c in categories)
-                {
-                    <option value="@c" selected="@(c == s.Category)">@c</option>
-                }
-            </select>
-        </label>
-    }
-    <label>Sort
-        <select name="sort" data-autosubmit>
-            <option value="" selected="@(s.Sort == "")">relevance</option>
-            <option value="newest" selected="@(s.Sort == "newest")">newest</option>
-            <option value="downloads" selected="@(s.Sort == "downloads")">downloads</option>
-        </select>
-    </label>
-    <noscript><button type="submit">Filter</button></noscript>
-</form>
-<p class="muted">@hits.Count result@(hits.Count == 1 ? "" : "s")@(s.Q.Length > 0 ? ": names first, then descriptions, tags and the libraries packages provide, then the files they hold" : "").</p>
-@if (hits.Count > 0)
-{
-    <table class="list">
-        <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="hide-s">Channel</th><th class="num hide-s">Downloads</th></tr></thead>
-        <tbody>
+<h1 class="sr-only">Packages</h1>
+<div class="browse">
+    <nav class="facets" aria-label="Filters">
+        <h2>CPU</h2>
+        <a class="@(s.Arch.Length == 0 ? "on" : "")" href="@Link(s with { Arch = "" })">All <span>@byArch.Count</span></a>
+        @foreach (var g in byArch.SelectMany(h => h.Package.Archs.Distinct().Select(a => (a, h))).GroupBy(x => x.a).OrderByDescending(g => g.Count()))
+        {
+            <a class="@(s.Arch == g.Key ? "on" : "")" href="@Link(s with { Arch = g.Key })">@Site.ArchLabel(g.Key) <span>@g.Count()</span></a>
+        }
+        <h2>Kind</h2>
+        <a class="@(s.Kind.Length == 0 ? "on" : "")" href="@Link(s with { Kind = "" })">All <span>@byKind.Count</span></a>
+        @foreach (var g in byKind.GroupBy(h => h.Package.Kind).OrderByDescending(g => g.Count()))
+        {
+            <a class="@(s.Kind == g.Key ? "on" : "")" href="@Link(s with { Kind = g.Key })">@Site.KindLabel(g.Key) <span>@g.Count()</span></a>
+        }
+        <h2>Category</h2>
+        <a class="@(s.Category.Length == 0 ? "on" : "")" href="@Link(s with { Category = "" })">All <span>@byCategory.Count</span></a>
+        @foreach (var g in byCategory.Where(h => Top(h.Package.Latest.Manifest.Category).Length > 0).GroupBy(h => Top(h.Package.Latest.Manifest.Category)).OrderBy(g => g.Key))
+        {
+            <a class="@(Top(s.Category) == g.Key && s.Category.Length > 0 ? "on" : "")" href="@Link(s with { Category = g.Key })">@g.Key <span>@g.Count()</span></a>
+        }
+        <h2>Channel</h2>
+        <a class="@(s.Channel.Length == 0 ? "on" : "")" href="@Link(s with { Channel = "" })">All <span>@byChannel.Count</span></a>
+        @foreach (var g in byChannel.GroupBy(h => h.Package.Channel).OrderByDescending(g => g.Count()))
+        {
+            <a class="@(s.Channel == g.Key ? "on" : "")" href="@Link(s with { Channel = g.Key })">@g.Key@(Catalogue.IsUnlisted(g.Key) ? " (unlisted)" : "") <span>@g.Count()</span></a>
+        }
+    </nav>
+    <section>
+        <div class="listhead">
+            <span>@hits.Count of @total.ToString("N0") package@(total == 1 ? "" : "s")@(what is null ? "" : $" for {what}")@if (s.Tag.Length > 0 || s.Q.Length > 0) { <text> · <a href="@Link(s with { Q = "", Tag = "" })">clear</a></text> }</span>
+            <span>Sort:
+                <a class="@(s.Sort == "" ? "on" : "")" href="@Link(s with { Sort = "" })">@(s.Q.Length > 0 ? "relevance" : "name")</a> ·
+                <a class="@(s.Sort == "downloads" ? "on" : "")" href="@Link(s with { Sort = "downloads" })">installs</a> ·
+                <a class="@(s.Sort == "newest" ? "on" : "")" href="@Link(s with { Sort = "newest" })">newest</a></span>
+        </div>
+        @if (hits.Count == 0)
+        {
+            <div class="guru">
+                <p><strong>Software Failure.</strong> Nothing answers that search.</p>
+                <p class="muted">Guru Meditation #00000404: try fewer filters, another word, or a library's name such as SDL2.library.</p>
+            </div>
+        }
+        <ul class="rows big">
         @foreach (var h in hits)
         {
             var p = h.Package;
-            <tr>
-                <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a>
-                    @if (p.Latest.Manifest.Short is { } sh)
+            var key = p.Latest.Signer;
+            var who = key is null ? null : Publishers.Find(key);
+            <li>
+                <span><a class="n" href="/packages/@p.Channel/@p.Name">@p.Name</a><span class="v">@p.Latest.Version</span> <span class="chip">@Site.KindLabel(p.Kind)</span></span>
+                <span class="r">@(h.Downloads > 0 ? $"{h.Downloads:N0} install{(h.Downloads == 1 ? "" : "s")}" : Site.Ago(p.Updated))</span>
+                <span class="d">@p.Latest.Manifest.Short@if (h.Why is not null) { <span class="muted why"> · @h.Why</span> }</span>
+                <span class="meta">
+                    @if (key is not null)
                     {
-                        <div class="muted small">@sh</div>
+                        <span><a class="@(who?.Name is null ? "key" : "")" href="/publishers/@key">@(who?.Name ?? Site.Short(key))</a>@if (Registry.ByKey(key) is { Suspended: false } v) { <partial name="_Verified" model="v.Login" /> }</span>
                     }
-                    @if (h.Why is not null)
-                    {
-                        <div class="muted small"><em>@h.Why</em></div>
-                    }
-                </td>
-                <td><code>@p.Latest.Version</code></td>
-                <td class="hide-s">@Site.KindLabel(p.Kind)</td>
-                <td class="hide-s">@string.Join(", ", p.Archs.Select(Site.ArchLabel))</td>
-                <td class="hide-s">@p.Channel</td>
-                <td class="num hide-s">@(h.Downloads > 0 ? h.Downloads.ToString("N0") : "–")</td>
-            </tr>
+                    <span>@string.Join(" · ", p.Archs.Select(Site.ArchLabel))</span>
+                    <span>@p.Channel</span>
+                    @if (h.Downloads > 0) { <span>@Site.Ago(p.Updated)</span> }
+                </span>
+            </li>
         }
-        </tbody>
-    </table>
-}
-<p class="muted small">The same search for tools and agents: <a href="/api">the JSON API</a>.</p>
+        </ul>
+        <p class="muted small">The same search for tools and agents: <a href="/api">the JSON API</a>. Names first, then descriptions, tags and the libraries packages provide, then the files they hold.</p>
+    </section>
+</div>

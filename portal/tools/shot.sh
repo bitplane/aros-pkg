@@ -8,7 +8,7 @@
 #   sh portal/tools/shot.sh --as jane /account /publishers  signed in as a test account
 #   sh portal/tools/shot.sh --as jonx --admin /admin        ... who is a maintainer
 #   sh portal/tools/shot.sh --live / /downloads             the live site (signed out only)
-#   --dark, --phone (390 px wide) change how it is looked at
+#   --dark, --phone (390 px wide), --short (the first 700 px) change how it is looked at
 #
 # Local runs start the portal in Development on sample data (two publishers, a
 # listed and an unlisted channel, a registered and a suspended account) and stop
@@ -19,10 +19,10 @@ chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 [ -x "$chrome" ] || chrome=$(command -v chromium || command -v google-chrome || true)
 [ -n "$chrome" ] || { echo "shot: no Chrome or Chromium found" >&2; exit 69; }
 export PATH="$HOME/.dotnet:$PATH"
-live=; as=; admin=; dark=; size=1280,1800; pages=()
+live=; as=; admin=; dark=; real=; size=1280,1800; pages=()
 while [ $# -gt 0 ]; do case "$1" in
     --live) live=https://aros-pkg.azurewebsites.net ;; --as) shift; as=$1 ;; --admin) admin=1 ;;
-    --dark) dark=--force-dark-mode ;; --phone) size=390,1600 ;; *) pages+=("$1") ;; esac; shift; done
+    --dark) dark=--force-dark-mode ;; --phone) size=390,1600 ;; --short) size=1280,760 ;; --real) real=1 ;; --short) size=1280,700 ;; *) pages+=("$1") ;; esac; shift; done
 [ ${#pages[@]} -gt 0 ] || pages=(/)
 out="$here/captures"; mkdir -p "$out"; stamp=$(date +%Y%m%dT%H%M%S)
 T=$(mktemp -d); srv=
@@ -41,11 +41,26 @@ else
     "$P" PUBLISH "$T/d" CHANNEL "$T/data/channels/demo" KIND data ARCH generic SIGN "$T/a.key" SHORT "A sample package" CATEGORY util/misc > /dev/null 2>&1
     "$P" PUBLISH "$T/d" CHANNEL "$T/data/channels/janes-tools" KIND data ARCH generic SIGN "$T/b.key" SHORT "Jane's sample" > /dev/null 2>&1
     mkdir -p "$T/data/state/janes-tools"; echo sample > "$T/data/state/janes-tools/unlisted"
+    if [ -n "$real" ]; then
+        m="$out/.mirror"; site=https://aros-pkg.azurewebsites.net
+        for ch in pkg contrib-nightly; do
+            [ -s "$m/$ch/index" ] || { mkdir -p "$m/$ch/objects"; curl -fsS "$site/$ch/index" -o "$m/$ch/index"
+                awk '{print $4}' "$m/$ch/index" | sort -u | while read -r d; do
+                    curl -fsS "$site/$ch/objects/$d.manifest" -o "$m/$ch/objects/$d.manifest"; curl -fsS "$site/$ch/objects/$d.sig" -o "$m/$ch/objects/$d.sig"; done; }
+            if [ "$ch" = pkg ] && [ ! -s "$m/pkg/Install-Pkg" ]; then      # what the Downloads page offers
+                for f in Install-Pkg ReadMe Bootstrap/SHA256SUMS Bootstrap/aarch64/Pkg Bootstrap/x86_64/Pkg Bootstrap/macos-arm64/pkg \
+                         Bootstrap/macos-x86_64/pkg Bootstrap/linux-x86_64/pkg Bootstrap/linux-arm64/pkg Bootstrap/windows-x86_64/pkg.exe; do
+                    mkdir -p "$m/pkg/$(dirname "$f")"; curl -fsS "$site/pkg/$f" -o "$m/pkg/$f" || rm -f "$m/pkg/$f"; done
+            fi
+            mkdir -p "$T/data/channels"; cp -R "$m/$ch" "$T/data/channels/$ch"
+        done
+    fi
     cat > "$T/data/state/publishers.json" <<JSON
 [{"GitHubId":2,"Login":"jane","Name":"Jane Roe","Key":"$kb","Channels":["janes-tools"],"Files":false,"Suspended":false,"Since":"2026-09-20T00:00:00Z"},
  {"GitHubId":3,"Login":"mallory","Name":"Mallory","Key":"$(printf '3%.0s' $(seq 1 64))","Channels":["mal"],"Files":false,"Suspended":true,"Since":"2026-09-20T00:00:00Z"}]
 JSON
-    ( cd "$here/src/Portal" && ASPNETCORE_ENVIRONMENT=Development Portal__DataDir="$T/data" Portal__PkgPath="$P" Portal__Pinned=demo/hello \
+    pin=demo/hello; [ -z "$real" ] || pin=pkg/pkg
+    ( cd "$here/src/Portal" && ASPNETCORE_ENVIRONMENT=Development Portal__DataDir="$T/data" Portal__PkgPath="$P" Portal__Pinned="$pin" \
       Portal__GitHub__ClientId=dev Portal__GitHub__ClientSecret=dev Portal__Admins="${admin:+$as}" \
       Portal__SignedKeys="owner:$ka:*:files" ASPNETCORE_URLS="$base" exec dotnet "$dll" > "$T/portal.log" 2>&1 ) &
     srv=$!

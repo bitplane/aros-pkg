@@ -29,7 +29,7 @@
     const int maxFiles = 1500;
     var openFiles = m.Files.Count <= 40;
 }
-<p class="crumbs"><a href="/">Channels</a> / <a href="/channels/@ch.Name">@ch.Name</a> /</p>
+<p class="crumbs"><a href="/search">Packages</a> / <a href="/channels/@ch.Name">@ch.Name</a></p>
 <div class="title-row">
     <h1>@p.Name <span class="ver">@v.Version</span></h1>
     <div class="badges">
@@ -75,7 +75,7 @@ else if (!isLatest)
 }
 @if (m.Changes.Count > 0)
 {
-    <h2>What's new in @PkgVersion.Base(v.Version)</h2>
+    <h2 class="label">What's new in @PkgVersion.Base(v.Version)</h2>
     <ul class="changes">
         @foreach (var c in m.Changes)
         {
@@ -107,7 +107,7 @@ else if (!isLatest)
 
 <div class="grid">
 <section>
-    <h2>About this version</h2>
+    <h2 class="label">About this version</h2>
     <dl class="facts">
         <dt>Version</dt><dd><code>@PkgVersion.Base(v.Version)</code>
             @if (v.Build is { } b)
@@ -168,7 +168,7 @@ else if (!isLatest)
         <dd>
             @if (m.Payload is not null)
             {
-                <text>@Site.Size(v.PayloadSize), <a href="/@ch.Name/objects/@(m.Payload).pkg">the signed package</a></text>
+                <text>@(v.PayloadSize > 0 ? Site.Size(v.PayloadSize) + ", " : "")<a href="/@ch.Name/objects/@(m.Payload).pkg">the signed package</a></text>
             }
             else if (m.SourceArchive is { } arc && m.Upstream is { } up && Site.SafeUrl(up.Url) is { } upUrl && !ch.Archives.Contains(arc))
             {
@@ -187,7 +187,7 @@ else if (!isLatest)
     </dl>
 </section>
 <section>
-    <h2>Verify</h2>
+    <h2 class="label">Verify</h2>
     @{
         var show = $"pkg SHOW {p.Name} CHANNEL {url}";
         var issue = "https://github.com/jonx/aros-pkg/issues/new?title=" + Uri.EscapeDataString($"[{ch.Name}] {p.Name} {v.Version} ({v.Arch}): ")
@@ -210,7 +210,7 @@ else if (!isLatest)
     <p class="small"><a href="@issue" rel="nofollow noopener">Report a problem with this version</a></p>
 </section>
 <section>
-    <h2>Dependencies</h2>
+    <h2 class="label">Dependencies</h2>
     @if (m.Depends.Count == 0)
     {
         <p class="muted">None.</p>
@@ -237,7 +237,7 @@ else if (!isLatest)
         }
         </ul>
     }
-    <h2>Used by</h2>
+    <h2 class="label">Used by</h2>
     @if (p.UsedBy.Count == 0)
     {
         <p class="muted">Nothing in this channel depends on it.</p>
@@ -254,7 +254,7 @@ else if (!isLatest)
 </section>
 </div>
 
-<h2>Versions</h2>
+<h2 class="label">Versions</h2>
 <table class="list">
     <thead><tr><th>Version</th><th>CPU</th><th class="hide-s">First seen</th><th class="num">Size</th><th class="num hide-s">Downloads</th><th></th></tr></thead>
     <tbody>

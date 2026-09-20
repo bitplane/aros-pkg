@@ -23,8 +23,10 @@
     var mostDownloaded = packages.Select(p => (P: p, N: Of(p))).Where(x => x.N > 0).OrderByDescending(x => x.N).Take(10).ToList();
     int maxKind = byKind.Count > 0 ? byKind.Max(g => g.Count()) : 1;
 }
-<h1>Statistics</h1>
-<p class="lead">What the channels hold, from their signed manifests, and what the portal itself has served.</p>
+<h1 class="sr-only">Statistics</h1>
+<p class="lead">These are totals: what the channels hold, from their signed manifests, and what the portal has served. We do not keep who asked, from where, or anything that could point back to a person.</p>
+
+<h2 class="label">Catalog</h2>
 
 <div class="stats">
     <div><strong>@packages.Count</strong><span>packages</span></div>
@@ -37,14 +39,14 @@
 
 <div class="grid">
 <section>
-    <h2>By kind</h2>
+    <h2 class="label">By kind</h2>
     <table class="list">
         <tbody>
         @foreach (var g in byKind)
         {
             <tr>
                 <td>@Site.KindLabel(g.Key)</td>
-                <td class="bar-cell"><span class="bar" style="width:@(100 * g.Count() / maxKind)%"></span></td>
+                <td class="bar-cell"><span class="track"><span class="bar" style="width:@(100 * g.Count() / maxKind)%"></span></span></td>
                 <td class="num">@g.Count()</td>
             </tr>
         }
@@ -52,23 +54,23 @@
     </table>
 </section>
 <section>
-    <h2>By CPU</h2>
+    <h2 class="label">By CPU</h2>
     <table class="list">
         <tbody>
         @foreach (var g in byCpu)
         {
-            <tr><td>@Site.ArchLabel(g.Key)</td><td class="num">@g.Count()</td></tr>
+            <tr><td>@Site.ArchLabel(g.Key)</td><td class="bar-cell"><span class="track"><span class="bar" style="width:@(100 * g.Count() / Math.Max(1, byCpu.Max(x => x.Count())))%"></span></span></td><td class="num">@g.Count()</td></tr>
         }
         </tbody>
     </table>
 </section>
 </div>
 
-<h2>Downloads</h2>
+<h2 class="label">Downloads</h2>
 <p class="muted small">Counted here: signed packages the portal serves, and the ways of getting Pkg. Not counted: archives such as the nightly contrib build, which come straight from their makers' servers, and manifests, which every Pkg reads just to look at a channel.</p>
 <div class="stats">
-    <div><strong>@payloadDownloads.ToString("N0")</strong><span>package downloads</span></div>
-    <div><strong>@getPkg.Sum(k => k.Value).ToString("N0")</strong><span>Pkg downloads</span></div>
+    <div><strong class="@(payloadDownloads == 0 ? "zero" : "")">@payloadDownloads.ToString("N0")</strong><span>package downloads</span></div>
+    <div><strong class="@(getPkg.Sum(k => k.Value) == 0 ? "zero" : "")">@getPkg.Sum(k => k.Value).ToString("N0")</strong><span>Pkg downloads</span></div>
 </div>
 @if (getPkg.Count > 0 || mostDownloaded.Count > 0)
 {
@@ -76,7 +78,7 @@
     <section>
         @if (mostDownloaded.Count > 0)
         {
-            <h3>Most downloaded packages</h3>
+            <h3 class="label">Most downloaded packages</h3>
             <table class="list">
                 <tbody>
                 @foreach (var (p, n) in mostDownloaded)
@@ -90,7 +92,7 @@
     <section>
         @if (getPkg.Count > 0)
         {
-            <h3>Pkg, by download</h3>
+            <h3 class="label">Pkg, by download</h3>
             <table class="list">
                 <tbody>
                 @foreach (var k in getPkg)
@@ -104,7 +106,7 @@
     </div>
 }
 
-<h2>Largest packages</h2>
+<h2 class="label">Largest packages</h2>
 <table class="list">
     <thead><tr><th>Package</th><th class="hide-s">Channel</th><th class="num">Files</th><th class="num">Installed</th></tr></thead>
     <tbody>
@@ -122,7 +124,7 @@
 
 @if (upstream.Count > 0)
 {
-    <h2>Archives kept by their makers</h2>
+    <h2 class="label">Archives kept by their makers</h2>
     <p class="muted small">Packages whose files stay in an archive published elsewhere. The portal holds none of these bytes; Pkg downloads each archive once and checks it against the signed manifest.</p>
     <div class="stats">
         <div><strong>@upstream.Count</strong><span>archive@(upstream.Count == 1 ? "" : "s")</span></div>
@@ -130,7 +132,7 @@
     </div>
 }
 
-<h2>Channels</h2>
+<h2 class="label">Channels</h2>
 <table class="list">
     <thead><tr><th>Channel</th><th class="num">Packages</th><th class="num">Versions</th><th class="hide-s">Latest build</th><th class="hide-s">Updated</th></tr></thead>
     <tbody>

@@ -42,7 +42,7 @@
 {
     <p class="notice">@Done</p>
 }
-<h2>Registered publishers</h2>
+<h2 class="label">Registered publishers</h2>
 @if (publishers.Count == 0)
 {
     <p class="muted">Nobody has registered yet.</p>
@@ -59,11 +59,17 @@ else
                 <td><a href="https://github.com/@r.Login" rel="noopener">@r.Login</a></td>
                 <td><a href="/publishers/@r.Key"><code>@r.Key[..16]</code></a></td>
                 <td>
-                    @foreach (var c in r.Channels)
+                    @if (r.Channels.Contains("*"))
+                    {
+                        <span>every channel</span>
+                    }
+                    @foreach (var c in r.Channels.Where(c => c != "*"))
                     {
                         var hidden = Catalogue.IsUnlisted(c);
+                        var exists = Catalogue.Get(c) is not null;
                         <form method="post" class="inline">
-                            <a href="/channels/@c">@c</a> <span class="muted small">@(Catalogue.Get(c) is null ? "empty" : hidden ? "unlisted" : "listed")</span>
+                            @if (exists) { <a href="/channels/@c">@c</a> } else { <span>@c</span> }
+                            <span class="muted small">@(!exists ? "nothing published yet" : hidden ? "unlisted" : "listed")</span>
                             <input type="hidden" name="account" value="@r.GitHubId" /><input type="hidden" name="channel" value="@c" />
                             <button class="linklike" name="what" value="@(hidden ? "list" : "unlist")">@(hidden ? "list" : "unlist")</button>
                         </form>
@@ -83,7 +89,7 @@ else
         </tbody>
     </table>
 }
-<h2>Every channel</h2>
+<h2 class="label">Every channel</h2>
 <table class="list">
     <thead><tr><th>Channel</th><th class="num">Packages</th><th>Shown</th><th></th></tr></thead>
     <tbody>
@@ -100,5 +106,5 @@ else
     }
     </tbody>
 </table>
-<h2>Log</h2>
+<h2 class="label">Log</h2>
 <pre class="small">@string.Join("\n", Service.ReadLog().ToString().Split('\n').Where(l => l.StartsWith("action: ")).Select(l => l[8..]).Reverse().Take(30))</pre>

@@ -19,17 +19,17 @@
 <header class="top">
     <div class="wrap top-row">
         <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>AROS Packages</a>
-        @{ var here = Context.Request.Path.Value ?? "/"; string On(string p) => (p == "/" ? here == "/" || here.StartsWith("/channels") || here.StartsWith("/packages") || here.StartsWith("/search") : here.StartsWith(p)) ? "on" : ""; }
+        @{ var here = Context.Request.Path.Value ?? "/"; string On(string p) => (p == "/search" ? here.StartsWith("/channels") || here.StartsWith("/packages") || here.StartsWith("/search") : here.StartsWith(p)) ? "on" : ""; }
         <nav class="nav" aria-label="Main">
-            <a class="@On("/")" href="/">Packages</a>
+            <a class="@On("/search")" href="/search">Packages</a>
             <a class="@On("/downloads")" href="/downloads">Downloads</a>
             <a class="@(here.StartsWith("/publishers") ? "on" : "")" href="/publishers">Publishers</a>
             <a class="@On("/statistics")" href="/statistics">Statistics</a>
             <a class="@On("/trust")" href="/trust">Trust</a>
             <a class="@On("/docs")" href="/docs">Documentation</a>
         </nav>
-        <form class="search" action="/search" method="get" role="search">
-            <input type="search" name="q" value="@Context.Request.Query["q"]" placeholder="Search" aria-label="Search packages" />
+        <form class="search" action="/search" method="get" role="search" hidden="@(here == "/")">
+            <input type="search" name="q" value="@Context.Request.Query["q"]" placeholder="Search packages" aria-label="Search packages" />
         </form>
         <div class="tools">
             <span class="theme" role="group" aria-label="Theme">
@@ -41,11 +41,13 @@
             {
                 if (User.Identity?.IsAuthenticated == true)
                 {
-                    <a class="who in" href="/account" title="Signed in with GitHub: your publisher account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>@User.Identity.Name</a>
+                    var login = User.Identity.Name ?? "";
+                    var maintainer = Options.Value.Admins.Split(';', ',').Any(a => string.Equals(a.Trim(), login, StringComparison.OrdinalIgnoreCase));
+                    <a class="who" href="@(maintainer ? "/admin" : "/account")" title="Signed in with GitHub"><span class="avatar" aria-hidden="true">@(login.Length > 0 ? login[..1] : "?")</span>@login@if (maintainer) { <span class="chip">maintainer</span> }</a>
                 }
                 else
                 {
-                    <a class="who" href="/account" title="Sign in with GitHub to publish"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Sign in</a>
+                    <a class="who out" href="/account" title="Sign in with GitHub to publish">Sign in</a>
                 }
             }
         </div>
@@ -59,10 +61,9 @@
     @RenderBody()
 </main>
 <footer class="wrap foot">
-    <p>Preview, unlisted. Every package is signed with Ed25519, and Pkg checks each file against its signed manifest before installing it.
-       <a href="/trust">Trust and signatures</a> · <a href="/publishers#publish">Publish here</a> · <a href="/account">Your account</a> · <a href="/docs">Documentation</a> · <a href="/api">API and feeds</a></p>
-    <p><a href="https://github.com/jonx/aros-pkg" rel="noopener">Source on GitHub</a> · <a href="https://github.com/jonx/aros-pkg/issues" rel="noopener">Report an issue</a> · Contact: <a href="https://github.com/jonx" rel="noopener">github.com/jonx</a></p>
-    <p class="muted small">@Portal.BuildInfo.Line</p>
+    <p>AROS Packages · Every package is signed, and Pkg checks it before it installs. Totals only, no tracking.</p>
+    <p><a href="/trust">Trust</a> · <a href="/docs">Documentation</a> · <a href="/publishers#publish">Publish here</a> · <a href="/account">Your account</a> · <a href="/api">API and feeds</a> · <a href="https://github.com/jonx/aros-pkg" rel="noopener">Source</a> · <a href="https://github.com/jonx/aros-pkg/issues" rel="noopener">Report an issue</a></p>
+    <p class="build">@Portal.BuildInfo.Line · Preview, unlisted</p>
 </footer>
 <script src="~/js/site.js" asp-append-version="true"></script>
 </body>

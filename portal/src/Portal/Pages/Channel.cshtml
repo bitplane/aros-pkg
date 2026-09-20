@@ -39,13 +39,13 @@
 </div>
 
 <p class="small"><a href="/channels/@ch.Name/feed">Feed of new versions</a> (Atom) · <a href="/api/search?channel=@ch.Name">as JSON</a></p>
-<h2>Use this channel</h2>
+<h2 class="label">Use this channel</h2>
 <div class="cmd"><code>Pkg STATUS ROOT SYS: CHANNEL @url</code><button class="copy" data-copy="Pkg STATUS ROOT SYS: CHANNEL @url">Copy</button></div>
 <p class="muted small">The same address works over plain http, for machines without TLS: signatures, not the connection, prove what you install.</p>
 
 @if (builds.Count > 0)
 {
-    <h2>Builds</h2>
+    <h2 class="label">Builds</h2>
     <table class="list">
         <thead><tr><th>Build</th><th>Published</th><th class="hide-s">New packages</th><th>Unchanged</th><th class="hide-s">Files</th><th class="hide-s">Installed size</th></tr></thead>
         <tbody>
@@ -64,7 +64,7 @@
     </table>
 }
 
-<h2>Packages</h2>
+<h2 class="label">Packages</h2>
 <form class="filters" method="get">
     <label>Kind
         <select name="kind" data-autosubmit>
@@ -106,7 +106,7 @@
 
 @if (ch.Archives.Count > 0 || ch.Upstream.Count > 0)
 {
-    <h2>Source archives</h2>
+    <h2 class="label">Source archives</h2>
     <p class="muted small">Packages whose files stay inside a published archive, such as a nightly contrib build. Pkg takes each package's files out and checks them one by one.</p>
     <ul class="plain">
     @foreach (var a in ch.Archives)

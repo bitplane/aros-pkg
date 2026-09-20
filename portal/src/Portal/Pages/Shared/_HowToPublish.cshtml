@@ -8,7 +8,7 @@
     var contact = pol.Contact.Trim();
 }
 <section id="publish">
-<h2>Publish on this portal</h2>
+<h2 class="label">Publish on this portal</h2>
 @if (Options.Value.GitHub.On)
 {
     var signedIn = User.Identity?.IsAuthenticated == true;
@@ -23,7 +23,7 @@
                 <tr><th>Your push carries</th><td>@(mine.Files ? "your files" : "signed descriptions; your files stay at an https address, such as a GitHub release")</td></tr>
             </tbody>
         </table>
-        <p><a class="button" href="/account">Your publisher account</a></p>
+        <p class="muted"><a href="/account">Your publisher account</a></p>
     }
     else if (signedIn)
     {
@@ -36,12 +36,15 @@
         <p><a class="button" href="/account">Register as a publisher</a></p>
         <p class="muted">A new publisher publishes by link, into channels of their own, unlisted until the maintainer lists them. The portal keeps your GitHub account's number and login, nothing else.</p>
     }
-    <h3>What you need</h3>
-    <ol>
-        <li><strong>A signing key</strong>, made once with <code>pkg KEYGEN FILE my.key</code>. The file stays with you; the portal only ever sees its public half, which <code>pkg KEYINFO FILE my.key</code> prints.</li>
-        <li><strong>A channel name</strong>, such as <code>mytools</code>: lowercase letters, digits and <code>-</code>.</li>
-        <li><strong>Your release archive at an https address</strong>, such as a GitHub release: you publish from it and name its address with <code>UPSTREAM</code>.</li>
-    </ol>
+    if (mine is null)
+    {
+        <h3>What you need</h3>
+        <ol>
+            <li><strong>A signing key</strong>, made once with <code>pkg KEYGEN FILE my.key</code>. The file stays with you; the portal only ever sees its public half, which <code>pkg KEYINFO FILE my.key</code> prints.</li>
+            <li><strong>A channel name</strong>, such as <code>mytools</code>: lowercase letters, digits and <code>-</code>.</li>
+            <li><strong>Your release archive at an https address</strong>, such as a GitHub release: you publish from it and name its address with <code>UPSTREAM</code>.</li>
+        </ol>
+    }
 }
 else
 {
@@ -75,9 +78,13 @@ else
     }
 }
 
-<h3>Then, to publish</h3>
-<p>Publish into a channel on your machine, and push it, signed with your key:</p>
-<div class="cmd lines"><code>pkg PUBLISH MyTool CHANNEL mychannel KIND application SIGN my.key
-pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key</code><button class="copy" data-copy="pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key">Copy</button></div>
-<p>The guides say the rest: <a href="/docs/publishing">Publishing packages</a>, <a href="/docs/publishing-on-aros">Publishing from an AROS machine, from zero</a>, and this portal's rules on <a href="/trust">Trust</a>.</p>
+@{ var registered = Options.Value.GitHub.On && User.Identity?.IsAuthenticated == true && long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var rid) && Registry.ByAccount(rid) is not null; }
+@if (!registered)
+{
+    <h3>Then, to publish</h3>
+    <p>Publish into a channel on your machine, and push it, signed with your key:</p>
+    <div class="cmd lines"><code>pkg PUBLISH MyTool CHANNEL mychannel KIND application SIGN my.key
+    pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key</code><button class="copy" data-copy="pkg PUSH CHANNEL mychannel TO @site/mychannel SIGN my.key">Copy</button></div>
+    <p>The guides say the rest: <a href="/docs/publishing">Publishing packages</a>, <a href="/docs/publishing-on-aros">Publishing from an AROS machine, from zero</a>, and this portal's rules on <a href="/trust">Trust</a>.</p>
+}
 </section>

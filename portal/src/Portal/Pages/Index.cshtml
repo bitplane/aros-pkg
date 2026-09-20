@@ -2,80 +2,83 @@
 @using Microsoft.Extensions.Options
 @using Portal.Channels
 @inject Catalogue Catalogue
+@inject Search Search
+@inject Publishers Publishers
 @inject IOptions<PortalOptions> Options
 @{
     var channels = Catalogue.Listed().ToList();
+    var packages = channels.SelectMany(c => c.Packages.Values).ToList();
     var pinned = Catalogue.Pinned();
-    var recent = channels.SelectMany(c => c.Packages.Values).OrderByDescending(p => p.Updated).Take(12).ToList();
-    var total = channels.Sum(c => c.Packages.Count);
+    var recent = packages.OrderByDescending(p => p.Updated).Take(6).ToList();
+    var most = packages.Select(p => (P: p, N: Search.DownloadsOf(p))).Where(x => x.N > 0).OrderByDescending(x => x.N).Take(6).ToList();
+    var versions = channels.Sum(c => c.Lines.Count);
+    var publishers = Publishers.All().Count;
+    // What the Shell card shows is real: the package people need first, from its own channel.
+    var first = pinned.FirstOrDefault() ?? packages.FirstOrDefault();
+    var firstUrl = first is null ? "" : Site.ChannelUrl(Request, Options.Value, first.Channel);
+    var signer = first?.Latest.Signer is { } k ? (Publishers.Find(k)?.Name ?? Site.Short(k)) : "";
 }
 <section class="hero">
-    <h1>Install and update AROS software</h1>
     <div class="hero-row">
-    <div class="welcome">
-        <p>Hello, and welcome. This is the package site for AROS: programs, libraries and tools you can install and keep up to date with one command, using <a href="/packages/pkg/pkg">Pkg</a>, the AROS package tool.</p>
-        <p>Every package is signed by its publisher, and Pkg checks each file before it writes anything, so you always know what you are installing and who made it (<a href="/trust">how</a>).</p>
-        <p>New here? <a href="/downloads">Get Pkg</a> first, then browse the channels below or search for a program. Today it holds @total package@(total == 1 ? "" : "s") in @channels.Count channel@(channels.Count == 1 ? "" : "s"), most of them from the AROS contrib nightly build.</p>
-    </div>
-    @if (pinned.Count > 0)
-    {
-    <div class="start">
-    <h2>Start here</h2>
-    <div class="cards">
-    @foreach (var p in pinned)
-    {
-        <a class="card pinned" href="/packages/@p.Channel/@p.Name">
-            <span class="card-title">@p.Name <span class="muted">@p.Latest.Version</span></span>
-            @if (p.Latest.Manifest.Short is { } sh)
-            {
-                <span>@sh</span>
-            }
-            <span class="muted small">@Site.KindLabel(p.Kind) · @string.Join(", ", p.Archs.Select(Site.ArchLabel))</span>
-            <span class="cmd-line">@Site.InstallCommand(Site.ChannelUrl(Request, Options.Value, p.Channel), p.Name)</span>
-        </a>
-    }
-    </div>
-    </div>
-    }
+        <div>
+            <h1>Type it. It's installed.</h1>
+            <p class="lead">A package manager for AROS that also runs on your Mac, PC or Linux box. Signed packages, publishers you can check, no surprises.</p>
+            <form action="/search" method="get" role="search">
+                <input type="search" name="q" placeholder="Search packages" aria-label="Search packages" />
+            </form>
+            <p class="muted hint">New here? <a href="/downloads">Get Pkg</a> first: it installs everything else.</p>
+            <p class="totals"><span><b>@packages.Count.ToString("N0")</b> package@(packages.Count == 1 ? "" : "s")</span><span><b>@versions.ToString("N0")</b> versions</span><span><b>@publishers</b> publisher@(publishers == 1 ? "" : "s")</span><span><b>@channels.Count</b> channel@(channels.Count == 1 ? "" : "s")</span></p>
+        </div>
+        @if (first is not null)
+        {
+            <div class="shell" aria-label="What installing looks like">
+                <div class="shell-bar"><i></i><i></i><span>AROS Shell</span></div>
+<pre><span class="p">1.SYS:&gt;</span> <span class="c">Pkg INSTALL @first.Name ROOT SYS: CHANNEL @firstUrl</span>
+installed @first.Name @first.Latest.Version into SYS:: @first.Latest.Manifest.Files.Count file@(first.Latest.Manifest.Files.Count == 1 ? "" : "s")
+signed by @signer   <span class="ok">checked: ok</span>
+<span class="p">1.SYS:&gt;</span> <span class="c">Pkg STATUS ROOT SYS: CHANNEL @firstUrl</span>
+1 package in SYS:, all up to date</pre>
+            </div>
+        }
     </div>
 </section>
 
-<h2>Channels</h2>
-@if (channels.Count == 0)
-{
-    <p class="muted">Nothing is published yet.</p>
-}
-<div class="cards">
-@foreach (var c in channels)
-{
-    <a class="card" href="/channels/@c.Name">
-        <span class="card-title">@c.Name@(Catalogue.IsUnlisted(c.Name) ? " (unlisted)" : "")</span>
-        <span class="muted">@c.Packages.Count package@(c.Packages.Count == 1 ? "" : "s") · updated @Site.Ago(c.Updated)</span>
-    </a>
-}
-</div>
-
-@if (recent.Count > 0)
-{
-    <h2>Recently updated</h2>
-    <table class="list">
-        <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">Channel</th><th>Updated</th></tr></thead>
-        <tbody>
+<div class="two">
+    <section>
+        <h2 class="label">@(most.Count > 0 ? "Most installed" : "Start here")</h2>
+        <ul class="rows">
+        @if (most.Count > 0)
+        {
+            foreach (var (p, n) in most)
+            {
+                <li><span><a class="n" href="/packages/@p.Channel/@p.Name">@p.Name</a><span class="v">@p.Latest.Version</span></span><span class="r">@n.ToString("N0") install@(n == 1 ? "" : "s")</span><span class="d">@p.Latest.Manifest.Short</span></li>
+            }
+        }
+        else
+        {
+            foreach (var p in pinned)
+            {
+                <li><span><a class="n" href="/packages/@p.Channel/@p.Name">@p.Name</a><span class="v">@p.Latest.Version</span></span><span class="r">@Site.KindLabel(p.Kind)</span><span class="d">@p.Latest.Manifest.Short</span></li>
+            }
+        }
+        </ul>
+        <h2 class="label">Channels</h2>
+        <ul class="rows">
+        @foreach (var c in channels)
+        {
+            <li><span><a class="n" href="/channels/@c.Name">@c.Name</a>@if (Catalogue.IsUnlisted(c.Name)) { <span class="chip">unlisted</span> }</span><span class="r">@c.Packages.Count package@(c.Packages.Count == 1 ? "" : "s")</span><span class="d muted">updated @Site.Ago(c.Updated)</span></li>
+        }
+        </ul>
+    </section>
+    <section>
+        <h2 class="label">Recently updated</h2>
+        <ul class="rows">
         @foreach (var p in recent)
         {
-            <tr>
-                <td><a href="/packages/@p.Channel/@p.Name">@p.Name</a>
-                @if (p.Latest.Manifest.Short is { } sh)
-                {
-                    <div class="muted small">@sh</div>
-                }
-                </td>
-                <td><code>@p.Latest.Version</code></td>
-                <td class="hide-s">@Site.KindLabel(p.Kind)</td>
-                <td class="hide-s">@p.Channel</td>
-                <td class="muted">@Site.Ago(p.Updated)</td>
-            </tr>
+            <li><span><a class="n" href="/packages/@p.Channel/@p.Name">@p.Name</a><span class="v">@p.Latest.Version</span></span><span class="r">@Site.Ago(p.Updated)</span><span class="d">@p.Latest.Manifest.Short</span></li>
         }
-        </tbody>
-    </table>
-}
+        </ul>
+    </section>
+</div>
+
+<p class="muted small">New versions as a feed: <a href="/feed">/feed</a>. For tools and agents: <a href="/api">the API</a>.</p>

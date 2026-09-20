@@ -83,7 +83,7 @@
 
 @if (mine is not null)
 {
-    <h2>What is registered</h2>
+    <h2 class="label">What is registered</h2>
     <table class="list">
         <tbody>
             <tr><th>Publisher</th><td>@mine.Name</td></tr>
@@ -92,14 +92,14 @@
             <tr><th>Your push carries</th><td>@(mine.Files ? "your files: the portal stores them" : "signed descriptions only: your files stay at an https address, such as a GitHub release (UPSTREAM)")</td></tr>
         </tbody>
     </table>
-    <h2>Publish</h2>
+    <h2 class="label">Publish</h2>
     <div class="cmd lines"><code>pkg PUBLISH "release/mytool-1.0.tar.bz2!/MyTool" CHANNEL @(mine.Channels[0] == "*" ? "mychannel" : mine.Channels[0]) KIND application UPSTREAM https://github.com/@me.Value.Login/mytool/releases/download/v1.0/mytool-1.0.tar.bz2 SIGN my.key
 pkg PUSH CHANNEL @(mine.Channels[0] == "*" ? "mychannel" : mine.Channels[0]) TO @site/@(mine.Channels[0] == "*" ? "mychannel" : mine.Channels[0]) SIGN my.key</code></div>
     <p class="muted"><a href="/docs/publishing">Publishing packages</a> says the rest.</p>
 }
 
 @if (mine is { } && mine.Channels.Contains("*")) { return; }
-<h2>@(mine is null ? "Register" : "Add a channel, or change what is registered")</h2>
+<h2 class="label">@(mine is null ? "Register" : "Add a channel, or change what is registered")</h2>
 <form method="post" class="form">
     <label><span>Publisher name, as people will see it</span>
         <input name="PublisherName" maxlength="60" required value="@(mine?.Name ?? me.Value.Login)" /></label>

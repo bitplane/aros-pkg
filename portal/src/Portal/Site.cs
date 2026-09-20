@@ -43,7 +43,7 @@ public static class Site
             ? $"nightly {d.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}" : $"build {build}";
 
     /// "generic" means the package holds no executable, not "any CPU".
-    public static string ArchLabel(string arch) => arch == "generic" ? "no executable" : arch;
+    public static string ArchLabel(string arch) => arch == "generic" ? "any CPU" : arch;
 
     public static string KindLabel(string kind) => kind switch
     {

@@ -17,7 +17,7 @@
 }
 @if (one is null)
 {
-    <h1>Publishers</h1>
+    <h1 class="sr-only">Publishers</h1>
     <p class="lead">A publisher is a signing key: every package here is signed by one, and Pkg holds each package to the key of its first version. <a href="/trust">What that means</a>. To become one: <a href="#publish">publish on this portal</a>.</p>
     <table class="list">
         <thead><tr><th>Publisher</th><th>Key</th><th class="num">Packages</th><th class="num hide-s">Versions</th><th class="hide-s">Since</th></tr></thead>
@@ -25,7 +25,7 @@
         @foreach (var p in all)
         {
             <tr>
-                <td><a href="/publishers/@p.Key">@(p.Name ?? "unnamed key")</a>@if (Registry.ByKey(p.Key) is { Suspended: false } v) { <partial name="_Verified" model="v.Login" /> }</td>
+                <td><a class="@(p.Name is null ? "unnamed" : "")" href="/publishers/@p.Key">@(p.Name ?? "unnamed key")</a>@if (Registry.ByKey(p.Key) is { Suspended: false } v) { <partial name="_Verified" model="v.Login" /> }</td>
                 <td><code>@p.Short</code></td>
                 <td class="num">@p.ByPackage.Count()</td>
                 <td class="num hide-s">@p.Versions.Count</td>
@@ -71,10 +71,10 @@
         }
     </dl>
 }
-<h2>Public key</h2>
+<h2 class="label">Public key</h2>
 <div class="cmd wrapcode"><code>@one.Key</code><button class="copy" data-copy="@one.Key">Copy</button></div>
 <p class="muted small">Ed25519. This key is the publisher's identity; the name above is a label this site's maintainers attached to it. Compare the key with the one the publisher announces on a page you trust. <a href="/trust">How signatures work here</a>.</p>
-<h2>Signed packages</h2>
+<h2 class="label">Signed packages</h2>
 <table class="list">
     <thead><tr><th>Package</th><th>Versions</th><th class="hide-s">Channel</th></tr></thead>
     <tbody>
