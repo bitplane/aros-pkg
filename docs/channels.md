@@ -148,14 +148,14 @@ need ask for nothing else.
 It is a hint, never authority. What the list names is still the signed
 `.withdrawn` file, read and checked as before; a list naming a version whose
 withdrawal does not check costs one request and changes nothing. A list that
-leaves a version out hides its withdrawal — exactly as deleting the signed
+leaves a version out hides its withdrawal, exactly as deleting the signed
 file from that copy of the channel would, which anyone serving a channel could
 always do. A withdrawal has never been a way to keep a version out of reach of
 whoever serves it; it is how a publisher tells the readers who ask that this
 version is not to be used.
 
-A channel without the file — a directory, a copy someone made, a server that
-does not write one — is read exactly as before, one request per entry.
+A channel without the file, a directory, a copy someone made, or a server that
+does not write one, is read exactly as before, one request per entry.
 
 ## Check a channel
 

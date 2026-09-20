@@ -211,7 +211,7 @@
             <td><a href="/channels/@c.Name">@c.Name</a></td>
             <td class="num">@c.Packages.Count</td>
             <td class="num">@c.Lines.Count</td>
-            <td class="hide-s">@(b is null ? "–" : $"{Site.BuildLabel(b.Build)}: {b.Published} published, {b.Unchanged} unchanged")</td>
+            <td class="hide-s">@(b is null ? "-" : $"{Site.BuildLabel(b.Build)}: {b.Published} published, {b.Unchanged} unchanged")</td>
             <td class="hide-s muted">@Site.Ago(c.Updated)</td>
         </tr>
     }

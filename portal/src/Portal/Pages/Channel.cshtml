@@ -113,7 +113,7 @@
             <td class="hide-s">@Site.KindLabel(p.Kind)</td>
             <td class="hide-s">@string.Join(", ", p.Archs.Select(Site.ArchLabel))</td>
             <td class="num">@Site.Size(p.Latest.Manifest.InstalledSize)</td>
-            <td class="num hide-s">@(p.Latest.Manifest.Payload is null ? "–" : Search.DownloadsOf(p).ToString("N0"))</td>
+            <td class="num hide-s">@(p.Latest.Manifest.Payload is null ? "-" : Search.DownloadsOf(p).ToString("N0"))</td>
         </tr>
     }
     </tbody>

@@ -277,7 +277,7 @@ else if (!isLatest)
             <td>@Site.ArchLabel(x.Arch)</td>
             <td class="hide-s">@Site.Date(x.Published)</td>
             <td class="num">@Site.Size(x.Manifest.InstalledSize)</td>
-            <td class="num hide-s">@(x.Manifest.Payload is null ? "–" : Search.DownloadsOf(x).ToString("N0"))</td>
+            <td class="num hide-s">@(x.Manifest.Payload is null ? "-" : Search.DownloadsOf(x).ToString("N0"))</td>
             <td>
                 @if (x.Withdrawn)
                 {
