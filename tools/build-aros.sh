@@ -10,6 +10,9 @@
 # what the client assumes is what the hosted run exists to establish.
 
 set -eu
+# The version this binary says it is, as the Makefile makes it: PATCH and BUILD
+# may be set to pin a reproducible build.
+verflags="-DPKG_VERSION_PATCH=\"${PATCH:-0}\" -DPKG_BUILD=\"${BUILD:-$(date -u +%Y%m%d)}\" -DPKG_BUILD_DAY=\"${BUILDDAY:-$(date -u +%d.%m.%Y)}\""
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 aros_build=${AROS_BUILD:-"$HOME/aros-build"}
@@ -44,7 +47,7 @@ for c in "$mbedtls"/library/*.c; do
     [ "$o" -nt "$c" ] && [ "$o" -nt "$mbedtls/pkg_mbedtls_config.h" ] && continue
     # shellcheck disable=SC2086 -- the platform profile supplies separate flags.
     COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
-        "$aros_clang" --target="$aros_target" $aros_arch_flags \
+        "$aros_clang" --target="$aros_target" $aros_arch_flags $verflags \
         -Os -std=gnu11 -c \
         -isystem "$developer/include" \
         -isystem "$sdk/gen/include" \
@@ -58,7 +61,7 @@ done
 
 # shellcheck disable=SC2086 -- the platform profile supplies separate flags.
 COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
-    "$aros_clang" --target="$aros_target" $aros_arch_flags \
+    "$aros_clang" --target="$aros_target" $aros_arch_flags $verflags \
     -O2 -std=gnu11 \
     -Wall -Wextra -Werror \
     -DMBEDTLS_CONFIG_FILE='"pkg_mbedtls_config.h"' \
@@ -86,7 +89,7 @@ afsplus=${AFSPLUS_ROOT:-"$repo_root/../afsplus"}
 if [ -f "$afsplus/native/aros/client/afsplus_client.c" ]; then
     # shellcheck disable=SC2086
     COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
-        "$aros_clang" --target="$aros_target" $aros_arch_flags \
+        "$aros_clang" --target="$aros_target" $aros_arch_flags $verflags \
         -O2 -std=gnu11 -Wall -Wextra -Werror -Wno-pointer-sign \
         -isystem "$developer/include" \
         -isystem "$sdk/gen/include" \

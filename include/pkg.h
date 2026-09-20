@@ -62,7 +62,23 @@
 #define PKG_H
 
 #define PKG_API_VERSION 1   /* stays 1 until the first official release */
-#define PKG_VERSION_STRING "1.7"   /* the tool's own version, as in its $VER */
+/* The tool's own version, as in its $VER: a release, a number raised when
+ * something in that release changes, and the day this binary was built. The
+ * build carries them in, so what runs always says which day it came from; the
+ * defaults here are for anything that compiles pkg.h on its own. A package
+ * orders them as Pkg orders any version: 1.7.0+20260920 comes after 1.7, a
+ * later day after an earlier one, and a raised PKG_VERSION_PATCH after both. */
+#define PKG_VERSION_RELEASE "1.7"
+#ifndef PKG_VERSION_PATCH
+#define PKG_VERSION_PATCH "0"
+#endif
+#ifndef PKG_BUILD
+#define PKG_BUILD "00000000"      /* a build that did not say: never published */
+#endif
+#ifndef PKG_BUILD_DAY
+#define PKG_BUILD_DAY "unknown day"
+#endif
+#define PKG_VERSION_STRING PKG_VERSION_RELEASE "." PKG_VERSION_PATCH "+" PKG_BUILD
 
 /* What every request to a channel says about this Pkg: its version, the
  * system and the CPU it was built for, all known when it is compiled. The

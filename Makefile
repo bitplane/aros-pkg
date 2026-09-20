@@ -3,7 +3,15 @@
 
 CC       ?= cc
 CFLAGS   ?= -std=c99 -Wall -Wextra -Werror -O2
-CPPFLAGS  = -Iinclude -Ithird_party/bzip2
+CPPFLAGS  = -Iinclude -Ithird_party/bzip2 $(VERFLAGS)
+
+# The version this binary says it is: the release in include/pkg.h, a patch
+# number raised by hand when a release changes, and the day it was built.
+# PATCH=n BUILD=20260920 on the command line pins them for a reproducible build.
+PATCH    ?= 0
+BUILD    ?= $(shell date -u +%Y%m%d)
+BUILDDAY ?= $(shell date -u +%d.%m.%Y)
+VERFLAGS  = -DPKG_VERSION_PATCH='"$(PATCH)"' -DPKG_BUILD='"$(BUILD)"' -DPKG_BUILD_DAY='"$(BUILDDAY)"' 
 
 # Portable C99: everything except the host filesystem layer.
 LIB  = src/pkg_lib.c

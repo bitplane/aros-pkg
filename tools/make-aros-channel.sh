@@ -42,6 +42,14 @@ channel_url=${PKG_CHANNEL_URL:-https://aros-pkg.azurewebsites.net/pkg}
 # the host builds' drawers under Bootstrap/, as the portal names them: never
 # probed on AROS, where a case-blind disk would take their pkg for Pkg
 host_platforms="macos-arm64 macos-x86_64 linux-x86_64 linux-arm64 windows-x86_64"
+# A build that did not say which day it came from is never published.
+for b in "$repo_root/build/aros/Pkg" "$repo_root/build/aros-x86_64/Pkg" "$pkg"; do
+    [ -e "$b" ] || continue
+    if strings "$b" 2> /dev/null | grep -q '\$VER: Pkg .*+00000000'; then
+        echo "make-aros-channel: $b was built without its day (+00000000); build it again" >&2
+        exit 1
+    fi
+done
 [ -n "${PKG_SIGNKEY:-}" ] || {
     echo "make-aros-channel: set PKG_SIGNKEY to the publisher's key (pkg KEYINFO FILE <key> names it;" >&2
     echo "  a first publisher creates one with pkg KEYGEN FILE <key>)" >&2

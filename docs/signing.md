@@ -158,8 +158,8 @@ Pkg does this at every install, and `SHOW` does it for a whole channel:
 ```console
 $ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
 Package  Version  Kind         Arch     Status  Signer
-pkg      1.5      application  aarch64  ok      43c550967bc18dfe
-pkg      1.5      application  x86_64   ok      43c550967bc18dfe
+pkg      1.7.0    application  aarch64  ok      5ff18d3fe14e383e
+pkg      1.7.0    application  x86_64   ok      5ff18d3fe14e383e
 ```
 
 To check without trusting Pkg at all, three files and one script suffice.

@@ -103,16 +103,16 @@ alone:
 
 ```console
 $ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg ARCH aarch64
-installed pkg 1.5 into aros: 1 file, payload 7b098eba1503, signed by 5ff18d3fe14e383e
+installed pkg 1.7.0 into aros: 1 file, payload 54abf82ec01e, signed by 5ff18d3fe14e383e
 $ pkg INSTALL helloworld ROOT aros CHANNEL channel
   added    hellolib 1.0, a dependency
 installed helloworld 1.1 into aros: 2 files, payload 0542ac0ba511, signed by 5ff18d3fe14e383e
 $ pkg REMOVE pkg ROOT aros
-removed pkg 1.5 from aros: 1 file removed
+removed pkg 1.7.0 from aros: 1 file removed
   hint: Pkg is gone, but aros/.pkg still holds what is installed, the keys pinned for it and the downloads; a later Pkg takes over from there, and the guide to removing Pkg says what to delete when nothing should stay
 $ rm -rf aros/.pkg
 $ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg ARCH aarch64
-installed pkg 1.5 into aros: 1 file, payload 7b098eba1503, signed by 5ff18d3fe14e383e
+installed pkg 1.7.0 into aros: 1 file, payload 54abf82ec01e, signed by 5ff18d3fe14e383e
 $ pkg INSTALL helloworld ROOT aros CHANNEL channel
   adopted  1 file already there, identical to hellolib 1.0's
   adopted  2 files already there, identical to helloworld 1.1's
@@ -122,7 +122,7 @@ $ pkg VERIFY ALL ROOT aros
 Package     Version  Files    State
 hellolib    1.0      1 file   intact
 helloworld  1.1      2 files  intact
-pkg         1.5      1 file   intact
+pkg         1.7.0    1 file   intact
 3 packages, 4 files, all intact
 ```
 
@@ -140,7 +140,7 @@ Pkg has been removed:
 
 ```console
 $ pkg REMOVE pkg ROOT aros
-removed pkg 1.5 from aros: 1 file removed
+removed pkg 1.7.0 from aros: 1 file removed
   hint: Pkg is gone, but aros/.pkg still holds what is installed, the keys pinned for it and the downloads; a later Pkg takes over from there, and the guide to removing Pkg says what to delete when nothing should stay
 $ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg-next    # exits 14
 pkg install: pkg is signed by a different key from the one pinned in aros.

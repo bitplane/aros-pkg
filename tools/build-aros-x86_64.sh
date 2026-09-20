@@ -18,6 +18,9 @@
 # and the LLVM tools, which handle every architecture) and the CPU switched.
 
 set -eu
+# The version this binary says it is, as the Makefile makes it: PATCH and BUILD
+# may be set to pin a reproducible build.
+verflags="-DPKG_VERSION_PATCH=\"${PATCH:-0}\" -DPKG_BUILD=\"${BUILD:-$(date -u +%Y%m%d)}\" -DPKG_BUILD_DAY=\"${BUILDDAY:-$(date -u +%d.%m.%Y)}\""
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 aros_src=${AROS_SRC:-"$repo_root/../aros-upstream"}
@@ -49,7 +52,7 @@ for f in src/pkg_main.c src/pkg_lib.c src/pkg_container.c src/pkg_sha256.c src/p
     # The AROS clang predefines these; the stock one, which knows the triple
     # but not the platform, does not, and without __AROS__ Pkg would take its
     # POSIX output path, which reaches no AmigaDOS redirection.
-    "$llvm/bin/clang" --target=x86_64-unknown-aros -mcmodel=large -O2 -std=gnu11 \
+    "$llvm/bin/clang" --target=x86_64-unknown-aros -mcmodel=large -O2 -std=gnu11 $verflags \
         -D__AROS__=1 -D__AROS=1 -DAROS=1 -DAMIGA=1 -D_AMIGA=1 \
         -Wall -Wextra -Werror \
         -isystem "$sdk/include" -isystem "$sdk/include/aros/posixc" -isystem "$sdk/include/aros/stdc" \

@@ -319,3 +319,28 @@ Goals and milestones: [GOAL.md](../GOAL.md). What remains: [OPEN.md](../OPEN.md)
 | `Depends`, resolution, orphans, `REMOVE ORPHANS` | Built: `tests/deps.sh` on macOS, `tests/goal2.sh` on hosted AROS |
 | Removing Pkg itself, and moving to an incompatible Pkg | Built: [Removing Pkg](removing.md), proven by `tests/aros-remove-pkg.sh` on hosted AROS |
 | `STATUS`, `UPGRADE ALL`: checking and updating a root, unattended | Built: `tests/status.sh` on macOS, 67 checks; on hosted AROS in the contract, AmigaDOS and ARexx |
+
+## The version a build says it is
+
+`PKG_VERSION_RELEASE` in `include/pkg.h` is the release, and stays put until
+one is declared. What a binary reports is that release, a patch number and the
+day it was built: `1.7.0+20260920`. The build passes the last two in, so a
+binary always says which day it came from, and Pkg orders them as it orders any
+version: `1.7.0+20260920` comes after `1.7`, a later day after an earlier one,
+and a raised patch after both.
+
+```sh
+make build/pkg && ./build/pkg HELP | head -1     # Pkg 1.7.0+20260920 (20.09.2026)
+```
+
+Raise `PATCH` when a release changes in a way people should be able to ask for
+by version; the day moves on its own. Both can be pinned, for a build that must
+come out byte for byte the same as an earlier one:
+
+```sh
+make PATCH=1 BUILD=20260920 BUILDDAY=20.09.2026 build/pkg
+PATCH=1 BUILD=20260920 BUILDDAY=20.09.2026 sh tools/build-aros.sh
+```
+
+A build that says nothing carries `+00000000`, and nothing published ever
+should: `tools/make-aros-channel.sh` refuses it.
