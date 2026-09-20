@@ -5,6 +5,25 @@ directory, or the same directory served over HTTP. It holds only signed
 files, so it can live anywhere, a disk, a share, a web server, without
 being trusted: pkg checks every signature and every file itself.
 
+## A channel of your own
+
+A channel is not registered anywhere and asks nobody's permission. You make
+the key yourself (`pkg KEYGEN`), `PUBLISH` writes the channel, and whoever
+you give the address to reads it. No account, no sign-up, no key from anyone
+else. A portal such as <https://aros-pkg.azurewebsites.net> is one server
+that happens to hold channels; it is not an authority over them, and it holds
+no signing key of yours or anyone else's.
+
+A channel can be private just as easily: a drawer on your own disk, a share
+only your machines mount, an image, or a web server that asks for a password.
+pkg reads all of those the same way, and nobody outside sees that yours
+exists.
+
+Registering as a publisher on a portal means one thing and only that: being
+allowed to `PUSH` into a channel *that portal hosts*, which is also what
+makes the packages show on its pages, in its search and in its feeds. Your
+own channel needs none of it. See [The portal](#the-portal).
+
 ## Where a channel can be
 
 - **A directory** on a disk, a share or an image: `CHANNEL Work:channel` on

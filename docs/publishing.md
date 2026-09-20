@@ -5,6 +5,12 @@ or the components of someone else's archive. You publish on any system pkg
 runs on, into a channel (a directory); then you copy that directory to
 where people read it, or upload it to the portal.
 
+Publishing asks nobody's permission. The key is yours, the channel is yours,
+and a channel served from your own machine, or kept private on a disk or a
+share, needs nothing from any portal ([Channels](channels.md)). Registering
+as a publisher is only for pushing into a channel a portal hosts, the last
+section here.
+
 The examples use a drawer `MyTool` holding a program, `C/MyTool`, and a
 newer build of it in `MyTool-1.1`.
 
@@ -288,11 +294,16 @@ and the channel never carries the archive.
 
 ## Upload to the portal
 
-**The portal takes pushes only from publishers its maintainer has
-registered, and for now the only way to be registered is to ask:** see
-<https://aros-pkg.azurewebsites.net/publishers>. Send your public key
-(`pkg KEYINFO FILE <your key>`, not secret) and the channel you want; you
-are told when it is done. There is no sign-up form yet.
+This step is for a channel the portal hosts, so that people find your
+packages on its pages, in its search and in its feeds. A channel of your own
+needs none of it.
+
+**A portal takes pushes only from publishers it knows**, and you register
+yourself: sign in with GitHub at
+<https://aros-pkg.azurewebsites.net/publishers>, give the public half of
+your key (`pkg KEYINFO FILE <your key>`, not secret) and the channel name
+you want. The portal keeps your GitHub account's number and login, nothing
+else, and your channel is unlisted until the portal's maintainer lists it.
 
 Once registered, publish into a local channel and send it to the portal,
 signing the push with the key you registered:
