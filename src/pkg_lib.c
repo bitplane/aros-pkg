@@ -3610,9 +3610,12 @@ static size_t edits(const char *a, const char *b)
 static int close_name(const char *a, const char *b)
 {
     size_t la = strcspn(a, ".-_"), lb = strcspn(b, ".-_");
+    size_t shorter = strlen(a) < strlen(b) ? strlen(a) : strlen(b);
     if (strstr(a, b) != NULL || strstr(b, a) != NULL)
         return 1;
-    if (edits(a, b) <= 2)
+    /* Two edits in a short name is another name, not a typo: "hap" is two
+     * edits from "hcat" and one from "happ". */
+    if (edits(a, b) <= (shorter <= 4 ? 1 : 2))
         return 1;
     return la == lb && la >= 3 && strncmp(a, b, la) == 0;
 }

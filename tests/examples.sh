@@ -9,6 +9,9 @@
 set -u
 PKG=${PKG:-./build/pkg}
 B=./build
+for need in "$PKG" "$B/example-basic" "$B/example-browse"; do
+    [ -x "$need" ] || { echo "examples: missing $need (make build/pkg build/example-basic build/example-browse)" >&2; exit 69; }
+done
 T=$(mktemp -d "${TMPDIR:-/tmp}/pkg-examples.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 checks=0
