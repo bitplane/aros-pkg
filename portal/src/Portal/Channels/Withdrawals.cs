@@ -47,9 +47,12 @@ public static class Withdrawals
         return Header + "\n" + string.Concat(digests.Select(d => d + "\n"));
     }
 
-    /// Writes it whole, in one move, so a reader never sees half a list.
+    /// Writes it whole, in one move, so a reader never sees half a list. A
+    /// channel that does not exist yet (a push that published nothing) gets
+    /// none: there is nothing to serve it from.
     public static void Write(string channelDir)
     {
+        if (!Directory.Exists(channelDir)) return;
         var text = Text(channelDir);
         var path = Path.Combine(channelDir, File1);
         if (System.IO.File.Exists(path) && System.IO.File.ReadAllText(path) == text) return;
