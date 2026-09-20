@@ -107,12 +107,17 @@ $P SHOW CHANNEL https://127.0.0.1:$wrongname_port/ch >MacRW:out/n09.o
 C:Echo \"\$RC\" >MacRW:out/n09.rc
 $P SHOW CHANNEL https://127.0.0.1:$expired_port/ch >MacRW:out/n0a.o
 C:Echo \"\$RC\" >MacRW:out/n0a.rc
+C:MakeDir RAM:kc1
+C:SetEnv PKG_CACHE RAM:kc1
 $P SHOW CHANNEL https://127.0.0.1:$ka_port/ch TRACE MacRW:out/keep.trace >MacRW:out/n0b.o
 C:Echo \"\$RC\" >MacRW:out/n0b.rc
+C:MakeDir RAM:kc2
+C:SetEnv PKG_CACHE RAM:kc2
 C:SetEnv PKG_NO_KEEPALIVE 1
 $P SHOW CHANNEL https://127.0.0.1:$ka_port/ch TRACE MacRW:out/nokeep.trace >MacRW:out/n0c.o
 C:Echo \"\$RC\" >MacRW:out/n0c.rc
 C:UnSetEnv PKG_NO_KEEPALIVE
+C:UnSetEnv PKG_CACHE
 C:UnSetEnv PKG_CAFILE"
 [ -z "$portal" ] || script="$script
 $P SHOW CHANNEL http://${portal#https://} >MacRW:out/n10.o
@@ -169,6 +174,8 @@ ok $? "and asks for $(gets keep) files over one connection (connections opened: 
 exits n0c 0 "the same read with PKG_NO_KEEPALIVE=1"
 [ "$(conns nokeep)" = "$(gets nokeep)" ] && [ "$(conns nokeep)" -gt 1 ]
 ok $? "opens a connection per file: the check above fails without the reuse ($(conns nokeep) connections for $(gets nokeep) files)"
+[ "$(grep -c 'authorities, read once' "$O/nokeep.trace" 2>/dev/null)" = 1 ]
+ok $? "and reads the certificate authorities once in the process, not once per connection"
 if [ -n "$portal" ]; then
     exits n10 0 "SHOW reads the portal's channel over http"
     has "$O/n10.o" '^pkg  *[0-9.]*  *application  *aarch64  *ok ';  ok $? "its aarch64 entry checks: ok"

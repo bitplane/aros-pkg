@@ -811,6 +811,7 @@ static int net_start(char *err, size_t errlen)
 
 static int net_open(const char *host, const char *port, int tls, void **tlsh, char *err, size_t errlen)
 {
+    static int prepared;                /* the authorities are read once per process */
     struct sockaddr_in sa;
     struct hostent *he;
     long long t0, t1;
@@ -847,7 +848,7 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
             return -1;
         }
         t2 = now_ms();
-        if (t2 - t1 > 0)
+        if (prepared++ == 0)            /* the once-per-process work, and what it cost */
             nettr("net: the certificate authorities, read once: %lld ms", t2 - t1);
         *tlsh = pkg_tls_open(s, host, err, errlen);
         if (*tlsh == NULL) {
