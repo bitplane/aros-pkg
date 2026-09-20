@@ -1,0 +1,42 @@
+@page "/privacy"
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@inject Usage Usage
+@inject IOptions<PortalOptions> Options
+@{
+    ViewData["Title"] = "Privacy";
+    var days = Usage.All().Select(u => u.Day).Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList();
+}
+<h1>What this portal knows about you</h1>
+<p class="lead">Nothing that points at a person. Installing and reading need no account, and the portal keeps no address, no identifier and no record of a single request. What it does keep is a daily tally of which Pkg builds asked for something, so that we can see how Pkg spreads and when an old version has gone. This page says exactly that, and <a href="/api/usage">/api/usage</a> hands over everything there is.</p>
+
+<h2 class="label">What Pkg sends</h2>
+<p>Every request Pkg makes carries one line about itself and nothing else:</p>
+<div class="cmd"><code>User-Agent: Pkg/1.7.0+20260920 (aros; aarch64)</code></div>
+<p>Its version, the system it was built for and the CPU. No name, no key, no machine identifier, no list of what you have installed, and nothing about your machine beyond those three words. A channel you serve yourself sees the same line and does with it whatever your server does.</p>
+
+<h2 class="label">What the portal keeps</h2>
+<p>One tally per day, per build, per kind of request: <code>day, version, system, cpu, kind, count</code>. A line reads “on this day, this many channel reads came from Pkg 1.7.0+20260920 on aros/aarch64”. The kinds are channel reads, packages taken and pushes. It lives in one file in the portal's own state, it is shown on <a href="/statistics">Statistics</a>, and it is served whole at <a href="/api/usage">/api/usage</a>@(days.Count > 0 ? $": {days.Count} day{(days.Count == 1 ? "" : "s")} so far, from {days[0]} to {days[^1]}" : ", empty until a Pkg asks for something").</p>
+<p>Anything that is not Pkg, a browser or a tool of your own, counts as <code>other</code> in all three words. A day holds at most a few hundred different builds; past that the rest of that day counts as <code>other</code> too, so nobody can grow that file by inventing names.</p>
+<p>Besides that, the portal counts how many times each package and each Pkg download has been fetched, in one number each, with nothing attached.</p>
+
+<h2 class="label">What it does not keep</h2>
+<ul>
+    <li>No addresses: not yours, not anyone's, nowhere, not even for a moment in a log.</li>
+    <li>No identifier of a person or a machine, and no count of how many people there are: a tally cannot tell one machine asking a hundred times from a hundred machines asking once.</li>
+    <li>No record of a single request: what was asked, and when, is never written down.</li>
+    <li>No cookie that follows you. The portal sets a cookie only when you sign in to publish, and one that remembers your choice of theme, in your browser alone.</li>
+    <li>No tracking script, no analytics service, no font or image from anywhere else: every page is served by this portal and nothing else is fetched.</li>
+    <li>No list of what you installed. The portal never learns what a machine holds; Pkg keeps that on your own disk.</li>
+</ul>
+
+<h2 class="label">What the hosting platform logs</h2>
+<p>The site runs on Azure App Service. Its own request logging, which would record addresses and full request lines, is off: HTTP logs to the file system and to storage, application logs, detailed errors and failed-request tracing are all switched off, there is no Application Insights and no diagnostic setting on the app. @(Options.Value.PublicUrl.Length > 0 ? "Checked on the live app" : "Checked on this instance") the day this page was written, and before every release. What remains outside our hands is what Microsoft records for its own operation of the platform, under its terms.</p>
+<p>The portal's own error log holds what failed and where: a time, a method, a path and an exception. It carries nothing about who asked, and only its maintainers can read it.</p>
+
+<h2 class="label">If you publish here</h2>
+<p>Registering as a publisher signs you in with GitHub. The portal reads your public profile and keeps two things: your account's number and your login. No email, no token, no access to your repositories. Your publisher name, your public signing key and your channels are public, which is the point of them: they are how people know a package is yours. <a href="/publishers#publish">How to register</a>.</p>
+
+<h2 class="label">Someone else's portal</h2>
+<p>Anyone can run this software, and another portal may keep other things. This page speaks only for <code>@(Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl : Request.Host.ToString())</code>. What a portal accepts and refuses is readable at <a href="/api/policy">/api/policy</a>, and what it counts at <a href="/api/usage">/api/usage</a>.</p>
+<p class="muted small">Something here not true of what you see? <a href="https://github.com/jonx/aros-pkg/issues" rel="noopener">Say so</a>. The code that does all of this is <a href="https://github.com/jonx/aros-pkg" rel="noopener">open</a>: <code>Channels/Usage.cs</code> is the whole of it.</p>

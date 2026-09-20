@@ -190,13 +190,27 @@ Publishers upload with `PUSH`; see
 ### What Pkg tells a channel, and what the portal keeps
 
 Every request Pkg makes names Pkg's version, the system and the CPU it was
-built for, and nothing else: `User-Agent: Pkg/1.4 (aros; aarch64)`. No
-name, no key, no machine identifier, no list of what is installed. The
-portal uses those three words to count usage per day (how many requests
-came from each version, system and CPU) and keeps the totals only: not the
-requests, not the addresses they came from. Its `/privacy` page says the
-same. A channel you serve yourself sees the same header and does with it
-what its server does.
+built for, and nothing else:
+
+```
+User-Agent: Pkg/1.7.0+20260920 (aros; aarch64)
+```
+
+No name, no key, no machine identifier, no list of what is installed. The
+portal keeps one tally per day from those three words, for each kind of
+request: `day, version, system, cpu, kind, count`, where the kinds are
+channel reads, packages taken and pushes. A line says "on this day, this
+many channel reads came from this build", and that is the whole of it: no
+addresses, no identifiers, no record of a single request, and no count of
+people, since a tally cannot tell one machine asking a hundred times from
+a hundred machines asking once. Anything that is not Pkg counts as
+`other`, and so does the rest of a day once a few hundred different builds
+have been seen, which is what stops invented names from growing the file.
+
+The portal shows it on its statistics page and hands over everything it has
+at `/api/usage`; its `/privacy` page says the same in full, including what
+its hosting platform logs. A channel you serve yourself sees the same header
+and does with it what its server does.
 
 ## Host your own portal
 

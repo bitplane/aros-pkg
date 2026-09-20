@@ -50,6 +50,8 @@ builder.Services.AddSingleton<Catalogue>();
 builder.Services.AddSingleton<PublisherKeys>();
 builder.Services.AddSingleton<SignedPush>();
 builder.Services.AddSingleton<Portal.Accounts.Registry>();
+builder.Services.AddSingleton<Portal.Channels.Usage>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Usage>());
 
 // "Sign in with GitHub": who a publisher is. The portal reads the account's
 // number and login from the public profile, asks for no scope, keeps no token.
@@ -377,8 +379,11 @@ push.MapPut("/files/{**path}", async (HttpContext http, string channel, string p
     return Results2.Text(answer, status);
 });
 
-push.MapPost("/commit", async (HttpContext http, string channel, PushService s) =>
-    Results2.Text(await s.Commit((Publisher)http.Items["publisher"]!, channel, await ReadBody(http), http.RequestAborted)));
+push.MapPost("/commit", async (HttpContext http, string channel, PushService s, Portal.Channels.Usage usage) =>
+{
+    usage.Note(http.Request.Headers.UserAgent, Portal.Channels.Usage.Pushes);
+    return Results2.Text(await s.Commit((Publisher)http.Items["publisher"]!, channel, await ReadBody(http), http.RequestAborted));
+});
 
 // ---- for tools, agents and feed readers --------------------------------------
 Portal.Api.Endpoints.MapPortalApi(app);
@@ -503,11 +508,18 @@ app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], async (HttpContext http, 
         return Results.Redirect(File.ReadAllText(full + ".url").Trim());
     }
     if (!File.Exists(full)) return Results.NotFound();
+    // How Pkg spreads: a channel read, and below a package taken. Three words
+    // from the request, nothing about who asked. /privacy says it in full.
+    if (path == "index" && HttpMethods.IsGet(http.Request.Method))
+        http.RequestServices.GetRequiredService<Portal.Channels.Usage>().Note(http.Request.Headers.UserAgent, Portal.Channels.Usage.Reads);
     var info = new FileInfo(full);
     // A payload fetched from its first byte is one download; resumed parts are not counted again.
     if (kind == ChannelPaths.Kind.Object && path.EndsWith(".pkg", StringComparison.Ordinal) && HttpMethods.IsGet(http.Request.Method)
         && (http.Request.Headers.Range.Count == 0 || http.Request.Headers.Range.ToString().StartsWith("bytes=0-", StringComparison.Ordinal)))
+    {
         http.RequestServices.GetRequiredService<Portal.Channels.Downloads>().Count($"payload/{channel}/{path[8..72]}");
+        http.RequestServices.GetRequiredService<Portal.Channels.Usage>().Note(http.Request.Headers.UserAgent, Portal.Channels.Usage.Downloads);
+    }
     var immutable = kind is ChannelPaths.Kind.Object or ChannelPaths.Kind.Archive or ChannelPaths.Kind.ArchiveDigest;
     http.Response.Headers.CacheControl = immutable ? "public, max-age=31536000, immutable" : "no-cache";
     var etag = new EntityTagHeaderValue($"\"{info.Length:x}-{info.LastWriteTimeUtc.Ticks:x}\"");

@@ -2,6 +2,7 @@
 @using Portal.Channels
 @inject Catalogue Catalogue
 @inject Downloads Downloads
+@inject Usage Usage
 @{
     ViewData["Title"] = "Statistics";
     var channels = Catalogue.Listed().ToList();
@@ -24,7 +25,7 @@
     int maxKind = byKind.Count > 0 ? byKind.Max(g => g.Count()) : 1;
 }
 <h1 class="sr-only">Statistics</h1>
-<p class="lead">These are totals: what the channels hold, from their signed manifests, and what the portal has served. We do not keep who asked, from where, or anything that could point back to a person.</p>
+<p class="lead">These are totals: what the channels hold, from their signed manifests, and what the portal has served. We do not keep who asked, from where, or anything that could point back to a person: <a href="/privacy">what is kept, and what is not</a>.</p>
 
 <h2 class="label">Catalog</h2>
 
@@ -65,6 +66,73 @@
     </table>
 </section>
 </div>
+
+@{
+    var usage = Usage.All();
+    var days = usage.Select(u => u.Day).Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList();
+    var lastDays = days.TakeLast(30).ToList();
+    long OfDay(string d, string kind) => usage.Where(u => u.Day == d && u.Kind == kind).Sum(u => u.Count);
+    long Busiest = lastDays.Count > 0 ? lastDays.Max(d => OfDay(d, Usage.Reads) + OfDay(d, Usage.Downloads)) : 0;
+}
+@if (usage.Count > 0)
+{
+    <h2 class="label">Pkg in use</h2>
+    <p class="muted">Totals only: for each day, how many channel reads, package downloads and pushes came from each Pkg version, system and CPU. Those three words are all Pkg says about itself, and all the portal keeps: no addresses, no identifiers, no count of people. <a href="/privacy">What is kept, and what is not</a>.</p>
+    <div class="stats">
+        <div><strong>@usage.Where(u => u.Kind == Usage.Reads).Sum(u => u.Count).ToString("N0")</strong><span>channel reads</span></div>
+        <div><strong>@usage.Where(u => u.Kind == Usage.Downloads).Sum(u => u.Count).ToString("N0")</strong><span>packages taken</span></div>
+        <div><strong>@usage.Where(u => u.Kind == Usage.Pushes).Sum(u => u.Count).ToString("N0")</strong><span>pushes</span></div>
+    </div>
+    @if (lastDays.Count > 1)
+    {
+        <p class="muted small">Reads and downloads a day, @lastDays.Count day@(lastDays.Count == 1 ? "" : "s") to @lastDays[^1].</p>
+        <div class="days" role="img" aria-label="Reads and downloads a day">
+        @foreach (var d in lastDays)
+        {
+            var n = OfDay(d, Usage.Reads) + OfDay(d, Usage.Downloads);
+            <i style="height:@(Busiest > 0 ? Math.Max(2, 100 * n / Busiest) : 2)%" title="@d: @n.ToString("N0")"></i>
+        }
+        </div>
+        <div class="ends"><span>@lastDays[0]</span><span>@lastDays[^1]</span></div>
+    }
+    <div class="grid">
+    <section>
+        <h3 class="label">By version</h3>
+        <table class="list">
+            <thead><tr><th>Pkg</th><th class="hide-s">Systems</th><th class="num">Reads</th><th class="num">Packages</th></tr></thead>
+            <tbody>
+            @foreach (var g in usage.GroupBy(u => u.Version).OrderByDescending(g => g.Sum(u => u.Count)).Take(12))
+            {
+                <tr>
+                    <td><code>@g.Key</code></td>
+                    <td class="hide-s muted small">@string.Join(", ", g.Select(u => u.System).Distinct().Order())</td>
+                    <td class="num">@g.Where(u => u.Kind == Usage.Reads).Sum(u => u.Count).ToString("N0")</td>
+                    <td class="num">@g.Where(u => u.Kind == Usage.Downloads).Sum(u => u.Count).ToString("N0")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </section>
+    <section>
+        <h3 class="label">By system and CPU</h3>
+        <table class="list">
+            <tbody>
+            @{ var bySystem = usage.GroupBy(u => (u.System, u.Cpu)).OrderByDescending(g => g.Sum(u => u.Count)).Take(12).ToList();
+               long most = bySystem.Count > 0 ? bySystem.Max(g => g.Sum(u => u.Count)) : 1; }
+            @foreach (var g in bySystem)
+            {
+                var n = g.Sum(u => u.Count);
+                <tr>
+                    <td>@g.Key.System <span class="muted small">@g.Key.Cpu</span></td>
+                    <td class="bar-cell"><span class="track"><span class="bar" style="width:@(100 * n / Math.Max(1, most))%"></span></span></td>
+                    <td class="num">@n.ToString("N0")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </section>
+    </div>
+}
 
 <h2 class="label">Downloads</h2>
 <p class="muted small">Counted here: signed packages the portal serves, and the ways of getting Pkg. Not counted: archives such as the nightly contrib build, which come straight from their makers' servers, and manifests, which every Pkg reads just to look at a channel.</p>

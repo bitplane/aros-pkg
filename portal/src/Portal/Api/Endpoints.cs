@@ -59,6 +59,27 @@ public static class Endpoints
             c.Package(channel, name) is { } p ? Results.Json(Describe(p, Site(http, o.Value), search, null, versions: true))
                                               : Results.NotFound());
 
+        // How Pkg spreads, as the Statistics page shows it: a day, a build, a
+        // kind of request and how many. Nothing per request, per address or per
+        // person; /privacy says what is kept and what is not.
+        api.MapGet("/usage", (Usage usage) => Results.Json(new
+        {
+            kept = new[] { "day", "version", "system", "cpu", "kind", "count" },
+            notKept = new[] { "addresses", "identifiers", "any record of a single request", "any count of people" },
+            privacy = "/privacy",
+            days = usage.All().GroupBy(u => u.Day).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => new
+            {
+                day = g.Key,
+                reads = g.Where(u => u.Kind == Usage.Reads).Sum(u => u.Count),
+                downloads = g.Where(u => u.Kind == Usage.Downloads).Sum(u => u.Count),
+                pushes = g.Where(u => u.Kind == Usage.Pushes).Sum(u => u.Count),
+                builds = g.GroupBy(u => (u.Version, u.System, u.Cpu)).Select(b => new
+                {
+                    version = b.Key.Version, system = b.Key.System, cpu = b.Key.Cpu, count = b.Sum(u => u.Count),
+                }),
+            }),
+        }));
+
         app.MapGet("/feed", (HttpContext http, Catalogue c, IOptions<PortalOptions> o) =>
             Atom(http, o.Value, "AROS Packages: new versions", "/feed", "/",
                  c.Listed().SelectMany(ch => ch.Packages.Values)));
