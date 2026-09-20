@@ -1,12 +1,14 @@
 # Publishing from an AROS machine, from zero
 
 This guide takes an AROS machine with nothing on it to a package of your
-own program, installed and updated through Pkg, in the order you do it:
-put Pkg on the machine, make your key, lay out the program, publish it,
-try it as a user would, publish a new version. Every command is shown as
-you type it in the Shell, with what it prints. [Publishing packages](publishing.md)
-is the same subject on a Mac or a PC, with more on descriptions,
-dependencies and archives; this guide points there rather than repeat it.
+own program on the portal, installed and updated by other people through
+Pkg, in the order you do it: put Pkg on the machine, make your key, lay out
+the program, publish it, try it as a user would, register on the portal,
+push, publish a new version. Every command is shown as you type it in the
+Shell, with what it prints; all of it was run on AROS with Pkg 1.6 against
+the portal. [Publishing packages](publishing.md) is the same subject on a
+Mac or a PC, with more on descriptions, dependencies and archives; this
+guide points there rather than repeat it.
 
 The example is `Greet`, a small program that says hello. Two drawers hold
 its builds: `Work:src/Greet` and, later, `Work:src/Greet-1.1`.
@@ -58,7 +60,7 @@ What you have afterwards is `SYS:C/Pkg`, the copy from the signed package:
 
 ```
 This machine runs the aarch64 build.
-installed pkg 1.3 into SYS:
+installed pkg 1.6 into SYS:
 Pkg is in SYS:C. Try: Pkg HELP.
 ```
 
@@ -88,23 +90,17 @@ MakeDir Work:keys
 Pkg KEYGEN FILE Work:keys/my.key
 ```
 
-AROS has no random source, and a key made from the clock could be guessed.
-So Pkg makes it from the moments you press keys, read from the CPU's
-cycle counter: type anything, at random, until the count reaches 0 (64
-keys; a held key does not count). What you type is not kept.
-
 ```
-AROS has no random source, so the key is made from the moments you press keys.
-Type anything, at random, until the count reaches 0. What you type is not kept.
-   64
 key written to Work:keys/my.key, readable by you alone
-  public key d0e87172f204b4e6663aa1d58fb79022bb59a83ba4d8a69acf19e4ff830c776e
+  public key abf41c8fb2fc84f9a247c4cabfadfd6bad7f85875447f846c5d04ed8b0169233
 ```
 
-This needs a Shell window: from a script with its output redirected, or
-through the ARexx port, `KEYGEN` refuses (exit 17) rather than make a weak
-key. A key made on a Mac or a PC with `pkg KEYGEN FILE my.key` is the same
-kind of file, if you would rather carry one over.
+The key is made on the machine, from AROS's own random source. An older
+AROS has none: there Pkg asks you, in a Shell window, to press keys at
+random and makes the key from the moment of each one, and from a script or
+the ARexx port it refuses (exit 17) rather than make a key that could be
+guessed. A key made on a Mac or a PC with `pkg KEYGEN FILE my.key` is the
+same kind of file, if you would rather carry one over.
 
 Tell Pkg where it is, once for this session and once for every boot:
 
@@ -122,7 +118,7 @@ Pkg KEYINFO FILE Work:keys/my.key
 ```
 
 ```
-Work:keys/my.key holds the public key d0e87172f204b4e6663aa1d58fb79022bb59a83ba4d8a69acf19e4ff830c776e
+Work:keys/my.key holds the public key abf41c8fb2fc84f9a247c4cabfadfd6bad7f85875447f846c5d04ed8b0169233
 ```
 
 Never put the key file in a channel, a package or a drawer you copy
@@ -192,7 +188,7 @@ Pkg PUBLISH Work:src/Greet CHANNEL Work:mychannel KIND application SHORT "Says h
 ```
 
 ```
-published greet 1.0 to Work:mychannel: 1 file, payload 618a890b085b, signed by d0e87172f204b4e6
+published greet 1.0 to Work:mychannel: 1 file, payload 618a890b085b, signed by abf41c8fb2fc84f9
   architecture aarch64, read from C/Greet
   name and version taken from $VER: in C/Greet
   hint: the channel Work:mychannel did not exist and was created: machines install from it with INSTALL greet ROOT <root> CHANNEL <this channel, as the machine names it>
@@ -209,7 +205,7 @@ Pkg SHOW CHANNEL Work:mychannel
 
 ```
 Package  Version  Kind         Arch     Status  Signer
-greet    1.0      application  aarch64  ok      d0e87172f204b4e6
+greet    1.0      application  aarch64  ok      abf41c8fb2fc84f9
 ```
 
 `ok` means Pkg checked the signature and the files of that entry, as it
@@ -228,7 +224,7 @@ Pkg VERIFY greet ROOT RAM:try
 ```
 
 ```
-installed greet 1.0 into RAM:try: 1 file, payload 618a890b085b, signed by d0e87172f204b4e6
+installed greet 1.0 into RAM:try: 1 file, payload 618a890b085b, signed by abf41c8fb2fc84f9
 Hello, Jane!
 Package  Version  Kind         Files
 greet    1.0      application  1 file
@@ -239,7 +235,62 @@ greet 1.0: 1 file, all intact
 and pins your key for `greet` in that root. When it is right, install it
 for real: `Pkg INSTALL greet ROOT SYS: CHANNEL Work:mychannel`.
 
-## 7. Publish a new version
+## 7. Register on the portal
+
+The portal has to know which key is yours before it takes a push. In a
+browser, on any machine, open
+[aros-pkg.azurewebsites.net/account](https://aros-pkg.azurewebsites.net/account),
+sign in with GitHub, and give three things:
+
+- your **publisher name**, as people will see it;
+- your **public key**, the 64 digits `Pkg KEYINFO FILE Work:keys/my.key`
+  prints. Never the key file;
+- your **channel**, such as `janes-tools`: lowercase letters, digits and `-`.
+
+The portal keeps your GitHub account's number and login, nothing else. A new
+publisher's channel is **unlisted**, served to whoever has its address and
+shown nowhere on the site, until the maintainer lists it; and it publishes
+**by link**: a push carries the signed descriptions, and the files stay where
+you publish them, at an `https` address such as a GitHub release, named with
+`UPSTREAM` when you publish ([Publishing packages](publishing.md) shows it).
+Publishing the files themselves, as this guide does from a drawer, needs the
+maintainer to allow file uploads for your key: ask, the portal's
+[publishers page](https://aros-pkg.azurewebsites.net/publishers) says how.
+
+## 8. Push
+
+`PUSH` sends what the portal's channel does not have yet, signed with your
+key. No secret from the portal is involved, and the portal checks every
+signature before it publishes anything:
+
+```amigados
+Pkg PUSH CHANNEL Work:mychannel TO https://aros-pkg.azurewebsites.net/janes-tools
+```
+
+```
+  published greet 1.0 aarch64
+1 version published
+  3 files sent to https://aros-pkg.azurewebsites.net/janes-tools (28361 bytes)
+```
+
+Read it back from the portal, as anyone now can, and install it on another
+machine:
+
+```amigados
+Pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/janes-tools
+Pkg INSTALL greet ROOT SYS: CHANNEL https://aros-pkg.azurewebsites.net/janes-tools
+```
+
+```
+Package  Version  Kind         Arch     Status  Signer
+greet    1.0      application  aarch64  ok      abf41c8fb2fc84f9
+installed greet 1.0 into SYS:: 1 file, payload 618a890b085b, signed by abf41c8fb2fc84f9
+```
+
+The package has its page, `…/packages/janes-tools/greet`, with your
+description, its files, your key and the command to install it.
+
+## 9. Publish a new version
 
 Raise the version in `$VER:` and build again; a version, once published,
 never changes, and publishing different files under the same version is
@@ -258,57 +309,48 @@ Pkg PUBLISH Work:src/Greet-1.1 CHANNEL Work:mychannel CONFIG S/Greet.prefs CHANG
 ```
 
 ```
-published greet 1.1 to Work:mychannel: 2 files, payload 0b094c1fe04e, signed by d0e87172f204b4e6
+published greet 1.1 to Work:mychannel: 2 files, payload 0b094c1fe04e, signed by abf41c8fb2fc84f9
   architecture aarch64, read from C/Greet
   name and version taken from $VER: in C/Greet
   kind and dependencies from greet 1.0, published before
 ```
 
 The kind, the description and the dependencies come from the last version
-published; name only what changes. Then what a person with 1.0 sees and
-does:
+published; name only what changes.
+
+Push again: only what is new travels.
 
 ```amigados
-Pkg STATUS ROOT RAM:try CHANNEL Work:mychannel
-Pkg UPGRADE greet ROOT RAM:try CHANNEL Work:mychannel
+Pkg PUSH CHANNEL Work:mychannel TO https://aros-pkg.azurewebsites.net/janes-tools
+```
+
+```
+  published greet 1.1 aarch64
+1 version published; 1 already there; 27.7 KB not sent again
+  3 files sent to https://aros-pkg.azurewebsites.net/janes-tools (28610 bytes)
+```
+
+What a person who installed 1.0 from the portal sees and does:
+
+```amigados
+Pkg STATUS ROOT SYS: CHANNEL https://aros-pkg.azurewebsites.net/janes-tools
+Pkg UPGRADE greet ROOT SYS: CHANNEL https://aros-pkg.azurewebsites.net/janes-tools
 ```
 
 ```
 Package  Installed  State
 greet    1.0        upgradable to 1.1
-1 of 1 package in RAM:try can be updated from Work:mychannel
-upgraded greet from 1.0 to 1.1 in RAM:try: 2 placed, 0 removed
+1 of 1 package in SYS: can be updated from https://aros-pkg.azurewebsites.net/janes-tools
+upgraded greet from 1.0 to 1.1 in SYS:: 2 placed, 0 removed
 ```
 
-`ROLLBACK greet ROOT RAM:try CHANNEL Work:mychannel` goes back to 1.0;
-`REMOVE greet ROOT RAM:try` takes it out.
-
-## 8. Give it to people
+## Without the portal
 
 The channel is the drawer `Work:mychannel`, and only that: copy it to a
 stick, a share or a disk image, and anyone installs from it with
-`Pkg INSTALL greet ROOT SYS: CHANNEL <the drawer as they see it>`. Pkg
-checks the signatures on their machine, so the way the drawer travels
-does not matter.
-
-People with a network install straight from a web address, over `https` or
-plain `http`, whichever you serve:
-`Pkg INSTALL greet ROOT SYS: CHANNEL https://example.org/mychannel`
-([Channels](channels.md) shows how to serve one).
-
-The portal is where people look first, and `PUSH` sends a channel to it
-from AROS too, signed with your key instead of a secret from the portal.
-Send the portal's maintainers your public key once
-(`Pkg KEYINFO FILE Work:keys/my.key`); when they have added it:
-
-```amigados
-Pkg PUSH CHANNEL Work:mychannel TO https://aros-pkg.azurewebsites.net/mychannel
-```
-
-Whether your push carries the files or only links to them is the portal's
-rule for your key; its rules are on its
-[trust page](https://aros-pkg.azurewebsites.net/trust), and
-[PUSH](commands/push.md) says how the signing works.
+`Pkg INSTALL greet ROOT SYS: CHANNEL <the drawer as they see it>`, or serve
+it from any web server ([Channels](channels.md)). Pkg checks the signatures
+on their machine, so the way the drawer travels does not matter.
 
 ## When something is refused
 
@@ -323,7 +365,11 @@ the class of the refusal; a Shell script tests it with `If WARN` or
 | *no signing key: give SIGN <keyfile>, or set PKG_SIGNKEY* | 14 | `SetEnv PKG_SIGNKEY` (section 2) |
 | *greet 1.0, the first version in ..., is signed by ...* | 14 | sign with the key that made the channel, or publish into a channel of your own |
 | *CONFIG names "S/x.prefs", which is no file or folder of this package* | 20 | name a path as the package installs it |
-| *this system has no random source* | 17 | run `KEYGEN` in a Shell window, not from a script (section 2) |
+| *no key to push with … ask them, as …/publishers explains* | 14 | register on the portal (section 7), then push with `PKG_SIGNKEY` set |
+| *this portal does not know that signing key* | 14 | register that key at `/account` (section 7) |
+| *the key of … may not push to …* | 14 | push to your own channel, the one you registered |
+| a payload refused, rule *Binaries* | 20 | your key publishes by link: publish from an `https` archive with `UPSTREAM`, or ask for file uploads |
+| *this system has no random source* | 17 | an older AROS: run `KEYGEN` in a Shell window, not from a script (section 2) |
 | *Software Failure* on `MANIFEST` or `PUBLISH` | | that is Pkg 1.1: take the current Pkg from the Downloads page, or type `Stack 1000000` first |
 | *no executable in the drawer* (a warning, still published) | 0 | the drawer holds a script or a placeholder, not the build; or say `ARCH generic` on purpose |
 

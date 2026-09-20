@@ -34,6 +34,9 @@ ok() { checks=$((checks + 1)); if [ "$1" -eq 0 ]; then echo "  ok   $2"; else fa
 
 mkdir -p "$share/out" "$share/bin" "$share/src/Tool/C" "$share/tls"
 cp "$repo_root/build/aros/Pkg" "$share/bin/Pkg"; cp "$repo_root/build/aros/Pkg" "$share/src/Tool/C/Tool"
+# a second version of the same tool: one more file, so its payload differs
+mkdir -p "$share/src/Tool-2/C" "$share/src/Tool-2/S"
+cp "$repo_root/build/aros/Pkg" "$share/src/Tool-2/C/Tool"; printf 'Setting=1\n' > "$share/src/Tool-2/S/Tool.prefs"
 "$P" KEYGEN FILE "$share/my.key" > /dev/null
 pub=$("$P" KEYINFO FILE "$share/my.key" MACHINE | awk '/^public:/{print $2}')
 sh "$repo_root/tests/tls-certs.sh" "$T/tls" > /dev/null || exit 69
@@ -56,13 +59,22 @@ for i in $(seq 1 40); do [ -s "$T/stub.port" ] && break; sleep 1; done
 stubsite="https://127.0.0.1:$(cat "$T/stub.port")"
 
 script="FailAt 99
-MacRW:bin/Pkg PUBLISH MacRW:src/Tool CHANNEL MacRW:channel NAME tool KIND application SIGN MacRW:my.key >MacRW:out/publish.o
+MacRW:bin/Pkg PUBLISH MacRW:src/Tool CHANNEL MacRW:channel NAME tool VERSION 1.0 KIND application SIGN MacRW:my.key >MacRW:out/publish.o
 C:Echo \"\$RC\" >MacRW:out/publish.rc
 MacRW:bin/Pkg PUSH CHANNEL MacRW:channel TO $site/fromaros SIGN MacRW:my.key >MacRW:out/push.o
 C:Echo \"\$RC\" >MacRW:out/push.rc
 C:SetEnv PKG_CAFILE MacRW:tls/ca.pem
 MacRW:bin/Pkg PUSH CHANNEL MacRW:channel TO $ssite/fromaros-tls SIGN MacRW:my.key >MacRW:out/https.o
 C:Echo \"\$RC\" >MacRW:out/https.rc
+C:MakeDir RAM:other
+MacRW:bin/Pkg INSTALL tool ROOT RAM:other CHANNEL $ssite/fromaros-tls >MacRW:out/install.o
+C:Echo \"\$RC\" >MacRW:out/install.rc
+MacRW:bin/Pkg PUBLISH MacRW:src/Tool-2 CHANNEL MacRW:channel NAME tool VERSION 1.1 CONFIG S/Tool.prefs SIGN MacRW:my.key >MacRW:out/publish2.o
+MacRW:bin/Pkg PUSH CHANNEL MacRW:channel TO $ssite/fromaros-tls SIGN MacRW:my.key >MacRW:out/push2.o
+C:Echo \"\$RC\" >MacRW:out/push2.rc
+MacRW:bin/Pkg STATUS ROOT RAM:other CHANNEL $ssite/fromaros-tls >MacRW:out/status.o
+MacRW:bin/Pkg UPGRADE tool ROOT RAM:other CHANNEL $ssite/fromaros-tls >MacRW:out/upgrade.o
+C:Echo \"\$RC\" >MacRW:out/upgrade.rc
 C:SetEnv PKG_PUSHKEY testkey
 MacRW:bin/Pkg PUSH CHANNEL MacRW:channel TO $stubsite/fromaros >MacRW:out/key.o
 C:Echo \"\$RC\" >MacRW:out/key.rc
@@ -71,7 +83,7 @@ C:UnSetEnv PKG_CAFILE
 C:Echo done >MacRW:done"
 echo "aros-push: hosted AROS"
 AROS_CTL_HOST_FOLDER="$share" AROS_CTL_STARTUP_EXTRA="$script" "$control" run > /dev/null 2>&1; started=1
-w=0; while [ ! -f "$share/done" ] && [ "$w" -lt 240 ]; do sleep 1; w=$((w + 1)); done
+w=0; while [ ! -f "$share/done" ] && [ "$w" -lt 360 ]; do sleep 1; w=$((w + 1)); done
 crash=$("$control" crash 2> /dev/null | grep -c -i -E 'stack limits|ALERT')
 "$control" stop > /dev/null 2>&1; started=0
 O="$share/out"; code() { tr -d ' \r\n' < "$O/$1.rc" 2>/dev/null; }
@@ -83,6 +95,13 @@ ok $? "the portal's channel holds it, checked, signed by AROS's key"
 [ "$(code https)" = 0 ] && grep -q 'published tool' "$O/https.o"; ok $? "AROS pushes a second channel over https, signed (\$RC $(code https))"
 PKG_CACHE="$T/cache2" "$P" SHOW CHANNEL "$site/fromaros-tls" 2>&1 | grep -q "^tool .* ok  *${pub:0:16}"
 ok $? "the portal's second channel holds what TLS carried, checked"
+# the whole way round, as docs/publishing-on-aros.md tells it: someone installs from the portal,
+# the publisher pushes a new version, and that someone sees it and takes it
+[ "$(code install)" = 0 ] && grep -q '^installed tool 1.0 ' "$O/install.o";  ok $? "AROS installs tool 1.0 from the portal"
+[ "$(code push2)" = 0 ] && grep -q 'published tool 1.1' "$O/push2.o" && grep -q 'already there' "$O/push2.o"
+ok $? "a second version is pushed, and only what is new travels"
+grep -q 'upgradable to 1.1' "$O/status.o";                       ok $? "STATUS against the portal says 1.1 is there"
+[ "$(code upgrade)" = 0 ] && grep -q '^upgraded tool from 1.0 to 1.1' "$O/upgrade.o";  ok $? "and UPGRADE takes it"
 [ "$(code key)" = 0 ] && grep -q 'published tool' "$O/key.o";    ok $? "AROS pushes over https with a portal key in PKG_PUSHKEY (\$RC $(code key))"
 [ -f "$T/stub/fromaros/index" ];                                 ok $? "and the push server holds the channel it sent"
 echo; echo "aros-push: $checks checks, $fails failures"; [ "$fails" -eq 0 ]
