@@ -3369,6 +3369,37 @@ static void fetched_free(struct fetched *f)
     free(f->mtext);
 }
 
+/* Where the files of a Source package are read from, and where that is
+ * kept: said once a command, with the path in full, since a person looking
+ * for a 600 MB download or for a drawer to delete needs to know where it is. */
+static const char *opt_unpacked;   /* UNPACKED <dir>, for this call */
+static const char *from_kind;      /* where locate_archive found the archive */
+static int told_source;
+
+static void from_note(const char *kind, const char *path)
+{
+    char *cache;
+    if (told_source)
+        return;
+    told_source = 1;
+    cache = pkg_cache_dir();
+    if (machine) {
+        kv("archive-from", "%s %s", kind, path);
+        if (cache != NULL) kv("cache", "%s", cache);
+    } else {
+        say_kind(PKG_LINE_NOTE, "%s\n", "%s %s",
+                 strcmp(kind, "map") == 0 ? "reading only the blocks its files lie in, out of" :
+                 strcmp(kind, "cache") == 0 ? "reading the archive already in the cache at" :
+                 strcmp(kind, "unpacked") == 0 ? "reading the unpacked archive at" :
+                 strcmp(kind, "download") == 0 ? "the archive is kept at" :
+                 "reading the archive of the channel at", path);
+        if (cache != NULL)
+            say_kind(PKG_LINE_NOTE, "%s\n", "the cache is %s; PKG_CACHE names another place for it",
+                     cache);
+    }
+    free(cache);
+}
+
 struct arch_fetch {
     const struct pkg_manifest *m;
     const char    *prefix;
@@ -3440,8 +3471,10 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
 
     if (!is_url(channel) || m->archive_sha == NULL) {
         ap = archive_path(channel, an);
-        if (ap != NULL && pkg_fs_exists(ap))
+        if (ap != NULL && pkg_fs_exists(ap)) {
+            from_kind = "channel";
             return ap;
+        }
         if (m->archive_sha == NULL) {
             refuse_c(11, "%s comes from the archive %s, which the channel does not have (expected "
                      "at %s)", what, an, ap ? ap : "archives/");
@@ -3459,6 +3492,7 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
     if (dest == NULL) { free(dir); refuse("out of memory"); return NULL; }
     if (pkg_fs_exists(dest)) {
         tr("%s: the archive %s is in the cache", what, an);
+        from_kind = "cache";
         free(dir);
         return dest;
     }
@@ -3471,6 +3505,7 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
     if (rc == 0 && file_digest(dest, hex, &size) == 0
         && size == m->archive_size && strcmp(hex, m->archive_sha) == 0) {
         tr("%s: downloaded %s, %llu bytes, SHA-256 as signed", what, m->archive_url, size);
+        from_kind = "download";
         return dest;
     }
     if (rc == 0) {
@@ -3486,7 +3521,7 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
     if (is_url(channel)) {
         /* the channel may carry a copy of its own */
         ap = archive_path(channel, an);
-        if (ap != NULL && pkg_fs_exists(ap)) { free(dest); return ap; }
+        if (ap != NULL && pkg_fs_exists(ap)) { free(dest); from_kind = "channel"; return ap; }
         free(ap);
     }
     refuse_c(rc == 1 ? 11 : 17, "%s comes from the archive %s, which could not be downloaded from %s: %s",
@@ -3495,16 +3530,186 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
     return NULL;
 }
 
+/* The block map of an archive, kept beside it as <archive>.pkgmap. Its
+ * header ties it to the archive it was made from: the size and time on this
+ * machine, and the SHA-256 the signed manifest gives the archive. A map that
+ * does not answer to all three is not read, and one a read cannot use is
+ * thrown away and made again. */
+static char *map_file(const char *archive)
+{
+    size_t n = strlen(archive) + 8;
+    char *p = (char *)malloc(n);
+    if (p != NULL) snprintf(p, n, "%s.pkgmap", archive);
+    return p;
+}
+
+static int map_head(const char *archive, const struct pkg_manifest *m, char *head, size_t hl)
+{
+    struct pkg_fs_id id;
+    if (pkg_fs_identity(archive, &id) != 0 || !id.exists)
+        return -1;
+    snprintf(head, hl, "pkgmap 1 %llu %lld %s\n", id.size, id.mtime_s,
+             m->archive_sha ? m->archive_sha : "-");
+    return 0;
+}
+
+static char *map_read(const char *archive, const struct pkg_manifest *m)
+{
+    char head[160], *mp = map_file(archive), *text = NULL;
+    unsigned char *buf = NULL;
+    size_t len = 0, hl;
+    if (mp == NULL || map_head(archive, m, head, sizeof head) != 0) { free(mp); return NULL; }
+    hl = strlen(head);
+    if (pkg_fs_read(mp, &buf, &len) == 0 && len > hl && memcmp(buf, head, hl) == 0) {
+        text = (char *)malloc(len - hl + 1);
+        if (text != NULL) { memcpy(text, buf + hl, len - hl); text[len - hl] = '\0'; }
+    }
+    free(buf);
+    free(mp);
+    return text;
+}
+
+static void map_write(const char *archive, const struct pkg_manifest *m, const char *text)
+{
+    char head[160], *mp = map_file(archive), *all;
+    size_t hl, tl;
+    if (mp == NULL || text == NULL || map_head(archive, m, head, sizeof head) != 0) { free(mp); return; }
+    hl = strlen(head);
+    tl = strlen(text);
+    all = (char *)malloc(hl + tl);
+    if (all != NULL) {
+        memcpy(all, head, hl);
+        memcpy(all + hl, text, tl);
+        if (pkg_fs_write_atomic(mp, all, hl + tl) != 0)
+            tr("the block map could not be kept at %s; the archive is read whole every time", mp);
+        else
+            tr("wrote the block map %s, %lu bytes", mp, (unsigned long)(hl + tl));
+        free(all);
+    }
+    free(mp);
+}
+
+static void map_drop(const char *archive)
+{
+    char *mp = map_file(archive);
+    if (mp != NULL) { pkg_fs_unlink(mp); free(mp); }
+}
+
+/* What the fast path guarantees: every file it took out weighs and hashes
+ * as the signed manifest says. Anything else and the map is wrong, not the
+ * archive, so the archive is read whole instead. */
+static int af_as_signed(const struct arch_fetch *af)
+{
+    size_t i;
+    for (i = 0; i < af->m->nfiles; i++) {
+        char hex[PKG_SHA256_HEXLEN + 1];
+        if (af->data[i] == NULL || (unsigned long long)af->len[i] != af->m->files[i].size)
+            return 0;
+        pkg_sha256_hex(af->data[i], af->len[i], hex);
+        if (strcmp(hex, af->m->files[i].digest) != 0)
+            return 0;
+    }
+    return af->m->nfiles > 0;
+}
+
+static void af_clear(struct arch_fetch *af, size_t n)
+{
+    size_t i;
+    for (i = 0; i < n; i++) { free(af->data[i]); af->data[i] = NULL; af->len[i] = af->cap[i] = 0; }
+    af->cur = 0;
+    af->oversize = -1;
+}
+
+/* A person may unpack the archive themselves, with tar, and have Pkg read
+ * the drawer instead. Every file is weighed and hashed against the signed
+ * manifest before anything is written, exactly as from the archive. */
+static int fetch_from_dir(const char *dir, struct fetched *f, const char *prefix, const char *what)
+{
+    struct pkg_writer *w = pkg_writer_new();
+    size_t i;
+    int rc = 1;
+
+    if (w == NULL) { refuse("out of memory"); return 1; }
+    for (i = 0; i < f->m.nfiles; i++) {
+        char rel[2200], hex[PKG_SHA256_HEXLEN + 1], *full;
+        unsigned char *buf = NULL;
+        size_t len = 0;
+        snprintf(rel, sizeof rel, "%s%s%s", prefix, prefix[0] ? "/" : "", f->m.files[i].path);
+        full = pkg_join(dir, rel);
+        if (full == NULL) { refuse("out of memory"); goto done; }
+        if (pkg_fs_read(full, &buf, &len) != 0) {
+            refuse_c(11, "the unpacked archive at %s lacks %s, which %s's signed manifest lists; "
+                     "unpack the archive again, or leave UNPACKED off and let Pkg read the "
+                     "archive. Nothing was installed", dir, rel, what);
+            free(full);
+            goto done;
+        }
+        free(full);
+        pkg_sha256_hex(buf, len, hex);
+        if ((unsigned long long)len != f->m.files[i].size
+            || strcmp(hex, f->m.files[i].digest) != 0) {
+            refuse_c(12, "%s in the unpacked archive at %s is not the file %s was signed with: "
+                     "%lu bytes and SHA-256 %s, where the manifest says %llu and %s. Nothing was "
+                     "installed", rel, dir, what, (unsigned long)len, hex, f->m.files[i].size,
+                     f->m.files[i].digest);
+            free(buf);
+            goto done;
+        }
+        if (pkg_writer_add(w, f->m.files[i].path, buf, len) != PKG_OK) {
+            free(buf);
+            refuse("out of memory");
+            goto done;
+        }
+        free(buf);
+    }
+    if (pkg_writer_finish(w, &f->pkg, &f->pkg_len) != PKG_OK) { refuse("out of memory"); goto done; }
+    tr("%s: %lu files taken from the unpacked archive at %s", what, (unsigned long)f->m.nfiles, dir);
+    rc = 0;
+done:
+    pkg_writer_free(w);
+    return rc;
+}
+
+/* The drawer an unpacked archive was put in: UNPACKED on the line, else the
+ * one beside the cached archive, so it need not be named again. NULL when
+ * there is none. */
+static char *unpacked_dir(const struct pkg_manifest *m, const char *an)
+{
+    char *cache, *dir, rel[1200];
+    if (opt_unpacked != NULL)
+        return pkg_join(opt_unpacked, "");
+    if (m->archive_sha == NULL)
+        return NULL;
+    cache = pkg_cache_dir();
+    if (cache == NULL) return NULL;
+    snprintf(rel, sizeof rel, "upstream/%s/%s.d", m->archive_sha, an);
+    dir = pkg_join(cache, rel);
+    free(cache);
+    if (dir != NULL && pkg_fs_is_dir(dir))
+        return dir;
+    free(dir);
+    return NULL;
+}
+
 static int fetch_from_archive(const char *channel, struct fetched *f, const char *what)
 {
     char an[1024], prefix[1024], err[300];
-    char *ap;
+    char *ap, *ud, *map = NULL;
     struct arch_fetch af;
     struct pkg_writer *w = NULL;
     size_t i, n = f->m.nfiles ? f->m.nfiles : 1;
-    int rc = 1;
+    int rc = 1, used_map = 0;
 
     pkg_archive_split(f->m.source, an, sizeof an, prefix, sizeof prefix);
+    ud = unpacked_dir(&f->m, an);
+    if (ud != NULL) {
+        from_note("unpacked", ud);
+        tr("%s: reading its files out of the unpacked archive at %s", what, ud);
+        rc = fetch_from_dir(ud, f, prefix, what);
+        free(ud);
+        return rc;
+    }
+    from_kind = "channel";
     ap = locate_archive(channel, &f->m, an, what);
     if (ap == NULL)
         return 1;
@@ -3516,15 +3721,34 @@ static int fetch_from_archive(const char *channel, struct fetched *f, const char
     af.len = (size_t *)calloc(n, sizeof *af.len);
     af.cap = (size_t *)calloc(n, sizeof *af.cap);
     if (af.data == NULL || af.len == NULL || af.cap == NULL) { refuse("out of memory"); goto done; }
-    tr("%s: reading its files out of %s", what, ap);
-    if (pkg_archive_walk(ap, af_want, af_data, &af, err, sizeof err) != 0) {
-        if (af.oversize >= 0)
-            refuse_c(12, "the archive %s holds a %s longer than the %llu bytes %s's signed manifest "
-                     "gives it; it was not read further. Nothing was installed", ap,
-                     f->m.files[af.oversize].path, f->m.files[af.oversize].size, what);
-        else
-            refuse_c(12, "the archive %s is refused: %s. Nothing was installed", ap, err[0] ? err : "unreadable");
-        goto done;
+    map = map_read(ap, &f->m);
+    if (map != NULL) {
+        tr("%s: %s has a block map; reading only the blocks its files lie in", what, ap);
+        if (pkg_archive_read_mapped(ap, map, af_want, af_data, &af, err, sizeof err) == 0
+            && af_as_signed(&af)) {
+            used_map = 1;
+        } else {
+            tr("%s: the block map of %s did not serve this read; reading the archive whole and "
+               "writing it again", what, ap);
+            af_clear(&af, n);
+            map_drop(ap);
+        }
+        free(map);
+        map = NULL;
+    }
+    from_note(used_map ? "map" : from_kind, ap);
+    if (!used_map) {
+        tr("%s: reading its files out of %s", what, ap);
+        if (pkg_archive_walk_map(ap, af_want, af_data, &af, &map, err, sizeof err) != 0) {
+            if (af.oversize >= 0)
+                refuse_c(12, "the archive %s holds a %s longer than the %llu bytes %s's signed manifest "
+                         "gives it; it was not read further. Nothing was installed", ap,
+                         f->m.files[af.oversize].path, f->m.files[af.oversize].size, what);
+            else
+                refuse_c(12, "the archive %s is refused: %s. Nothing was installed", ap, err[0] ? err : "unreadable");
+            goto done;
+        }
+        map_write(ap, &f->m, map);
     }
     w = pkg_writer_new();
     if (w == NULL) { refuse("out of memory"); goto done; }
@@ -3543,6 +3767,7 @@ static int fetch_from_archive(const char *channel, struct fetched *f, const char
     tr("%s: %lu files taken from %s", what, (unsigned long)f->m.nfiles, an);
     rc = 0;
 done:
+    free(map);
     if (w) pkg_writer_free(w);
     for (i = 0; af.data && i < n; i++) free(af.data[i]);
     free(af.data); free(af.len); free(af.cap);
@@ -5845,7 +6070,10 @@ static int need_root_channel(const struct pkg_options *a)
     return 0;
 }
 
-static int cmd_install(const struct pkg_options *a)
+/* One package. `line` is NULL for INSTALL <name>, which reports for itself;
+ * with several names the batch reports instead, and this leaves its sentence
+ * there. */
+static int install_one(const struct pkg_options *a, const char *target, char *line, size_t ll)
 {
     struct index ix;
     const struct entry *e;
@@ -5860,26 +6088,31 @@ static int cmd_install(const struct pkg_options *a)
     if (read_index(a->channel, &ix) != 0) return 1;
     {
         char cpus[200];
-        if (arch_ambiguous(&ix, a->target, cpus, sizeof cpus)) {
+        if (arch_ambiguous(&ix, target, cpus, sizeof cpus)) {
             refuse_c(20, "%s is offered for several CPUs (%s), and nothing says which machine %s "
-                     "is for: add ARCH <cpu>; the root remembers it from then on", a->target,
+                     "is for: add ARCH <cpu>; the root remembers it from then on", target,
                      cpus, a->root);
             free(ix.e);
             return 1;
         }
     }
-    e = pick(&ix, a->target, a->version);
-    if (e == NULL) { say_not_found(&ix, a->target, a->version, a->channel); free(ix.e); return 1; }
+    e = pick(&ix, target, a->version);
+    if (e == NULL) { say_not_found(&ix, target, a->version, a->channel); free(ix.e); return 1; }
     if (load_installed(a->root, e->name, &cur, 1) == 0) {
         if (is_auto(a->root, cur.name)) {
             /* Asked for by name now: no longer an orphan candidate. */
             set_auto(a->root, cur.name, 0);
-            kv("result", "kept");
-            kv("name", "%s", cur.name);
-            kv("version", "%s", cur.version);
-            if (!machine)
-                say_result("%s %s was installed as a dependency; it is now kept for itself",
-                        cur.name, cur.version);
+            if (line != NULL) {
+                snprintf(line, ll, "%s was installed as a dependency; it is now kept for itself",
+                         cur.version);
+            } else {
+                kv("result", "kept");
+                kv("name", "%s", cur.name);
+                kv("version", "%s", cur.version);
+                if (!machine)
+                    say_result("%s %s was installed as a dependency; it is now kept for itself",
+                            cur.name, cur.version);
+            }
             pkg_manifest_free(&cur);
             free(ix.e);
             return 0;
@@ -5888,11 +6121,15 @@ static int cmd_install(const struct pkg_options *a)
             /* The state asked for is the state there: a repeated INSTALL, as
              * an agent retrying after a timeout sends, succeeds and changes
              * nothing. */
-            kv("result", "unchanged");
-            kv("name", "%s", cur.name);
-            kv("version", "%s", cur.version);
-            if (!machine)
-                say_result("%s %s is already installed in %s", cur.name, cur.version, a->root);
+            if (line != NULL) {
+                snprintf(line, ll, "%s is already installed", cur.version);
+            } else {
+                kv("result", "unchanged");
+                kv("name", "%s", cur.name);
+                kv("version", "%s", cur.version);
+                if (!machine)
+                    say_result("%s %s is already installed in %s", cur.name, cur.version, a->root);
+            }
             pkg_manifest_free(&cur);
             free(ix.e);
             return 0;
@@ -5911,6 +6148,11 @@ static int cmd_install(const struct pkg_options *a)
         if (f.m.payload) short12(f.m.payload, s12);
         if (!dryrun)
             record_arch(a->root, p.f[p.n - 1].m.architecture);
+        if (line != NULL) {
+            snprintf(line, ll, "%s %s: %lu file%s, signed by %.16s",
+                     dryrun ? "would install" : "installed", f.m.version, placed,
+                     placed == 1 ? "" : "s", f.signer);
+        } else {
         kv("result", "%s", res("installed", "would-install"));
         kv("name", "%s", f.m.name);
         kv("version", "%s", f.m.version);
@@ -5925,7 +6167,8 @@ static int cmd_install(const struct pkg_options *a)
                f.m.name, f.m.version, a->root, placed, placed == 1 ? "" : "s",
                f.m.payload ? "payload " : "from ",
                f.m.payload ? s12 : f.m.source, f.signer);
-        if (strcmp(f.m.kind, "image") == 0 && f.m.nfiles == 1) {
+        }
+        if (line == NULL && strcmp(f.m.kind, "image") == 0 && f.m.nfiles == 1) {
             kv("image", "%s", f.m.files[0].path);
             kv("blocks", "%llu", f.m.files[0].size / PKG_IMAGE_BLOCK);
             if (!machine)
@@ -5939,6 +6182,108 @@ static int cmd_install(const struct pkg_options *a)
     plan_free(&p);
     free(ix.e);
     return rc;
+}
+
+
+/* INSTALL a b c. Every name is tried, whatever the ones before it did, and
+ * each is reported; the code is the worst class any of them refused with,
+ * so a caller sees the worst that happened, not the first. One archive read
+ * serves every name that comes out of it, since the first read leaves the
+ * block map behind. */
+static int install_many(const struct pkg_options *a)
+{
+    unsigned i, n = a->nalso + 1, done = 0, bad = 0;
+    int worst = 0;
+    const char *worst_next = NULL;
+    char refused_names[600];
+    size_t at = 0;
+
+    refused_names[0] = '\0';
+    if (need_root_channel(a) != 0) return 1;
+    if (a->version != NULL || a->acceptkey != NULL || a->downgrade)
+        return refuse_c(20, "%s is a decision about one package, never about several at once. "
+                        "Give it to INSTALL <name> alone",
+                        a->version != NULL ? "VERSION" : a->acceptkey != NULL ? "ACCEPTKEY"
+                                                                             : "DOWNGRADE");
+    for (i = 0; i < n; i++) {
+        const char *name = i == 0 ? a->target : a->also[i - 1];
+        char line[600];
+        int rc;
+        line[0] = '\0';
+        quiet = 1;
+        quiet_reason[0] = '\0';
+        rc = install_one(a, name, line, sizeof line);
+        quiet = 0;
+        if (rc == 0) {
+            done++;
+            if (machine) {
+                char jn[700];
+                snprintf(jn, sizeof jn, "%s %s", name, line);
+                rec_item("package", jn, "name", name, "result", line, NULL);
+            } else {
+                say_pkgline(name, "%s", line);
+            }
+        } else {
+            char *q;
+            bad++;
+            for (q = quiet_reason; *q; q++)
+                if (*q == '\n') *q = ' ';
+            if (refused_class > worst) { worst = refused_class; worst_next = refused_next; }
+            if (machine) {
+                char jn[2700], codes[8];
+                snprintf(codes, sizeof codes, "%d", refused_class);
+                snprintf(jn, sizeof jn, "%s %s %s", name, class_name(refused_class), quiet_reason);
+                rec_item("refused", jn, "name", name, "class", class_name(refused_class),
+                         "code", codes, "reason", quiet_reason,
+                         "next", refused_next ? refused_next : next_default(refused_class), NULL);
+            } else {
+                say_pkgline(name, "not installed: %s", quiet_reason);
+            }
+            if (at + 80 < sizeof refused_names)
+                at += (size_t)snprintf(refused_names + at, sizeof refused_names - at, "%s%s (%s)",
+                                       at ? ", " : "", name, class_name(refused_class));
+        }
+        refused_class = 0;
+        refused_next = NULL;
+    }
+    {
+        char summary[900];
+        if (bad == 0)
+            snprintf(summary, sizeof summary, "%s %u package%s into %s",
+                     dryrun ? "would install" : "installed", done, done == 1 ? "" : "s", a->root);
+        else
+            snprintf(summary, sizeof summary, "%s %u of %u package%s into %s; not installed: %s. "
+                     "Everything else went ahead", dryrun ? "would install" : "installed", done, n,
+                     n == 1 ? "" : "s", a->root, refused_names);
+        if (bad == 0) {
+            kv("result", "%s", res("installed", "would-install"));
+        } else {
+            refused_class = worst;
+            refused_next = worst_next;
+            kv("result", "refused");
+            kv("class", "%s", class_name(worst));
+            kv("code", "%d", worst);
+        }
+        kv("root", "%s", a->root);
+        kv("installed", "%u", done);
+        kv("not-installed", "%u", bad);
+        kv("count", "%u", done);
+        kv("summary", "%s", summary);
+        if (bad > 0)
+            kv("next", "%s", worst_next ? worst_next : next_default(worst));
+        if (!machine)
+            say_result("%s", summary);
+        return bad == 0 ? 0 : 1;
+    }
+}
+
+static int cmd_install(const struct pkg_options *a)
+{
+    if (a->target == NULL)
+        return refuse_c(20, "INSTALL takes the name of a package, or several names");
+    if (a->nalso > 0)
+        return install_many(a);
+    return install_one(a, a->target, NULL, 0);
 }
 
 static int move_to(const struct pkg_options *a, const struct index *ix, const struct entry *e,
@@ -7854,6 +8199,8 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     quiet = 0;
     target_arch = NULL;
     root_arch[0] = '\0';
+    told_source = 0;
+    opt_unpacked = o != NULL ? o->unpacked : NULL;
     rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
     sink = NULL;
@@ -7920,7 +8267,8 @@ static int push_path_ok(const char *rel)
     if (strncmp(rel, "objects/", 8) == 0)
         return 1;
     if (strncmp(rel, "archives/", 9) == 0)
-        return !(n > 7 && strcmp(rel + n - 7, ".pkgidx") == 0) && !(n > 7 && strcmp(rel + n - 7, ".sha256") == 0);
+        return !(n > 7 && strcmp(rel + n - 7, ".pkgidx") == 0) && !(n > 7 && strcmp(rel + n - 7, ".sha256") == 0)
+           && !(n > 7 && strcmp(rel + n - 7, ".pkgmap") == 0);
     if (strcmp(rel, "Bootstrap/SHA256SUMS") == 0 || strcmp(rel, "Bootstrap/SHA256SUMS.sig") == 0)
         return 1;   /* the bootstraps' digests, signed for ssh-keygen -Y verify */
     if (strncmp(rel, "Bootstrap/", 10) == 0) {

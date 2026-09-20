@@ -165,7 +165,8 @@ static const struct { const char *kw; size_t off; } kws[] = {
         { "SCREENSHOT", offsetof(struct pkg_options, screenshot) },
         { "README",    offsetof(struct pkg_options, readme) },
         { "INFO",      offsetof(struct pkg_options, info) },
-        { "FROM",      offsetof(struct pkg_options, from) }
+        { "FROM",      offsetof(struct pkg_options, from) },
+        { "UNPACKED",  offsetof(struct pkg_options, unpacked) }
 };
 
 static int takes_value(const char *w)
@@ -210,6 +211,10 @@ static int clean_value(const char *what, char *v)
                                 v[i] == '\t' ? "tab" : "control character", (unsigned long)i + 1);
     return 0;
 }
+
+/* INSTALL takes several names. They are kept here, since pkg_options only
+ * borrows what it is given for the length of the call. */
+static const char *also[64];
 
 static int parse_args(int argc, char **argv, struct pkg_options *a)
 {
@@ -287,6 +292,13 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
             if (clean_value("the name", argv[i]) != 0)
                 return PKG_RC_USAGE;
             a->target = argv[i];
+        } else if (strcmp(verb_name, "install") == 0
+                   && a->nalso < sizeof also / sizeof also[0]) {
+            /* INSTALL a b c: every name on the line, installed in turn. */
+            if (clean_value("the name", argv[i]) != 0)
+                return PKG_RC_USAGE;
+            also[a->nalso++] = argv[i];
+            a->also = also;
         } else {
             return usage_errorf("unexpected argument \"%s\"", argv[i]);
         }
@@ -304,17 +316,17 @@ static int usage_is_error = 1;
  * and the descriptions dimmed, and a pipe gets plain text. */
 static const struct { const char *group, *verb, *args, *what; } usage_lines[] = {
     { "Installing and keeping software", NULL, NULL, NULL },
-    { NULL, "INSTALL",   "<name> ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>]",
-                         "install a package and what it depends on" },
+    { NULL, "INSTALL",   "<name>... ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>] [UNPACKED <dir>]",
+                         "install packages and what they depend on; several names go as far as they can" },
     { NULL, "STATUS",    "[<name>] ROOT <dir> CHANNEL <dir|url>",
                          "what is installed and what has a newer version; exit 0 either way" },
-    { NULL, "UPGRADE",   "<name>|ALL ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [DOWNGRADE]",
+    { NULL, "UPGRADE",   "<name>|ALL ROOT <dir> CHANNEL <dir|url> [VERSION v] [ARCH cpu] [DOWNGRADE] [UNPACKED <dir>]",
                          "ALL takes every newer version, dependencies first, and goes as far as it can" },
     { NULL, "ROLLBACK",  "<name> ROOT <dir> CHANNEL <dir|url>",
                          "back to the version installed before" },
     { NULL, "LIST",      "ROOT <dir>", "what a root holds" },
     { NULL, "VERIFY",    "<name>|ALL ROOT <dir>", "every installed file against its signed manifest" },
-    { NULL, "REPAIR",    "<name>|ALL ROOT <dir> CHANNEL <dir|url>", "put damaged files back" },
+    { NULL, "REPAIR",    "<name>|ALL ROOT <dir> CHANNEL <dir|url> [UNPACKED <dir>]", "put damaged files back" },
     { NULL, "REMOVE",    "<name>|ORPHANS ROOT <dir>",
                          "take a package out; ORPHANS: what nothing needs any more" },
     { NULL, "SHOW",      "[<name>] CHANNEL <dir|url> [ROOT <dir>] [METADATA] [ARCHIVE <name>]",

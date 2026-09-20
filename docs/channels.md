@@ -20,6 +20,29 @@ being trusted: Pkg checks every signature and every file itself.
   certificate against the address, with no way to turn that off. A machine
   behind its own authority names its bundle in `PKG_CAFILE`.
 
+## The cache
+
+`PKG_CACHE` names it; without it, `~/.cache/pkg`, `%LOCALAPPDATA%\pkg-cache`
+on Windows, `SYS:.pkg/cache` on AROS. It holds what was downloaded, and for
+a channel whose packages live in someone else's archive:
+
+- `upstream/<sha256>/<archive>`: the archive itself, downloaded once for
+  every package that comes out of it and kept under the SHA-256 the signed
+  manifest gives it.
+- `upstream/<sha256>/<archive>.pkgmap`: its block map, written by the first
+  install that read the archive whole. It records where each member of the
+  archive begins and which bzip2 block holds that point, so a later install
+  decompresses only the blocks its own files lie in instead of the whole
+  archive. The map is tied to the archive's size, time and SHA-256; a map
+  that does not answer to all three, or one a read cannot use, is thrown
+  away and made again. Deleting it costs one slow install, nothing else.
+- `upstream/<sha256>/<archive>.d/`: a directory you unpacked the archive
+  into yourself (`tar xjf <archive> -C <that directory>`). Pkg reads it
+  without being told, and `UNPACKED <dir>` names one anywhere else. Every
+  file is still weighed and hashed against the signed manifest.
+
+Every install says, once, which of these it read and where it is.
+
 ## What is in one
 
 ```console

@@ -5,7 +5,7 @@
 
 Install a package and what it depends on.
 ```
-pkg INSTALL <name> ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [DRYRUN]
+pkg INSTALL <name>... ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
 ```
 
 ## What it does
@@ -30,6 +30,41 @@ root and records the package in the root's database (`.pkg/`).
   (`result: unchanged`); a newer one asks for `UPGRADE` (exit 15).
 - A withdrawn version is not installed unless `VERSION` names it (exit 18).
 
+## Several names at once
+
+`INSTALL a b c` installs each in turn. It goes as far as it can: a name it
+cannot install is reported with its reason, the rest are installed anyway,
+and the exit code is the worst class any of them refused with. `VERSION`,
+`ACCEPTKEY` and `DOWNGRADE` are decisions about one package and are refused
+here (exit 20); give them to `INSTALL <name>` alone.
+
+Packages whose files live in one large archive (the contrib channel) gain
+most: the archive is read once, and the block map that first read leaves
+behind means every later name takes only the blocks its own files lie in.
+
+## Where the files come from
+
+A package published from someone else's archive says, once a command and
+with the path in full, where its files were read: the archive downloaded
+into the cache, the copy the channel carries, the block map, or a directory
+you unpacked yourself. The cache directory is named with it, so you know
+what to delete and what `PKG_CACHE` moves.
+
+`UNPACKED <dir>` reads the files from a directory holding what the archive
+holds, so each file is at `<dir>/<prefix>/<path>` where `<prefix>` is the
+part after `!/` in the manifest's `Source`. Every file is still weighed and
+hashed against the signed manifest before anything is written; one that
+differs is refused (exit 12) by name. Unpack it into the cache and you need
+not name it again:
+
+```
+mkdir -p ~/.cache/pkg/upstream/<sha256>/<archive>.d
+tar xjf <archive> -C ~/.cache/pkg/upstream/<sha256>/<archive>.d
+```
+
+`<sha256>` is the archive's digest, which `pkg SHOW <name> CHANNEL <channel>
+MACHINE` prints as `archive:`.
+
 ## Keywords
 
 | Keyword | Meaning |
@@ -39,6 +74,7 @@ root and records the package in the root's database (`.pkg/`).
 | `VERSION v` | this version instead of the newest |
 | `ARCH cpu` | the root's CPU, when the root has never been told and Pkg cannot know it |
 | `ACCEPTKEY <key>` | accept a publisher key other than the one pinned |
+| `UNPACKED <dir>` | read the files from a directory the archive was unpacked into |
 | `DRYRUN` | every check, no write; the result reads `would install` |
 
 ## Examples
@@ -69,7 +105,9 @@ version: 1.1
 `dependency:` for each package brought along; `adopted:`,
 `unchanged-files:`, `config-kept:`, `config-new:` when files were already
 there; `image:` and `blocks:` for an image; `first-signer:` and `pinned:`
-around a key refusal.
+around a key refusal; `archive-from:` and `cache:` when the files came out
+of an archive. With several names, `package:` or `refused:` for each, then
+`installed:`, `not-installed:`, `count:` and `summary:`.
 
 ## Refusals
 

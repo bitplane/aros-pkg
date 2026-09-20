@@ -211,6 +211,11 @@ struct pkg_options {
                                last version published carried. "!/<path>" reads it from the
                                archive the drawer is "<archive>!/<prefix>" of */
     const char *from;       /* resolve: the program's directory, and the current one */
+    const char *unpacked;   /* install, upgrade, repair from an archive: a directory holding
+                               what the archive holds, so <dir>/<prefix>/<path> is each file.
+                               Read instead of the archive, every file still weighed and
+                               hashed against the signed manifest. Pkg also looks for
+                               <cache>/upstream/<sha256>/<name>.d without being told */
     const char *upstream;   /* publish from an archive: the http(s) URL the archive is
                                downloaded from, recorded with its SHA-256 and size in the
                                signed manifest; installs download it from there, and PUSH
@@ -230,6 +235,10 @@ struct pkg_options {
     int orphans;            /* remove: remove what nothing needs, instead of target */
     int dryrun;             /* every check, no write; results read would-... */
     int ssh;                /* sign, keyinfo: OpenSSH's formats, for ssh-keygen -Y verify */
+    const char *const *also;/* install: the further names on the line, target being the
+                               first; nalso of them. Each is installed in turn, the command
+                               goes as far as it can, and its code is the worst class */
+    unsigned    nalso;
     int all;                /* upgrade: every package a newer version is offered for,
                                target NULL; refused (20) with version, downgrade or
                                acceptkey, which are decisions about one package */

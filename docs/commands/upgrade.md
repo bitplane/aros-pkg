@@ -5,7 +5,7 @@
 
 Move a package, or every package, to a newer version.
 ```
-pkg UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <key>] [DRYRUN]
+pkg UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
 pkg UPGRADE ALL    ROOT <root> CHANNEL <channel> [ARCH cpu] [DRYRUN]
 ```
 
@@ -28,6 +28,12 @@ new key. It goes as far as it can: a package it cannot upgrade is named
 with its reason, what depends on it is skipped and named, and the rest are
 upgraded. Exit 0 when everything offered was taken, otherwise the class of
 the first refusal.
+
+A package whose files live in someone else's archive is read the way
+`INSTALL` reads it: from the archive in the cache, from the block map the
+first read left beside it, or from a directory `UNPACKED <dir>` names. Where
+the files came from is said once a command, with the path in full. See
+[INSTALL](install.md).
 
 ## Examples
 

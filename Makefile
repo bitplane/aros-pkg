@@ -126,6 +126,8 @@ test:
 	@rm -f build/test_archive
 	@$(MAKE) --no-print-directory build/test_archive
 	@sh tests/archive.sh
+	@echo "== fastarchive"
+	@PKG=./build/pkg sh tests/fastarchive.sh
 	@echo "== examples"
 	@rm -f build/libpkg.a build/example-basic build/example-browse
 	@$(MAKE) --no-print-directory build/example-basic build/example-browse

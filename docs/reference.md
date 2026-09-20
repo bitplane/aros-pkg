@@ -23,14 +23,14 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 
 | Verb | Form | Does |
 |---|---|---|
-| [`INSTALL`](commands/install.md) | `INSTALL <name> ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. |
-| [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
+| [`INSTALL`](commands/install.md) | `INSTALL <name>... ROOT <root> CHANNEL <channel> [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. Several names are installed in turn, as far as the command can get. |
+| [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> CHANNEL <channel> [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
 | [`UPGRADE ALL`](commands/upgrade.md) | `UPGRADE ALL ROOT <root> CHANNEL <channel> [ARCH cpu]` | Upgrades every package that has a newer version, as far as it can; never downgrades, never accepts a new key. |
 | [`ROLLBACK`](commands/rollback.md) | `ROLLBACK <name> ROOT <root> CHANNEL <channel>` | Returns a package to the version installed before its last change. |
 | [`STATUS`](commands/status.md) | `STATUS [<name>] ROOT <root> CHANNEL <channel>` | Compares what is installed with the channel: `current`, `upgradable`, `withdrawn`, `not-offered` or `edited`. Exits 0 whether or not updates exist. |
 | [`LIST`](commands/list.md) | `LIST ROOT <root>` | Lists what is installed. |
 | [`VERIFY`](commands/verify.md) | `VERIFY <name>\|ALL ROOT <root>` | Checks each installed file against its package; names what is missing, changed, moved or edited. |
-| [`REPAIR`](commands/repair.md) | `REPAIR <name>\|ALL ROOT <root> CHANNEL <channel>` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
+| [`REPAIR`](commands/repair.md) | `REPAIR <name>\|ALL ROOT <root> CHANNEL <channel> [UNPACKED <dir>]` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
 | [`REMOVE`](commands/remove.md) | `REMOVE <name> ROOT <root>` | Removes a package, keeping any file that was changed; refuses while another package needs it. |
 | [`REMOVE ORPHANS`](commands/remove.md) | `REMOVE ORPHANS ROOT <root>` | Removes the packages installed only as dependencies that nothing needs any more. |
 | [`MOUNTLIST`](commands/mountlist.md) | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
@@ -89,6 +89,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | `INFO` | a `.pkginfo` a port carries: the name, version, kind, catalogue fields, `Depends`, `Files` and `Config`; keywords win over it | `PUBLISH`, `MANIFEST` |
 | `FROM` | the program's directory, for its current directory and `PROGDIR:` | `RESOLVE` |
 | `ARCHIVE` | the name of an archive in the channel | `SHOW` |
+| `UNPACKED` | a directory holding what a `Source` archive holds, so that `<dir>/<prefix>/<path>` is each file; every file is still weighed and hashed against the signed manifest | `INSTALL`, `UPGRADE`, `REPAIR` |
 | [`SIGN`](commands/sign.md) | a key file; the default is `PKG_SIGNKEY` | `PUBLISH`, `WITHDRAW`, `PUSH` |
 | `ACCEPTKEY` | a public key in full, 64 hexadecimal digits | `INSTALL`, `UPGRADE`, `PUBLISH` |
 | `FILE` | a key file | `KEYGEN`, `KEYINFO` |

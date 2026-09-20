@@ -56,13 +56,57 @@ A later version signed by another key is refused (exit 14) until you
 decide, with `ACCEPTKEY` and the new key in full, that the change is
 legitimate.
 
+Several names on one line install in turn:
+
+```console
+$ pkg INSTALL notes hellolib ROOT aros CHANNEL channel
+  notes    installed 1.0: 1 file, signed by 5ff18d3fe14e383e
+  hellolib 1.0 was installed as a dependency; it is now kept for itself
+installed 2 packages into aros
+```
+
+It goes as far as it can: a name it cannot install is reported with its
+reason and the rest are installed anyway. The exit code is the worst class
+any of them refused with.
+
+### Where the files come from
+
+Some channels, the AROS contrib channel among them, publish packages whose
+files stay inside one large archive the AROS build makes. Pkg downloads that
+archive once into its cache and says where it put it. The first install that
+reads it writes a **block map** beside it, so every later install
+decompresses only the blocks holding its own files instead of the whole
+archive. Each install says, in one line, which it used and where it is:
+
+- `the archive is kept at <path>` when it was just downloaded,
+- `reading the archive already in the cache at <path>`,
+- `reading only the blocks its files lie in, out of <path>` with the map,
+- `reading the unpacked archive at <path>`,
+
+and, with it, the cache directory, which `PKG_CACHE` moves elsewhere.
+
+If you would rather unpack the archive yourself, `UNPACKED <dir>` reads the
+files from a directory holding what the archive holds
+(`<dir>/<prefix>/<path>`). Unpack it into the cache and Pkg finds it without
+being told:
+
+```
+mkdir -p ~/.cache/pkg/upstream/<sha256>/<archive>.d
+tar xjf <archive> -C ~/.cache/pkg/upstream/<sha256>/<archive>.d
+```
+
+Every file is weighed and hashed against the signed manifest before anything
+is written, whichever of these it came from; one that differs is refused
+(exit 12) by name. See [Channels](channels.md).
+
 See what is installed:
 
 ```console
 $ pkg LIST ROOT aros
 Package     Version  Kind         Files
-hellolib    1.0      library      1 file, a dependency
+hellolib    1.0      library      1 file
 helloworld  1.0      application  2 files
+notes       1.0      image        1 file
 ```
 
 ## Keep it current
@@ -74,7 +118,8 @@ $ pkg STATUS ROOT aros CHANNEL channel
 Package     Installed  State
 hellolib    1.0        current
 helloworld  1.0        upgradable to 1.1
-1 of 2 packages in aros can be updated from channel
+notes       1.0        current
+1 of 3 packages in aros can be updated from channel
   hint: UPGRADE ALL ROOT aros CHANNEL channel upgrades every one of them, a package before what depends on it; with DRYRUN it only says what it would do
 ```
 
@@ -84,7 +129,7 @@ Update one package, or all of them:
 $ pkg UPGRADE helloworld ROOT aros CHANNEL channel
 upgraded helloworld from 1.0 to 1.1 in aros: 2 placed, 0 removed
 $ pkg UPGRADE ALL ROOT aros CHANNEL channel
-nothing needs an update: 2 packages, none with a newer version in the channel
+nothing needs an update: 3 packages, none with a newer version in the channel
 ```
 
 `UPGRADE ALL` updates every package that has a newer version, each before
@@ -99,7 +144,7 @@ would happen without changing anything:
 
 ```console
 $ pkg UPGRADE ALL ROOT aros CHANNEL channel DRYRUN
-nothing needs an update: 2 packages, none with a newer version in the channel
+nothing needs an update: 3 packages, none with a newer version in the channel
 ```
 
 ### Files you edit
@@ -135,8 +180,9 @@ $ pkg ROLLBACK helloworld ROOT aros CHANNEL channel
 rolled back helloworld from 1.1 to 1.0 in aros: 1 placed, 0 removed, 1 kept
 $ pkg LIST ROOT aros
 Package     Version  Kind         Files
-hellolib    1.0      library      1 file, a dependency
+hellolib    1.0      library      1 file
 helloworld  1.0      application  2 files
+notes       1.0      image        1 file
 ```
 
 To install an older version on purpose, name it and add `DOWNGRADE`:
@@ -152,7 +198,8 @@ Package     Version  Files    State
 hellolib    1.0      1 file   intact
 helloworld  1.0      2 files  intact, configuration edited
   edited   S/HelloWorld.prefs (a configuration file)
-2 packages, 3 files, all intact; configuration files edited, as people do
+notes       1.0      1 file   intact
+3 packages, 4 files, all intact; configuration files edited, as people do
 ```
 
 Delete a file by accident, and `VERIFY` names it; `REPAIR` puts it back
@@ -166,7 +213,8 @@ hellolib    1.0      1 file   intact
 helloworld  1.0      2 files  1 missing
   missing  C/HelloWorld
   edited   S/HelloWorld.prefs (a configuration file)
-1 of 2 packages damaged
+notes       1.0      1 file   intact
+1 of 3 packages damaged
   hint: REPAIR ALL ROOT <dir> CHANNEL <dir> puts missing and changed files back from the channel. VERIFY <name> also says which missing files were moved by hand
 $ pkg REPAIR ALL ROOT aros CHANNEL channel
   restored C/HelloWorld
@@ -184,7 +232,6 @@ edit on purpose, the declared ones above, are left as they are.
 $ pkg REMOVE helloworld ROOT aros
   kept     S/HelloWorld.prefs (changed since install, so it is yours now)
 removed helloworld 1.0 from aros: 1 file removed, 1 kept
-  hellolib 1.0 is no longer needed by anything; REMOVE ORPHANS takes it out
 ```
 
 Pkg removes only files that are as it installed them; a file you changed
@@ -194,8 +241,7 @@ one go:
 
 ```console
 $ pkg REMOVE ORPHANS ROOT aros
-  hellolib 1.0 removed, which nothing needed (1 file)
-removed 1 package nothing needed any more
+nothing to remove: every installed package is wanted or needed by one that is
 ```
 
 Pkg refuses to remove a package that another installed package needs, and
@@ -210,9 +256,7 @@ and removing the package removes the program entirely.
 
 ```console
 $ pkg INSTALL notes ROOT aros CHANNEL channel
-installed notes 1.0 into aros: 1 file, payload cfac33cc9d05, signed by 5ff18d3fe14e383e
-  image    notes.hdf, 32 blocks
-  hint: to run it, mount the image: MOUNTLIST notes ROOT aros OUT <file> writes the mount entry and lists the steps
+notes 1.0 is already installed in aros
 $ pkg MOUNTLIST notes ROOT aros OUT aros/Devs/DOSDrivers/NOTES
 wrote aros/Devs/DOSDrivers/NOTES, the mount entry for notes (32 blocks)
   On AROS, the device is named after the mountlist file:
@@ -290,9 +334,10 @@ answer is then `key: value` lines, the same on every system.
 ```console
 $ pkg LIST ROOT aros MACHINE
 result: listed
+package: hellolib 1.0 library 1 explicit
 package: notes 1.0 image 1 explicit
 package: sdl2 2.30 library 1 explicit
-count: 2
+count: 3
 ```
 
 The [reference](reference.md) lists every line a command can answer. To
