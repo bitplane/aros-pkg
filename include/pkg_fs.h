@@ -68,6 +68,10 @@ int pkg_host_args(int *argc, char ***argv);
  * the default, asks for nothing. */
 extern void (*pkg_fs_on_transfer)(long long done, long long total);
 
+/* The network's own account of itself, for a TRACE: one line at a time,
+ * with no line break of its own. NULL, the default, says nothing. */
+extern void (*pkg_fs_on_trace)(const char *line);
+
 int pkg_fs_random(void *buf, size_t len);
 /* Where the system has no random source (AROS): bytes made from the moments a
  * person presses keys, asked for at the console. 0 done; -1 given up or
@@ -132,6 +136,10 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen);
 int pkg_net_send(const char *method, const char *url, const char *body_file,
                  const char *header_file, const char *out_file, int *code,
                  char *err, size_t errlen);
+
+/* Close whatever connections the client is holding open for its next
+ * request. Called when an operation ends, so nothing outlives it. */
+void pkg_net_idle_close(void);
 
 /* Where downloaded channel files are kept: PKG_CACHE, or the host's usual
  * cache directory. Caller frees. */

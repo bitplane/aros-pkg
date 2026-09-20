@@ -2888,7 +2888,7 @@ struct entry {
     char version[64];
     char arch[32];      /* one version may be published for several CPUs */
     char digest[PKG_SHA256_HEXLEN + 1];
-    int  withdrawn;     /* its publisher signed a withdrawal */
+    int  withdrawn;     /* its publisher signed a withdrawal; -1 until asked */
     unsigned char ch;   /* the channel it was read from: chan_of() names it */
 };
 
@@ -2897,7 +2897,7 @@ struct index {
     size_t        n;
 };
 
-static void mark_withdrawn(const char *channel, struct index *ix);
+static int is_withdrawn(const struct entry *e);
 
 /* ---- the channels of one operation ------------------------------------ *
  *
@@ -3068,12 +3068,11 @@ static int read_index(const char *channel, struct index *ix)
         w = (struct entry *)realloc(ix->e, (ix->n + 1u) * sizeof *w);
         if (w == NULL) { free(buf); return refuse("out of memory"); }
         ix->e = w;
-        en.withdrawn = 0;
+        en.withdrawn = -1;          /* not asked yet: see is_withdrawn */
         en.ch = (unsigned char)id;
         ix->e[ix->n++] = en;
     }
     free(buf);
-    mark_withdrawn(channel, ix);
     return 0;
 }
 
@@ -3513,7 +3512,7 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
         if (version) {
             if (pkg_version_cmp(e->version, version) == 0)
                 *b = e;
-        } else if (e->withdrawn) {
+        } else if (is_withdrawn(e)) {
             tr("skipping %s %s: withdrawn by its publisher", e->name, e->version);
         } else if (*b == NULL || pkg_version_cmp(e->version, (*b)->version) > 0) {
             *b = e;
@@ -4257,16 +4256,18 @@ static int withdrawal_text(const struct entry *e, char *out, size_t len)
  * version can withdraw it. */
 static int withdrawal_valid(const char *channel, const struct entry *e)
 {
-    char *wo = object_path(channel, e->digest, "withdrawn");
-    char *ws = object_path(channel, e->digest, "withdrawn.sig");
+    char *wo = object_path(channel, e->digest, "withdrawn"), *ws = NULL;
     char want[300], signer[65], entry_signer[65];
     unsigned char *buf = NULL;
     size_t len;
     int n = withdrawal_text(e, want, sizeof want), ok = 0, q = quiet, rc = refused_class;
     const char *nx = refused_next;
 
-    if (wo != NULL && ws != NULL && pkg_fs_exists(wo) && pkg_fs_read(wo, &buf, &len) == 0
-        && len == (size_t)n && memcmp(buf, want, len) == 0) {
+    /* The signature is only asked for once the withdrawal itself is there:
+     * over a network each of these is a request. */
+    if (wo != NULL && pkg_fs_exists(wo) && pkg_fs_read(wo, &buf, &len) == 0
+        && len == (size_t)n && memcmp(buf, want, len) == 0
+        && (ws = object_path(channel, e->digest, "withdrawn.sig")) != NULL) {
         quiet = 1;
         ok = check_sig(ws, buf, len, signer, "") == 0
              && claimed_signer(channel, e->digest, entry_signer)
@@ -4282,11 +4283,18 @@ static int withdrawal_valid(const char *channel, const struct entry *e)
     return ok;
 }
 
-static void mark_withdrawn(const char *channel, struct index *ix)
+/* Whether this version was withdrawn, asked of the channel the first time
+ * it is wanted and remembered on the entry. A withdrawal is two files that
+ * are usually not there, so over the network each entry costs a request
+ * that comes back "not found"; an index holds hundreds of entries and an
+ * operation looks at a few, so they are asked for one at a time, not all at
+ * once when the index is read. */
+static int is_withdrawn(const struct entry *e)
 {
-    size_t i;
-    for (i = 0; i < ix->n; i++)
-        ix->e[i].withdrawn = withdrawal_valid(channel, &ix->e[i]);
+    struct entry *m = (struct entry *)e;        /* the answer is cached on the entry */
+    if (m->withdrawn < 0)
+        m->withdrawn = withdrawal_valid(chan_of(e), e);
+    return m->withdrawn;
 }
 
 /* Withdraw a published version: it stays in the channel, as everything
@@ -4324,7 +4332,7 @@ static int cmd_withdraw(const struct pkg_options *a)
         say_not_found(&ix, a->target, a->version, a->channel);
         goto out;
     }
-    if (e->withdrawn) {
+    if (is_withdrawn(e)) {
         kv("result", "unchanged");
         kv("name", "%s", e->name);
         kv("version", "%s", e->version);
@@ -5062,7 +5070,7 @@ static int plan_one(struct plan *p, const char *name, const char *min, const cha
                         "nothing was changed", from, name, min ? " >= " : "", min ? min : "",
                         chans_text());
     }
-    if (e->withdrawn)
+    if (is_withdrawn(e))
         return refuse_n(18, "ask-requester", "%s %s was withdrawn by its publisher in %s; nothing "
                         "was changed. Installing it anyway is the requester's decision, and pkg "
                         "does not take it", e->name, e->version, chan_of(e));
@@ -5680,7 +5688,7 @@ static int cmd_show(const struct pkg_options *a)
             status = class_name(r->cls);
             bad++;
             if (!first_bad) first_bad = r->cls;
-        } else if (ix.e[i].withdrawn) {
+        } else if (is_withdrawn(&ix.e[i])) {
             status = "withdrawn";
         }
         if (a->root != NULL) {
@@ -6688,7 +6696,7 @@ static int cmd_upgrade(const struct pkg_options *a)
             say_result("%s is already at %s", cur.name, cur.version);
         for (o = 0; o < ix.n; o++)
             if (strcmp(ix.e[o].name, cur.name) == 0 && !arch_matches(&ix.e[o])
-                && pkg_version_cmp(ix.e[o].version, cur.version) > 0 && !ix.e[o].withdrawn) {
+                && pkg_version_cmp(ix.e[o].version, cur.version) > 0 && !is_withdrawn(&ix.e[o])) {
                 if (machine)
                     kv("note", "%s %s is published for %s, not for this root's CPU", ix.e[o].name,
                        ix.e[o].version, ix.e[o].arch);
@@ -8073,9 +8081,10 @@ static void stand(const char *root, const struct index *ix, const char *base,
     arch_for(base, m);
     for (i = 0; i < ix->n; i++) {
         const struct entry *e = &ix->e[i];
-        if (e->withdrawn && strcmp(e->name, m->name) == 0
+        if (strcmp(e->name, m->name) == 0
             && pkg_version_cmp(e->version, m->version) == 0
-            && (strcmp(e->arch, m->architecture) == 0 || strcmp(e->arch, "generic") == 0))
+            && (strcmp(e->arch, m->architecture) == 0 || strcmp(e->arch, "generic") == 0)
+            && is_withdrawn(e))
             s->withdrawn = 1;
     }
     s->offer = pick(ix, m->name, NULL);
@@ -8381,7 +8390,7 @@ static int search_local(const char *channel, const char *const *words, unsigned 
             continue;
         for (j = 0; j < ix.n; j++) {
             const struct entry *e = &ix.e[j];
-            if (strcmp(e->name, ix.e[i].name) != 0 || e->withdrawn || !arch_matches(e))
+            if (strcmp(e->name, ix.e[i].name) != 0 || is_withdrawn(e) || !arch_matches(e))
                 continue;
             if (best == NULL || pkg_version_cmp(e->version, best->version) > 0)
                 best = e;
@@ -9240,6 +9249,12 @@ static int options_clean(const struct pkg_options *o)
     return 0;
 }
 
+/* The network's trace lines, as the operation's own. */
+static void net_trace_line(const char *line)
+{
+    tr("%s", line);
+}
+
 static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const struct pkg_options *o)
 {
     static const struct pkg_options none;
@@ -9259,8 +9274,11 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     pick_refused = 0;
     chans_clear();
     opt_unpacked = o != NULL ? o->unpacked : NULL;
+    pkg_fs_on_trace = s != NULL && s->trace != NULL ? net_trace_line : NULL;
     rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
+    pkg_net_idle_close();               /* nothing the network holds open outlives the operation */
+    pkg_fs_on_trace = NULL;
     chans_clear();
     sink = NULL;
     return rc;

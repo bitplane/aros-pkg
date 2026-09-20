@@ -539,6 +539,13 @@ int pkg_fs_list(const char *dir, char ***names, size_t *count)
 }
 
 void (*pkg_fs_on_transfer)(long long done, long long total);
+void (*pkg_fs_on_trace)(const char *line);
+
+/* Windows hands every request to curl.exe, which holds nothing open of its
+ * own between two of them: there is nothing here to close. */
+void pkg_net_idle_close(void)
+{
+}
 
 int pkg_fs_random_typed(void *buf, size_t len)
 {

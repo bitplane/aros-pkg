@@ -13,14 +13,17 @@
 #include "pkg_fs.h"
 #include "pkg.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -755,10 +758,36 @@ void pkg_fs_unlock_dir(void *lock)
 
 /* ---- the network ------------------------------------------------------ */
 
+void (*pkg_fs_on_trace)(const char *line);
+
+/* A line for the TRACE, when one is running. */
+static void nettr(const char *fmt, ...)
+{
+    char line[400];
+    va_list ap;
+    if (pkg_fs_on_trace == NULL)
+        return;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    pkg_fs_on_trace(line);
+}
+
+/* Milliseconds, for the trace's own account of where a request's time went.
+ * Only differences are used. */
+static long long now_ms(void)
+{
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0)
+        return 0;
+    return (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
 #if defined(__AROS__)
 /* The network on AROS is bsdsocket.library, which a TCP/IP stack provides
- * once it is started (AROSTCP; on a hosted AROS, the host's own sockets). It
- * is opened for one transfer and closed after it: Pkg holds nothing open. */
+ * once it is started (AROSTCP; on a hosted AROS, the host's own sockets).
+ * The library is opened once and kept for the program's life, because the
+ * connections under it are: see the pool below. */
 #include <proto/bsdsocket.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -767,18 +796,30 @@ void pkg_fs_unlock_dir(void *lock)
 
 struct Library *SocketBase;
 
-static int net_open(const char *host, const char *port, int tls, char *err, size_t errlen)
+static int net_start(char *err, size_t errlen)
 {
-    struct sockaddr_in sa;
-    struct hostent *he;
-    int s;
-
+    if (SocketBase != NULL)
+        return 0;
     SocketBase = OpenLibrary((CONST_STRPTR)"bsdsocket.library", 3);
     if (SocketBase == NULL) {
         snprintf(err, errlen, "this machine's network is not started: bsdsocket.library does not open. "
                  "Start the network (AROSTCP), or copy the channel to a volume and name that drawer");
         return -1;
     }
+    return 0;
+}
+
+static int net_open(const char *host, const char *port, int tls, void **tlsh, char *err, size_t errlen)
+{
+    struct sockaddr_in sa;
+    struct hostent *he;
+    long long t0, t1;
+    int s;
+
+    *tlsh = NULL;
+    if (net_start(err, errlen) != 0)
+        return -1;
+    t0 = now_ms();
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
     sa.sin_port = htons((unsigned short)atoi(port));
@@ -787,7 +828,6 @@ static int net_open(const char *host, const char *port, int tls, char *err, size
         he = gethostbyname((char *)host);
         if (he == NULL || he->h_addr_list == NULL || he->h_addr_list[0] == NULL) {
             snprintf(err, errlen, "cannot find the host %s: check the network's name servers", host);
-            CloseLibrary(SocketBase); SocketBase = NULL;
             return -1;
         }
         memcpy(&sa.sin_addr, he->h_addr_list[0], sizeof sa.sin_addr);
@@ -796,31 +836,41 @@ static int net_open(const char *host, const char *port, int tls, char *err, size
     if (s < 0 || connect(s, (struct sockaddr *)&sa, sizeof sa) != 0) {
         if (s >= 0) CloseSocket(s);
         snprintf(err, errlen, "cannot connect to %s:%s", host, port);
-        CloseLibrary(SocketBase); SocketBase = NULL;
         return -1;
     }
-    if (tls && pkg_tls_open(s, host, err, errlen) != 0) {
-        CloseSocket(s);
-        CloseLibrary(SocketBase); SocketBase = NULL;
-        return -1;
+    t1 = now_ms();
+    nettr("net: connect %s:%s in %lld ms", host, port, t1 - t0);
+    if (tls) {
+        long long t2;
+        if (pkg_tls_prepare(err, errlen) != 0) {
+            CloseSocket(s);
+            return -1;
+        }
+        t2 = now_ms();
+        if (t2 - t1 > 0)
+            nettr("net: the certificate authorities, read once: %lld ms", t2 - t1);
+        *tlsh = pkg_tls_open(s, host, err, errlen);
+        if (*tlsh == NULL) {
+            CloseSocket(s);
+            return -1;
+        }
+        nettr("net: TLS handshake with %s in %lld ms", host, now_ms() - t2);
     }
     return s;
 }
-static ssize_t net_read(int s, void *buf, size_t n)
+static ssize_t net_read(int s, void *t, void *buf, size_t n)
 {
-    return pkg_tls_active() ? pkg_tls_read(buf, n) : (ssize_t)recv(s, buf, (LONG)n, 0);
+    return t != NULL ? pkg_tls_read((struct pkg_tls *)t, buf, n) : (ssize_t)recv(s, buf, (LONG)n, 0);
 }
-static ssize_t net_write(int s, const void *buf, size_t n)
+static ssize_t net_write(int s, void *t, const void *buf, size_t n)
 {
-    return pkg_tls_active() ? pkg_tls_write(buf, n) : (ssize_t)send(s, (APTR)buf, (LONG)n, 0);
+    return t != NULL ? pkg_tls_write((struct pkg_tls *)t, buf, n) : (ssize_t)send(s, (APTR)buf, (LONG)n, 0);
 }
-static void net_close(int s)
+static void net_close(int s, void *t)
 {
     if (SocketBase == NULL) return;
-    pkg_tls_close();
+    if (t != NULL) pkg_tls_close((struct pkg_tls *)t);
     CloseSocket(s);
-    CloseLibrary(SocketBase);
-    SocketBase = NULL;
 }
 
 /* Downloads are kept on the system volume so that a reboot does not fetch
@@ -960,11 +1010,13 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
 }
 
 /* The socket under the HTTP client: a name and a port in, a stream out. */
-static int net_open(const char *host, const char *port, int tls, char *err, size_t errlen)
+static int net_open(const char *host, const char *port, int tls, void **tlsh, char *err, size_t errlen)
 {
     struct addrinfo hints, *ai = NULL, *a;
+    long long t0 = now_ms();
     int s = -1;
     (void)tls;                                  /* https here is curl's, never this socket's */
+    *tlsh = NULL;
     memset(&hints, 0, sizeof hints);
     hints.ai_socktype = SOCK_STREAM;
     if (getaddrinfo(host, port, &hints, &ai) != 0) {
@@ -977,16 +1029,274 @@ static int net_open(const char *host, const char *port, int tls, char *err, size
     }
     freeaddrinfo(ai);
     if (s < 0) snprintf(err, errlen, "cannot connect to %s:%s", host, port);
+    else nettr("net: connect %s:%s in %lld ms", host, port, now_ms() - t0);
     return s;
 }
-static ssize_t net_read(int s, void *buf, size_t n) { return read(s, buf, n); }
-static ssize_t net_write(int s, const void *buf, size_t n) { return write(s, buf, n); }
-static void net_close(int s) { close(s); }
+static ssize_t net_read(int s, void *t, void *buf, size_t n) { (void)t; return read(s, buf, n); }
+static ssize_t net_write(int s, void *t, const void *buf, size_t n) { (void)t; return write(s, buf, n); }
+static void net_close(int s, void *t) { (void)t; close(s); }
 #define get_https get_with_curl
 
 #endif
 
-/* ---- the HTTP client, the same on every system ------------------------ */
+/* ---- the HTTP client, the same on every system ------------------------ *
+ *
+ * HTTP/1.1 with the connection held open. A channel is hundreds of small
+ * files, and on AROS, where this client does the https itself, a new TCP
+ * connection and a full TLS handshake for each of them cost about a second
+ * apiece. So a connection is kept after a response and the next request for
+ * the same scheme, host and port is sent down it.
+ *
+ * What that asks of the reader: the end of a response must be known from
+ * its framing, never from the close of the connection. A response with a
+ * Content-Length is read to exactly that many bytes, a chunked one to its
+ * zero chunk, and one with neither is read to the close and the connection
+ * is then dropped. The body of an answer Pkg does not keep (a 404 for a
+ * withdrawal that is not there, a redirect) is read and discarded for the
+ * same reason.
+ *
+ * A connection is never reused across a host, a port or a scheme: on https
+ * the certificate is checked once, during the handshake, and a session
+ * belongs to the host it was checked against. A kept connection may have
+ * been closed by the server in the meantime; that shows as a failure before
+ * any of the response has arrived, and a GET is then sent once more on a
+ * fresh connection.
+ *
+ * PKG_NO_KEEPALIVE=1 turns the reuse off and is what the test's negative
+ * control uses. */
+
+#define NET_POOL 2                      /* the channel's host, and an upstream one */
+#define NET_BUF  16384
+
+struct netconn {
+    int   used;
+    int   sock;
+    void *tls;
+    int   scheme_tls;
+    char  host[256];
+    char  port[8];
+    char  buf[NET_BUF];                 /* what was read past what was wanted */
+    size_t len, at;
+    unsigned long stamp;                /* for the slot to give up first */
+};
+
+static struct netconn pool[NET_POOL];
+static unsigned long net_clock;
+
+static int keepalive_off(void)
+{
+    const char *e = getenv("PKG_NO_KEEPALIVE");
+    return e != NULL && e[0] == '1';
+}
+
+static void conn_drop(struct netconn *c)
+{
+    if (!c->used)
+        return;
+    net_close(c->sock, c->tls);
+    c->used = 0;
+    c->tls = NULL;
+    c->len = c->at = 0;
+}
+
+void pkg_net_idle_close(void)
+{
+    int i;
+    for (i = 0; i < NET_POOL; i++)
+        conn_drop(&pool[i]);
+}
+
+/* The connection for this request: the one already open to this host, or a
+ * new one. *reused says which, so a failure before the response can be told
+ * from a server that is not there. */
+static struct netconn *conn_take(const char *host, const char *port, int tls, int allow_reuse,
+                                 int *reused, char *err, size_t errlen)
+{
+    struct netconn *c = NULL;
+    int i;
+
+    *reused = 0;
+    if (allow_reuse && !keepalive_off()) {
+        for (i = 0; i < NET_POOL; i++) {
+            struct netconn *p = &pool[i];
+            if (p->used && p->scheme_tls == tls && strcmp(p->host, host) == 0
+                && strcmp(p->port, port) == 0) {
+                if (p->at < p->len) {   /* bytes left over: its framing is not trusted */
+                    conn_drop(p);
+                    break;
+                }
+                p->stamp = ++net_clock;
+                *reused = 1;
+                nettr("net: the connection to %s://%s:%s is still open, and is used again",
+                      tls ? "https" : "http", host, port);
+                return p;
+            }
+        }
+    }
+    /* Never two connections to the same place at once: one is all a client
+     * needs, and a server that answers one connection at a time would never
+     * reach the second. */
+    for (i = 0; i < NET_POOL; i++)
+        if (pool[i].used && pool[i].scheme_tls == tls && strcmp(pool[i].host, host) == 0
+            && strcmp(pool[i].port, port) == 0)
+            conn_drop(&pool[i]);
+    for (i = 0; i < NET_POOL; i++)
+        if (!pool[i].used) { c = &pool[i]; break; }
+    if (c == NULL) {
+        c = &pool[0];
+        for (i = 1; i < NET_POOL; i++)
+            if (pool[i].stamp < c->stamp) c = &pool[i];
+        conn_drop(c);
+    }
+    c->sock = net_open(host, port, tls, &c->tls, err, errlen);
+    if (c->sock < 0)
+        return NULL;
+    c->used = 1;
+    c->scheme_tls = tls;
+    c->len = c->at = 0;
+    c->stamp = ++net_clock;
+    snprintf(c->host, sizeof c->host, "%s", host);
+    snprintf(c->port, sizeof c->port, "%s", port);
+    return c;
+}
+
+/* Reading through the connection's own buffer, so that what came in after
+ * one response is there for the next. */
+static ssize_t conn_read(struct netconn *c, void *buf, size_t n)
+{
+    if (c->at == c->len) {
+        ssize_t k;
+        if (n >= NET_BUF)               /* a large read goes straight through */
+            return net_read(c->sock, c->tls, buf, n);
+        k = net_read(c->sock, c->tls, c->buf, sizeof c->buf);
+        if (k <= 0)
+            return k;
+        c->len = (size_t)k;
+        c->at = 0;
+    }
+    {
+        size_t k = c->len - c->at;
+        if (k > n) k = n;
+        memcpy(buf, c->buf + c->at, k);
+        c->at += k;
+        return (ssize_t)k;
+    }
+}
+
+/* One line ending in CRLF, without it. -1 when the connection ended first. */
+static int conn_line(struct netconn *c, char *line, size_t n)
+{
+    size_t at = 0;
+    for (;;) {
+        char ch;
+        if (conn_read(c, &ch, 1) != 1)
+            return -1;
+        if (ch == '\n') {
+            while (at > 0 && line[at - 1] == '\r') at--;
+            line[at] = '\0';
+            return 0;
+        }
+        if (at + 1 < n)
+            line[at++] = ch;
+    }
+}
+
+/* Where a response's body goes: a file, memory (the first `cap` bytes of
+ * it, for the words of a 426), or nowhere. */
+struct sink_body {
+    int    fd;
+    char  *mem;
+    size_t cap, len;
+    long long total;
+};
+
+static int body_put(struct sink_body *b, const char *buf, size_t n)
+{
+    b->total += (long long)n;
+    if (b->fd >= 0) {
+        size_t at = 0;
+        while (at < n) {
+            ssize_t w = write(b->fd, buf + at, n - at);
+            if (w <= 0) return -1;
+            at += (size_t)w;
+        }
+        return 0;
+    }
+    if (b->mem != NULL && b->len < b->cap) {
+        size_t k = b->cap - b->len;
+        if (k > n) k = n;
+        memcpy(b->mem + b->len, buf, k);
+        b->len += k;
+        b->mem[b->len] = '\0';
+    }
+    return 0;
+}
+
+/* The body, by its framing. 0 read whole and the connection may be used
+ * again, 1 read whole but the connection must be dropped, -1 a failure. */
+static int read_body(struct netconn *c, long long clen, int chunked, struct sink_body *b,
+                     const char *host, char *err, size_t errlen)
+{
+    char buf[65536];
+    ssize_t n;
+
+    if (chunked) {
+        for (;;) {
+            char line[64];
+            unsigned long size;
+            long long got = 0;
+            if (conn_line(c, line, sizeof line) != 0) {
+                snprintf(err, errlen, "%s ended a chunked reply early", host);
+                return -1;
+            }
+            size = strtoul(line, NULL, 16);
+            if (size == 0)
+                break;
+            while (got < (long long)size) {
+                size_t want = (size_t)((long long)size - got);
+                if (want > sizeof buf) want = sizeof buf;
+                n = conn_read(c, buf, want);
+                if (n <= 0) { snprintf(err, errlen, "%s ended a chunked reply early", host); return -1; }
+                if (body_put(b, buf, (size_t)n) != 0) { snprintf(err, errlen, "cannot write the download: %s", strerror(errno)); return -1; }
+                got += n;
+                if (pkg_fs_on_transfer && b->fd >= 0 && b->total / 262144 != (b->total - n) / 262144)
+                    pkg_fs_on_transfer(b->total, -1);
+            }
+            if (conn_line(c, buf, sizeof buf) != 0) { snprintf(err, errlen, "%s ended a chunked reply early", host); return -1; }
+        }
+        for (;;) {                       /* the trailer, up to the empty line */
+            char line[256];
+            if (conn_line(c, line, sizeof line) != 0) { snprintf(err, errlen, "%s ended a chunked reply early", host); return -1; }
+            if (line[0] == '\0') break;
+        }
+        return 0;
+    }
+    if (clen >= 0) {
+        long long got = 0;
+        while (got < clen) {
+            size_t want = (size_t)(clen - got);
+            if (want > sizeof buf) want = sizeof buf;
+            n = conn_read(c, buf, want);
+            if (n <= 0) {
+                snprintf(err, errlen, "%s sent %lld of %lld bytes", host, got, clen);
+                return -1;
+            }
+            if (body_put(b, buf, (size_t)n) != 0) { snprintf(err, errlen, "cannot write the download: %s", strerror(errno)); return -1; }
+            got += n;
+            if (pkg_fs_on_transfer && b->fd >= 0 && b->total / 262144 != (b->total - n) / 262144)
+                pkg_fs_on_transfer(b->total, clen);
+        }
+        return 0;
+    }
+    /* neither a length nor chunks: the close is the end, and the connection
+     * cannot be used again */
+    while ((n = conn_read(c, buf, sizeof buf)) > 0) {
+        if (body_put(b, buf, (size_t)n) != 0) { snprintf(err, errlen, "cannot write the download: %s", strerror(errno)); return -1; }
+        if (pkg_fs_on_transfer && b->fd >= 0 && b->total / 262144 != (b->total - n) / 262144)
+            pkg_fs_on_transfer(b->total, -1);
+    }
+    return 1;
+}
 
 /* One request with a body, for PUSH: the headers of header_file, the body
  * of body_file, the answer's body in out_file and its status in *code. */
@@ -1002,6 +1312,7 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     char *body;
     FILE *bf = NULL, *of = NULL;
     ssize_t n;
+    void *tlsh = NULL;
     int s, rc = -1, tls = strncmp(url, "https://", 8) == 0;
 
 #if !defined(__AROS__)
@@ -1018,7 +1329,10 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     snprintf(host, sizeof host, "%.*s", (int)hl, p);
     if (stat(body_file, &sb) != 0 || (bf = fopen(body_file, "rb")) == NULL) { snprintf(err, errlen, "cannot read %s", body_file); return -1; }
     if (header_file != NULL) pkg_fs_read(header_file, &hdrs, &hdrlen);
-    s = net_open(host, port, tls, err, errlen);
+    /* A push asks for a connection of its own, and says so: its body may be
+     * large and is streamed from a file, so a request that stopped halfway
+     * cannot simply be sent again. It is never put in the pool. */
+    s = net_open(host, port, tls, &tlsh, err, errlen);
     if (s < 0) { fclose(bf); free(hdrs); return -1; }
     {
         /* header_file holds "Name: value\n" lines; the wire wants \r\n */
@@ -1032,13 +1346,13 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
         }
         if (at + 2 >= sizeof req) { snprintf(err, errlen, "the request's headers are too long"); goto done; }
         req[at++] = '\r'; req[at++] = '\n';
-        if (net_write(s, req, at) != (ssize_t)at) { snprintf(err, errlen, "cannot send to %s", host); goto done; }
+        if (net_write(s, tlsh, req, at) != (ssize_t)at) { snprintf(err, errlen, "cannot send to %s", host); goto done; }
     }
     for (;;) {
         size_t k = fread(buf, 1, sizeof buf, bf), sent = 0;
         if (k == 0) break;
         while (sent < k) {
-            n = net_write(s, buf + sent, k - sent);
+            n = net_write(s, tlsh, buf + sent, k - sent);
             if (n <= 0) { snprintf(err, errlen, "%s stopped taking the upload", host); goto done; }
             sent += (size_t)n;
         }
@@ -1046,7 +1360,7 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     /* the whole answer: these are short records */
     for (;;) {
         if (hlen + 1 >= sizeof head) break;
-        n = net_read(s, head + hlen, sizeof head - 1 - hlen);
+        n = net_read(s, tlsh, head + hlen, sizeof head - 1 - hlen);
         if (n <= 0) break;
         hlen += (size_t)n;
     }
@@ -1075,21 +1389,28 @@ int pkg_net_send(const char *method, const char *url, const char *body_file,
     fclose(of);
     rc = 0;
 done:
-    net_close(s);
+    net_close(s, tlsh);
     fclose(bf);
     free(hdrs);
     return rc;
 }
 
-static int http_get_once(const char *url, int tls, int fd, char *location, size_t ll, char *err, size_t errlen)
+/* One GET on one connection. 0 fetched, 1 the server has no such file,
+ * 3 a redirect (Location in `location`), 4 a connection that had been kept
+ * open was not there any more and the GET may be sent again on a new one,
+ * -1 with a reason. */
+static int http_get_once(const char *url, int tls, int fd, char *location, size_t ll,
+                         int allow_reuse, char *err, size_t errlen)
 {
-    char host[256], port[8], req[2300], head[8192];
+    char host[256], port[8], req[2300], head[8192], mem[2048];
     const char *p = url + (tls ? 8 : 7), *slash = strchr(p, '/'), *colon;
     const char *path = slash ? slash : "/";
-    size_t hl = slash ? (size_t)(slash - p) : strlen(p), hlen = 0;
-    int s = -1, code = 0, chunked = 0;
-    long long clen = -1;
-    char *body;
+    size_t hl = slash ? (size_t)(slash - p) : strlen(p), hlen = 0, rl;
+    int code = 0, chunked = 0, close_wanted = 0, reused = 0, keep, old_http = 0;
+    long long clen = -1, t0;
+    struct netconn *c;
+    struct sink_body body;
+    char *hdrend;
     ssize_t n;
 
     colon = memchr(p, ':', hl);
@@ -1100,32 +1421,65 @@ static int http_get_once(const char *url, int tls, int fd, char *location, size_
         hl = (size_t)(colon - p);
     }
     snprintf(host, sizeof host, "%.*s", (int)hl, p);
-    s = net_open(host, port, tls, err, errlen);
-    if (s < 0) return -1;
-    snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " PKG_USER_AGENT "\r\nConnection: close\r\n\r\n",
-             path, host);
-    if (net_write(s, req, strlen(req)) != (ssize_t)strlen(req)) {
-        net_close(s); snprintf(err, errlen, "cannot send to %s", host); return -1;
+    c = conn_take(host, port, tls, allow_reuse, &reused, err, errlen);
+    if (c == NULL) return -1;
+    t0 = now_ms();
+    rl = (size_t)snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " PKG_USER_AGENT
+                          "\r\nConnection: keep-alive\r\n\r\n", path, host);
+    if (net_write(c->sock, c->tls, req, rl) != (ssize_t)rl) {
+        conn_drop(c);
+        if (reused) return 4;
+        snprintf(err, errlen, "cannot send to %s", host);
+        return -1;
     }
     /* the head, up to the blank line */
     for (;;) {
-        if (hlen + 1 >= sizeof head) { net_close(s); snprintf(err, errlen, "an oversized reply from %s", host); return -1; }
-        n = net_read(s, head + hlen, sizeof head - 1 - hlen);
-        if (n <= 0) { net_close(s); snprintf(err, errlen, "%s closed the connection early", host); return -1; }
+        if (hlen + 1 >= sizeof head) { conn_drop(c); snprintf(err, errlen, "an oversized reply from %s", host); return -1; }
+        n = conn_read(c, head + hlen, sizeof head - 1 - hlen);
+        if (n <= 0) {
+            conn_drop(c);
+            if (reused && hlen == 0) return 4;   /* the server had closed it: send it again */
+            snprintf(err, errlen, "%s closed the connection early", host);
+            return -1;
+        }
         hlen += (size_t)n;
         head[hlen] = '\0';
-        if ((body = strstr(head, "\r\n\r\n")) != NULL) { body += 4; break; }
+        if ((hdrend = strstr(head, "\r\n\r\n")) != NULL) { hdrend += 4; break; }
     }
-    if (sscanf(head, "HTTP/%*s %d", &code) != 1) { net_close(s); snprintf(err, errlen, "%s did not answer HTTP", host); return -1; }
+    /* what came in after the head belongs to the body, and to the next
+     * response after that: put it back in front of the connection's buffer */
+    {
+        size_t over = hlen - (size_t)(hdrend - head);
+        if (over > 0) {
+            char spill[NET_BUF];
+            size_t rest = c->len - c->at;
+            if (over + rest > sizeof spill) { conn_drop(c); snprintf(err, errlen, "an oversized reply from %s", host); return -1; }
+            memcpy(spill, hdrend, over);
+            memcpy(spill + over, c->buf + c->at, rest);
+            memcpy(c->buf, spill, over + rest);
+            c->at = 0;
+            c->len = over + rest;
+        }
+    }
+    if (sscanf(head, "HTTP/%*s %d", &code) != 1) { conn_drop(c); snprintf(err, errlen, "%s did not answer HTTP", host); return -1; }
+    old_http = strncmp(head, "HTTP/1.1", 8) != 0;
     {
         char *line = strstr(head, "\r\n");
-        while (line && line + 2 < body - 2) {
+        while (line && line + 2 < hdrend - 2) {
             char *eol = strstr(line + 2, "\r\n");
             size_t k = eol ? (size_t)(eol - (line + 2)) : 0;
             if (k > 15 && strncasecmp(line + 2, "Content-Length:", 15) == 0) clen = atoll(line + 17);
             if (k > 18 && strncasecmp(line + 2, "Transfer-Encoding:", 18) == 0
                 && strstr(line + 2, "chunked") && (size_t)(strstr(line + 2, "chunked") - (line + 2)) < k)
                 chunked = 1;
+            if (k > 11 && strncasecmp(line + 2, "Connection:", 11) == 0) {
+                char v[64];
+                size_t vl = k - 11 < sizeof v - 1 ? k - 11 : sizeof v - 1, z;
+                memcpy(v, line + 13, vl);
+                v[vl] = '\0';
+                for (z = 0; v[z]; z++) v[z] = (char)tolower((unsigned char)v[z]);
+                if (strstr(v, "close") != NULL) close_wanted = 1;
+            }
             if (k > 9 && strncasecmp(line + 2, "Location:", 9) == 0 && location) {
                 const char *v = line + 11;
                 while (*v == ' ') v++;
@@ -1134,83 +1488,45 @@ static int http_get_once(const char *url, int tls, int fd, char *location, size_
             line = eol;
         }
     }
+    if (chunked) clen = -1;              /* the chunks frame it, not a length */
+    /* 204 and 304 carry no body whatever they say; nothing else Pkg asks for
+     * is bodiless. */
+    if (code == 204 || code == 304) clen = 0;
+    memset(&body, 0, sizeof body);
+    body.fd = -1;
+    if (code == 200) {
+        body.fd = fd;
+    } else {
+        body.mem = mem;                  /* the first words of a refusal */
+        body.cap = sizeof mem - 1;
+        mem[0] = '\0';
+    }
+    n = read_body(c, clen, chunked, &body, host, err, errlen);
+    if (n < 0) { conn_drop(c); return -1; }
+    keep = n == 0 && !close_wanted && !old_http && !keepalive_off();
+    nettr("net: %s %s answered %d, %lld bytes in %lld ms, on a %s connection%s", host, path, code,
+          body.total, now_ms() - t0, reused ? "kept" : "new", keep ? "" : ", which ends here");
+    if (!keep)
+        conn_drop(c);
     if (code == 426) {
         /* the portal's own words: "reason: ..." and "next: ..." */
-        const char *r = strstr(body, "reason: "), *nx = strstr(body, "next: ");
-        int rl = r ? (int)strcspn(r + 8, "\r\n") : 0, nl = nx ? (int)strcspn(nx + 6, "\r\n") : 0;
-        net_close(s);
-        snprintf(err, errlen, "%.*s%s%.*s", rl ? rl : 40, rl ? r + 8 : "the server asks for a newer pkg",
+        const char *r = strstr(mem, "reason: "), *nx = strstr(mem, "next: ");
+        int rlen = r ? (int)strcspn(r + 8, "\r\n") : 0, nl = nx ? (int)strcspn(nx + 6, "\r\n") : 0;
+        snprintf(err, errlen, "%.*s%s%.*s", rlen ? rlen : 40, rlen ? r + 8 : "the server asks for a newer pkg",
                  nl ? ". " : "", nl, nl ? nx + 6 : "");
         return -1;
     }
-    if (code == 404 || code == 410) { net_close(s); return 1; }
-    if (code >= 300 && code < 400) { net_close(s); return 3; }
-    if (code != 200) { net_close(s); snprintf(err, errlen, "%s answered HTTP %d for %s", host, code, path); return -1; }
-    {
-        /* the body: what followed the head, then the rest of the stream */
-        size_t have = hlen - (size_t)(body - head);
-        char buf[65536];
-        long long got = 0;
-        if (!chunked) {
-            if (have && write(fd, body, have) != (ssize_t)have) goto werr;
-            got = (long long)have;
-            while (clen < 0 || got < clen) {
-                n = net_read(s, buf, sizeof buf);
-                if (n <= 0) break;
-                if (write(fd, buf, (size_t)n) != n) goto werr;
-                got += n;
-                if (pkg_fs_on_transfer && got / 262144 != (got - n) / 262144) pkg_fs_on_transfer(got, clen);
-            }
-            net_close(s);
-            if (clen >= 0 && got != clen) { snprintf(err, errlen, "%s sent %lld of %lld bytes", host, got, clen); return -1; }
-            return 0;
-        } else {
-            /* chunked: collect everything, then decode */
-            size_t cap = have + 65536, len = have, at = 0;
-            char *all = (char *)malloc(cap + 1);
-            if (all == NULL) { net_close(s); snprintf(err, errlen, "out of memory"); return -1; }
-            memcpy(all, body, have);
-            while ((n = net_read(s, buf, sizeof buf)) > 0) {
-                if (len + (size_t)n + 1 > cap) {
-                    char *g;
-                    cap = (len + (size_t)n) * 2;
-                    g = (char *)realloc(all, cap + 1);
-                    if (g == NULL) { free(all); net_close(s); snprintf(err, errlen, "out of memory"); return -1; }
-                    all = g;
-                }
-                memcpy(all + len, buf, (size_t)n);
-                len += (size_t)n;
-                if (pkg_fs_on_transfer && len / 262144 != (len - (size_t)n) / 262144) pkg_fs_on_transfer((long long)len, -1);
-            }
-            net_close(s);
-            all[len] = '\0';
-            for (;;) {
-                unsigned long size = strtoul(all + at, NULL, 16);
-                char *eol = strstr(all + at, "\r\n");
-                if (eol == NULL) break;
-                at = (size_t)(eol - all) + 2;
-                if (size == 0) { free(all); return 0; }
-                if (at + size > len || write(fd, all + at, size) != (ssize_t)size) {
-                    free(all); snprintf(err, errlen, "%s sent a broken chunked reply", host); return -1;
-                }
-                at += size + 2;
-            }
-            free(all);
-            snprintf(err, errlen, "%s ended a chunked reply early", host);
-            return -1;
-        }
-    }
-werr:
-    net_close(s);
-    snprintf(err, errlen, "cannot write the download: %s", strerror(errno));
-    return -1;
+    if (code == 404 || code == 410) return 1;
+    if (code >= 300 && code < 400) return 3;
+    if (code != 200) { snprintf(err, errlen, "%s answered HTTP %d for %s", host, code, path); return -1; }
+    return 0;
 }
 
 int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
 {
     size_t dl = strlen(dest);
     char *tmp = (char *)malloc(dl + 8), cur[2100], loc[2100];
-    int hops, rc = -1, fd, tls;
+    int hops, tries, rc = -1, fd, tls;
 
     if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
     snprintf(tmp, dl + 8, "%s.part", dest);
@@ -1228,11 +1544,20 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
             rc = -1;
             break;
         }
-        fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd < 0) { snprintf(err, errlen, "cannot write %s: %s", tmp, strerror(errno)); rc = -1; break; }
-        loc[0] = '\0';
-        rc = http_get_once(cur, tls, fd, loc, sizeof loc, err, errlen);
-        close(fd);
+        /* Once on whatever connection is open, and, if that one turned out
+         * to have been closed at the other end, once more on a new one: a
+         * GET asks for a file and changes nothing, so sending it again is
+         * the same request. */
+        for (tries = 0; tries < 2; tries++) {
+            fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) { snprintf(err, errlen, "cannot write %s: %s", tmp, strerror(errno)); rc = -1; break; }
+            loc[0] = '\0';
+            rc = http_get_once(cur, tls, fd, loc, sizeof loc, tries == 0, err, errlen);
+            close(fd);
+            if (rc != 4) break;
+            nettr("net: %s had closed the connection that was being kept; asking again on a new one", cur);
+        }
+        if (rc == 4) { snprintf(err, errlen, "cannot send to %s", cur); rc = -1; }
         if (rc != 3) break;
         if (loc[0] == '\0') { snprintf(err, errlen, "a redirect with no Location"); rc = -1; break; }
         if (loc[0] == '/') {                     /* same host */

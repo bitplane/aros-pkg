@@ -69,9 +69,15 @@ done
 # shellcheck disable=SC2086 -- four ports, in the order of the loop above.
 set -- $tls_ports
 good_port=$1; other_port=$2; wrongname_port=$3; expired_port=$4
+# a fifth, with the same good certificate, that holds the connection open:
+# what a keep-alive client asks of a server that can do it
+ka_port=$(free_port)
+PKG_TEST_KEEPALIVE=1 python3 "$repo_root/tests/https_server.py" "$work/tls/good.pem" "$work/www" "$ka_port" \
+    > "$work/keepalive.log" 2>&1 &
+tls_pids="$tls_pids $!"
 w=0
 while [ "$w" -lt 50 ]; do
-    [ "$(cat "$work"/good.log "$work"/other.log "$work"/wrongname.log "$work"/expired.log 2>/dev/null | grep -c '^listening ')" = 4 ] && break
+    [ "$(cat "$work"/good.log "$work"/other.log "$work"/wrongname.log "$work"/expired.log "$work"/keepalive.log 2>/dev/null | grep -c '^listening ')" = 5 ] && break
     sleep 1; w=$((w + 1))
 done
 [ "$w" -lt 50 ] || { echo "aros-network: the https servers did not start" >&2; exit 69; }
@@ -101,6 +107,12 @@ $P SHOW CHANNEL https://127.0.0.1:$wrongname_port/ch >MacRW:out/n09.o
 C:Echo \"\$RC\" >MacRW:out/n09.rc
 $P SHOW CHANNEL https://127.0.0.1:$expired_port/ch >MacRW:out/n0a.o
 C:Echo \"\$RC\" >MacRW:out/n0a.rc
+$P SHOW CHANNEL https://127.0.0.1:$ka_port/ch TRACE MacRW:out/keep.trace >MacRW:out/n0b.o
+C:Echo \"\$RC\" >MacRW:out/n0b.rc
+C:SetEnv PKG_NO_KEEPALIVE 1
+$P SHOW CHANNEL https://127.0.0.1:$ka_port/ch TRACE MacRW:out/nokeep.trace >MacRW:out/n0c.o
+C:Echo \"\$RC\" >MacRW:out/n0c.rc
+C:UnSetEnv PKG_NO_KEEPALIVE
 C:UnSetEnv PKG_CAFILE"
 [ -z "$portal" ] || script="$script
 $P SHOW CHANNEL http://${portal#https://} >MacRW:out/n10.o
@@ -147,6 +159,16 @@ has "$O/n09.o" 'made out to another name';            ok $? "and says the name i
 [ "$(code n0a)" != 0 ];                               ok $? "a certificate out of date is refused (\$RC $(code n0a))"
 has "$O/n0a.o" 'certificate that expired';            ok $? "and says it expired"
 has "$O/n0a.o" 'clock is wrong';                      ok $? "and that the clock may be the reason, with the date the machine believes"
+# The connection, held open: the same channel read from a server that can
+# keep one, and read again with the reuse turned off.
+conns() { grep -c 'net: connect ' "$O/$1.trace" 2>/dev/null || true; }
+gets() { grep -c 'answered ' "$O/$1.trace" 2>/dev/null || true; }
+exits n0b 0 "SHOW reads a channel from a server that holds the connection open"
+[ "$(gets keep)" -gt 2 ] && [ "$(conns keep)" = 1 ]
+ok $? "and asks for $(gets keep) files over one connection (connections opened: $(conns keep))"
+exits n0c 0 "the same read with PKG_NO_KEEPALIVE=1"
+[ "$(conns nokeep)" = "$(gets nokeep)" ] && [ "$(conns nokeep)" -gt 1 ]
+ok $? "opens a connection per file: the check above fails without the reuse ($(conns nokeep) connections for $(gets nokeep) files)"
 if [ -n "$portal" ]; then
     exits n10 0 "SHOW reads the portal's channel over http"
     has "$O/n10.o" '^pkg  *[0-9.]*  *application  *aarch64  *ok ';  ok $? "its aarch64 entry checks: ok"

@@ -140,6 +140,16 @@ pkg follows redirects and understands chunked replies. For `https` it uses
 the system's `curl` on macOS, Linux and Windows, and its own client over
 Mbed TLS on AROS.
 
+That client asks for one file at a time, but not over one connection each:
+it keeps the connection to a channel's server open and sends the next
+request down it, which on AROS saves a TCP connection and a full TLS
+handshake per file. A server that closes after every answer is served as
+well, and so is one that closes a connection Pkg was keeping: the request is
+sent again on a new one. A channel that is only read, rather than installed
+from, asks for the index and then, for each version it reports on, that
+version's manifest, its signature and whether it was withdrawn; the versions
+a command does not look at cost nothing.
+
 ## The portal
 
 The package portal at `https://aros-pkg.azurewebsites.net` serves channels

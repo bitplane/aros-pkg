@@ -41,14 +41,18 @@
 extern const unsigned char pkg_ca_pem[];
 extern const unsigned int pkg_ca_pem_len;
 
-static mbedtls_ssl_context ssl;
+/* One session, on one socket: the client may hold a connection open and use
+ * it again, and hold a second one to another host beside it. */
+struct pkg_tls {
+    mbedtls_ssl_context ssl;
+    int sock;
+};
+
 static mbedtls_ssl_config conf;
 static mbedtls_x509_crt cas;
 static mbedtls_entropy_context entropy;
 static mbedtls_ctr_drbg_context drbg;
 static int ready;                       /* conf, cas and drbg are set up */
-static int active;                      /* between open and close */
-static int the_socket;
 
 /* ---- what Mbed TLS asks of the system ----------------------------------- */
 
@@ -76,17 +80,15 @@ mbedtls_ms_time_t mbedtls_ms_time(void)
 
 static int sock_send(void *c, const unsigned char *buf, size_t len)
 {
-    int n;
-    (void)c;
-    n = (int)send(the_socket, (APTR)buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
+    int n, s = *(const int *)c;
+    n = (int)send(s, (APTR)buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
     return n > 0 ? n : MBEDTLS_ERR_NET_SEND_FAILED;
 }
 
 static int sock_recv(void *c, unsigned char *buf, size_t len)
 {
-    int n;
-    (void)c;
-    n = (int)recv(the_socket, buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
+    int n, s = *(const int *)c;
+    n = (int)recv(s, buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
     /* 0 is the server's close, which Mbed TLS reports as the end of the
      * connection; only a negative return is a failure. */
     return n >= 0 ? n : MBEDTLS_ERR_NET_RECV_FAILED;
@@ -218,30 +220,41 @@ fail:
     return -1;
 }
 
-int pkg_tls_open(int sock, const char *host, char *err, size_t errlen)
+int pkg_tls_prepare(char *err, size_t errlen)
 {
+    return setup_once(err, errlen);
+}
+
+struct pkg_tls *pkg_tls_open(int sock, const char *host, char *err, size_t errlen)
+{
+    struct pkg_tls *t;
     int rc;
 
-    pkg_tls_close();
     if (setup_once(err, errlen) != 0)
-        return -1;
-    mbedtls_ssl_init(&ssl);
-    /* The name the server is asked for and the name the certificate must
-     * carry: the same one, always. An address written as numbers is matched
-     * against the addresses the certificate holds. */
-    if (mbedtls_ssl_setup(&ssl, &conf) != 0 || mbedtls_ssl_set_hostname(&ssl, host) != 0) {
+        return NULL;
+    t = (struct pkg_tls *)calloc(1, sizeof *t);
+    if (t == NULL) {
         snprintf(err, errlen, "out of memory starting TLS with %s", host);
-        mbedtls_ssl_free(&ssl);
-        return -1;
+        return NULL;
     }
-    the_socket = sock;
-    mbedtls_ssl_set_bio(&ssl, NULL, sock_send, sock_recv, NULL);
-    active = 1;
-    while ((rc = mbedtls_ssl_handshake(&ssl)) != 0) {
+    t->sock = sock;
+    mbedtls_ssl_init(&t->ssl);
+    /* The name the server is asked for and the name the certificate must
+     * carry: the same one, always, and this session is that host's alone.
+     * An address written as numbers is matched against the addresses the
+     * certificate holds. */
+    if (mbedtls_ssl_setup(&t->ssl, &conf) != 0 || mbedtls_ssl_set_hostname(&t->ssl, host) != 0) {
+        snprintf(err, errlen, "out of memory starting TLS with %s", host);
+        mbedtls_ssl_free(&t->ssl);
+        free(t);
+        return NULL;
+    }
+    mbedtls_ssl_set_bio(&t->ssl, &t->sock, sock_send, sock_recv, NULL);
+    while ((rc = mbedtls_ssl_handshake(&t->ssl)) != 0) {
         if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE)
             continue;
         {
-            unsigned long flags = (unsigned long)mbedtls_ssl_get_verify_result(&ssl);
+            unsigned long flags = (unsigned long)mbedtls_ssl_get_verify_result(&t->ssl);
             if (rc == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED && flags != 0 && flags != 0xFFFFFFFFul)
                 verify_words(flags, host, err, errlen);
             else
@@ -249,18 +262,19 @@ int pkg_tls_open(int sock, const char *host, char *err, size_t errlen)
                          "nothing on the way is rewriting the connection (Mbed TLS -0x%04x)", host,
                          (unsigned)-rc);
         }
-        pkg_tls_close();
-        return -1;
+        mbedtls_ssl_free(&t->ssl);
+        free(t);
+        return NULL;
     }
-    return 0;
+    return t;
 }
 
-ssize_t pkg_tls_read(void *buf, size_t n)
+ssize_t pkg_tls_read(struct pkg_tls *t, void *buf, size_t n)
 {
     int r;
-    if (!active) return -1;
+    if (t == NULL) return -1;
     for (;;) {
-        r = mbedtls_ssl_read(&ssl, (unsigned char *)buf, n);
+        r = mbedtls_ssl_read(&t->ssl, (unsigned char *)buf, n);
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE
 #ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
             || r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
@@ -276,12 +290,12 @@ ssize_t pkg_tls_read(void *buf, size_t n)
 
 /* All of it, or a failure: a record holds 16 KB at most, so one call to the
  * library may take less than it was given. */
-ssize_t pkg_tls_write(const void *buf, size_t n)
+ssize_t pkg_tls_write(struct pkg_tls *t, const void *buf, size_t n)
 {
     size_t at = 0;
-    if (!active) return -1;
+    if (t == NULL) return -1;
     while (at < n) {
-        int r = mbedtls_ssl_write(&ssl, (const unsigned char *)buf + at, n - at);
+        int r = mbedtls_ssl_write(&t->ssl, (const unsigned char *)buf + at, n - at);
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE)
             continue;
         if (r <= 0) return -1;
@@ -290,16 +304,11 @@ ssize_t pkg_tls_write(const void *buf, size_t n)
     return (ssize_t)n;
 }
 
-void pkg_tls_close(void)
+void pkg_tls_close(struct pkg_tls *t)
 {
-    if (active) {
-        mbedtls_ssl_close_notify(&ssl);
-        mbedtls_ssl_free(&ssl);
-        active = 0;
-    }
-}
-
-int pkg_tls_active(void)
-{
-    return active;
+    if (t == NULL)
+        return;
+    mbedtls_ssl_close_notify(&t->ssl);
+    mbedtls_ssl_free(&t->ssl);
+    free(t);
 }
