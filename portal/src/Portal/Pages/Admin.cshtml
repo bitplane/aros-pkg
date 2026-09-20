@@ -120,5 +120,19 @@ else
     }
     </tbody>
 </table>
+@{
+    var failures = Portal.Push.Failures.Read(Options.Value.StateDir).ToString().Split('\n')
+        .Where(l => l.StartsWith("failure: ")).Select(l => l[9..]).Take(20).ToList();
+}
+<h2 class="label">When the portal could not answer</h2>
+@if (failures.Count == 0)
+{
+    <p class="muted small">Nothing since this list was last cleared.</p>
+}
+else
+{
+    <p class="muted small">Newest first: when, what was asked, the request the error page showed whoever asked, and what went wrong. Nothing about who asked.</p>
+    <pre class="small">@string.Join("\n", failures)</pre>
+}
 <h2 class="label">Log</h2>
 <pre class="small">@string.Join("\n", Service.ReadLog().ToString().Split('\n').Where(l => l.StartsWith("action: ")).Select(l => l[8..]).Reverse().Take(30))</pre>

@@ -288,6 +288,15 @@ if (app.Environment.IsDevelopment())
         await next();
     });
 app.UseAuthorization();
+// A page that fails, on demand and from this machine only, so that
+// tests/failures.sh can see what a failure leaves behind for the maintainers.
+// The address exists only when the portal is started with PORTAL_TEST_FAILURE=1,
+// which a deployed one never is.
+if (Environment.GetEnvironmentVariable("PORTAL_TEST_FAILURE") == "1")
+    app.MapGet("/_test/fail", (HttpContext http) =>
+        http.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip)
+            ? throw new InvalidOperationException("a failure this portal was asked for")
+            : Results.NotFound());
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n"));
 app.MapGet("/health", (Catalogue c) => Results.Text($"ok: {c.ChannelNames().Count()} channels\n"));
 app.MapRazorPages();
