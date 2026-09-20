@@ -71,7 +71,7 @@ want=$(shasum -a 256 "$D/Libs/data.txt" | cut -d' ' -f1)
 has "$T/m1" "^File: $want 13 Libs/data.txt$";         ok $? "digest agrees with shasum"
 
 $PKG PUBLISH "$D" CHANNEL "$CH" KIND application > "$T/pub" 2>&1;      ok $? "publish succeeds"
-has "$T/pub" 'published hello 1.2';                   ok $? "publish reports what it did"
+has "$T/pub" 'packaged hello 1.2';                   ok $? "publish reports what it did"
 has "$T/pub" "signed by $(echo "$PUB" | cut -c1-16)"; ok $? "publish names the signing key"
 has "$T/pub" 'left out \.DS_Store,' && has "$T/pub" 'left out Libs/\._data\.txt,'
                                                       ok $? "publish names each host file it left out"

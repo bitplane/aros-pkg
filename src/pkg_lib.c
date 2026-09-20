@@ -6411,8 +6411,12 @@ static int cmd_publish(const struct pkg_options *a)
     else kv("source", "%s", b.m.source);
     kv("signer", "%s", k.pkhex);
     kv("files", "%lu", (unsigned long)b.m.nfiles);
+    /* "packaged into" rather than "published to" for a channel on this
+     * machine: the package is made and signed, and nothing has left the
+     * machine until PUSH sends it. The record stays "published", which is
+     * what the act is called and what reads it expects. */
     if (!machine)
-    say_result("published %s %s to %s: %lu file%s, %s%s, signed by %.16s", b.m.name,
+    say_result("packaged %s %s into %s: %lu file%s, %s%s, signed by %.16s", b.m.name,
            b.m.version, a->channel, (unsigned long)b.m.nfiles, b.m.nfiles == 1 ? "" : "s",
            b.m.payload ? "payload " : "from ",
            b.m.payload ? s12 : b.m.source, k.pkhex);

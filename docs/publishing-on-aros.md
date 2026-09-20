@@ -188,7 +188,7 @@ Pkg PUBLISH Work:src/Greet CHANNEL Work:mychannel KIND application SHORT "Says h
 ```
 
 ```
-published greet 1.0 to Work:mychannel: 1 file, payload 618a890b085b, signed by abf41c8fb2fc84f9
+packaged greet 1.0 into Work:mychannel: 1 file, payload 618a890b085b, signed by abf41c8fb2fc84f9
   architecture aarch64, read from C/Greet
   name and version taken from $VER: in C/Greet
   hint: the channel Work:mychannel did not exist and was created: machines install from it with INSTALL greet ROOT <root> CHANNEL <this channel, as the machine names it>
@@ -309,7 +309,7 @@ Pkg PUBLISH Work:src/Greet-1.1 CHANNEL Work:mychannel CONFIG S/Greet.prefs CHANG
 ```
 
 ```
-published greet 1.1 to Work:mychannel: 2 files, payload 0b094c1fe04e, signed by abf41c8fb2fc84f9
+packaged greet 1.1 into Work:mychannel: 2 files, payload 0b094c1fe04e, signed by abf41c8fb2fc84f9
   architecture aarch64, read from C/Greet
   name and version taken from $VER: in C/Greet
   kind and dependencies from greet 1.0, published before
