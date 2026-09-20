@@ -79,9 +79,9 @@
             var key = p.Latest.Signer;
             var who = key is null ? null : Publishers.Find(key);
             <li>
-                <span><a class="n" href="/packages/@p.Channel/@p.Name">@p.Name</a><span class="v">@p.Latest.Version</span> <span class="chip">@Site.KindLabel(p.Kind)</span></span>
+                <span><a class="n" href="/packages/@p.Channel/@p.Name">@Site.Mark(p.Name, s.Q)</a><span class="v">@p.Latest.Version</span> <span class="chip">@Site.KindLabel(p.Kind)</span></span>
                 <span class="r">@(h.Downloads > 0 ? $"{h.Downloads:N0} install{(h.Downloads == 1 ? "" : "s")}" : Site.Ago(p.Updated))</span>
-                <span class="d">@p.Latest.Manifest.Short@if (h.Why is not null) { <span class="muted why"> · @h.Why</span> }</span>
+                <span class="d">@Site.Mark(p.Latest.Manifest.Short, s.Q)@if (h.Why is not null) { <span class="muted why"> · @Site.Mark(h.Why, s.Q)</span> }</span>
                 <span class="meta">
                     @if (key is not null)
                     {

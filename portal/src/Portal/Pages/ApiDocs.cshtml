@@ -24,9 +24,11 @@
 <p>Atom, the 50 newest versions first: <a href="/feed">every channel</a>, or one channel at <code>/channels/&lt;name&gt;/feed</code>, such as <a href="/channels/contrib-nightly/feed">contrib-nightly</a>.</p>
 
 <h2 class="label">Badges</h2>
-<p><code>/badge/&lt;channel&gt;/&lt;name&gt;.svg</code> shows a package's name and latest version, for a README:</p>
-<p><img src="/badge/pkg/pkg.svg" alt="pkg badge" /></p>
-<pre><code>[![pkg](@site/badge/pkg/pkg.svg)](@site/packages/pkg/pkg)</code></pre>
+<p>One address per package, <code>/b/&lt;name&gt;</code>: it answers with the badge to a README and with the package's page to a person who clicks it, right at the command that installs it. Nothing else to write down.</p>
+<p><img src="/b/pkg" alt="pkg badge" /></p>
+@{ var snippet = $"[![pkg]({site}/b/pkg)]({site}/b/pkg)"; }
+<div class="cmd wrapcode"><code>@snippet</code><button class="copy" data-copy="@snippet">Copy</button></div>
+<p class="muted small">Two channels carrying the same name: <code>/b/&lt;channel&gt;/&lt;name&gt;</code> says which. <code>/badge/&lt;name&gt;.svg</code> and <code>/badge/&lt;channel&gt;/&lt;name&gt;.svg</code> are the badge alone, for anything that insists on an address ending in <code>.svg</code>.</p>
 
 <h2 class="label">Downloads counted</h2>
 <p>A signed package the portal serves, fetched from its first byte, counts once; so does each way of getting Pkg. Archives kept by their makers, such as the nightly contrib build, are not seen by the portal and not counted.</p>

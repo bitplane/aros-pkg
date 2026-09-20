@@ -1,0 +1,47 @@
+@page "/channels"
+@using Microsoft.Extensions.Options
+@using Portal.Channels
+@inject Catalogue Catalogue
+@inject IOptions<PortalOptions> Options
+@{
+    ViewData["Title"] = "Channels";
+    var channels = Catalogue.Listed().ToList();
+}
+<h1 class="sr-only">Channels</h1>
+<p class="lead">A channel is an address Pkg reads packages from. Give it to <code>CHANNEL</code>, and Pkg installs, updates and checks everything it holds. A channel is also a plain directory: the same one on a stick or a share works the same way, because what is signed is the packages, not the connection.</p>
+
+@if (channels.Count == 0)
+{
+    <p class="muted">Nothing is published yet.</p>
+    return;
+}
+@foreach (var c in channels)
+{
+    var url = Site.ChannelUrl(Request, Options.Value, c.Name);
+    var pinned = c.Packages.Values.Where(Catalogue.IsPinned).Take(3).ToList();
+    var archs = c.Packages.Values.SelectMany(p => p.Archs).Distinct().Order().ToList();
+    <section class="channel">
+        <div class="listhead">
+            <span><a class="n" href="/channels/@c.Name">@c.Name</a>@if (Catalogue.IsUnlisted(c.Name)) { <span class="chip">unlisted</span> }</span>
+            <span>@c.Packages.Count package@(c.Packages.Count == 1 ? "" : "s") · @c.Lines.Count versions · updated @Site.Ago(c.Updated)</span>
+        </div>
+        <div class="cmd"><code>@url</code><button class="copy" data-copy="@url">Copy</button></div>
+        <p class="muted small">
+            @if (archs.Count > 0)
+            {
+                <text>For @string.Join(", ", archs.Select(Site.ArchLabel)). </text>
+            }
+            @if (pinned.Count > 0)
+            {
+                <text>Holds @Html.Raw(string.Join(", ", pinned.Select(p => $"<a href=\"/packages/{c.Name}/{p.Name}\">{p.Name}</a>"))). </text>
+            }
+            <a href="/channels/@c.Name">What is in it</a> · <a href="/channels/@c.Name/feed">feed</a> · <a href="/api/search?channel=@c.Name">JSON</a>
+        </p>
+        <div class="cmd"><code>@Site.InstallCommand(url, pinned.FirstOrDefault()?.Name ?? "&lt;package&gt;")</code><button class="copy" data-copy="@Site.InstallCommand(url, pinned.FirstOrDefault()?.Name ?? "<package>")">Copy</button></div>
+    </section>
+}
+<h2 class="label">An unlisted channel</h2>
+<p>A channel can be served to whoever has its address and shown nowhere on this site: a preview, or a round with a few people. The address is the only key, so it is no secret. Its own page says so, and so does every list it would otherwise appear in.</p>
+
+<h2 class="label">Your own channel</h2>
+<p>Publishing creates one: <code>Pkg PUBLISH &lt;drawer&gt; CHANNEL &lt;a directory&gt;</code> makes a channel out of that directory, which you can copy anywhere or serve from any web server. To have it here instead, with its own address, <a href="/publishers#publish">register as a publisher</a>. <a href="/docs/channels">Channels</a> explains what one holds; <a href="/docs/publishing-on-aros">Publishing from an AROS machine</a> goes from nothing to a package on this site.</p>

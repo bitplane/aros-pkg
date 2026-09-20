@@ -29,7 +29,7 @@
     const int maxFiles = 1500;
     var openFiles = m.Files.Count <= 40;
 }
-<p class="crumbs"><a href="/search">Packages</a> / <a href="/channels/@ch.Name">@ch.Name</a></p>
+<p class="crumbs"><a href="/search">Packages</a> / <a href="/channels">channels</a> / <a href="/channels/@ch.Name">@ch.Name</a></p>
 <div class="title-row">
     <h1>@p.Name <span class="ver">@v.Version</span></h1>
     <div class="badges">
@@ -62,7 +62,18 @@ else if (!isLatest)
 {
     <p class="note">New to Pkg? <a href="/downloads">Download it</a> first: this command is for keeping it up to date.</p>
 }
+<h2 class="label" id="install">Install it</h2>
 <partial name="_Install" model="(p, v, url)" />
+
+@{
+    var siteUrl = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
+    var badge = $"[![{p.Name}]({siteUrl}/b/{p.Name})]({siteUrl}/b/{p.Name})";
+}
+<details class="files badge-block">
+    <summary><h2>A badge for your README <span class="muted"><img src="/b/@p.Channel/@p.Name" alt="" /></span></h2></summary>
+    <p>One address, which answers with this badge to a README and with this page to a person who clicks it, at the command above:</p>
+    <div class="cmd wrapcode"><code>@badge</code><button class="copy" data-copy="@badge">Copy</button></div>
+</details>
 
 @if (m.Description.Count > 0)
 {

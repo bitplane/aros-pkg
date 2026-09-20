@@ -19,6 +19,13 @@
     public async Task<IActionResult> OnPostAsync(string what, long account, string? channel)
     {
         if (Maintainer() is not { } who) return NotFound();
+        // A maintainer never shuts themselves out: that is for another maintainer to do.
+        if (what is "suspend" && Registry.ByAccount(account) is { } self
+            && string.Equals(self.Login, who, StringComparison.OrdinalIgnoreCase))
+        {
+            Done = "You cannot suspend your own account. Another maintainer can.";
+            return Page();
+        }
         switch (what)
         {
             case "suspend":   Registry.Change(account, r => r with { Suspended = true });  Done = "Suspended: that account's pushes are refused from now on."; break;
@@ -80,7 +87,14 @@ else
                 <td>
                     <form method="post" class="inline">
                         <input type="hidden" name="account" value="@r.GitHubId" />
-                        <button class="linklike" name="what" value="@(r.Suspended ? "resume" : "suspend")">@(r.Suspended ? "resume" : "suspend")</button>
+                        @if (string.Equals(r.Login, Maintainer(), StringComparison.OrdinalIgnoreCase))
+                        {
+                            <span class="muted small">you</span>
+                        }
+                        else
+                        {
+                            <button class="linklike" name="what" value="@(r.Suspended ? "resume" : "suspend")">@(r.Suspended ? "resume" : "suspend")</button>
+                        }
                         <button class="linklike" name="what" value="@(r.Files ? "files-off" : "files-on")">@(r.Files ? "links only" : "allow files")</button>
                     </form>
                 </td>

@@ -9,23 +9,28 @@
     var ch = Catalogue.Get(name);
     if (ch is null) { Response.StatusCode = 404; ViewData["Title"] = "No such channel"; }
     else ViewData["Title"] = ch.Name;
-    string kind = Request.Query["kind"].ToString();
+    string kind = Request.Query["kind"].ToString(), q = Request.Query["q"].ToString().Trim();
 }
 @if (ch is null)
 {
     <h1>No channel named “@name”</h1>
-    <p><a href="/">See every channel</a>.</p>
+    <p><a href="/channels">See every channel</a>.</p>
     return;
 }
 @{
     var url = Site.ChannelUrl(Request, Options.Value, ch.Name);
-    var packages = ch.Packages.Values.Where(p => kind.Length == 0 || p.Kind == kind)
+    bool Matches(PackageInfo p) => q.Length == 0
+        || p.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+        || (p.Latest.Manifest.Short ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+        || p.Latest.Manifest.Tags.Any(t => t.Contains(q, StringComparison.OrdinalIgnoreCase))
+        || p.Latest.Manifest.Provides.Any(l => l.Contains(q, StringComparison.OrdinalIgnoreCase));
+    var packages = ch.Packages.Values.Where(p => (kind.Length == 0 || p.Kind == kind) && Matches(p))
         .OrderBy(p => Catalogue.IsPinned(p) ? 0 : 1).ToList();
     var builds = ch.Builds().Take(10).ToList();
     var bytes = ch.Packages.Values.Sum(p => p.Latest.Manifest.InstalledSize);
     var archs = ch.Packages.Values.SelectMany(p => p.Archs).Distinct().Order().ToList();
 }
-<p class="crumbs"><a href="/">Channels</a> /</p>
+<p class="crumbs"><a href="/channels">Channels</a></p>
 <h1>@ch.Name</h1>
 @if (Catalogue.IsUnlisted(ch.Name))
 {
@@ -65,7 +70,10 @@
 }
 
 <h2 class="label">Packages</h2>
-<form class="filters" method="get">
+<form class="filters" method="get" role="search">
+    <label>In this channel
+        <input type="search" name="q" value="@q" placeholder="Search @ch.Name" aria-label="Search this channel" />
+    </label>
     <label>Kind
         <select name="kind" data-autosubmit>
             <option value="">any</option>
@@ -75,8 +83,13 @@
             }
         </select>
     </label>
-    <noscript><button type="submit">Filter</button></noscript>
+    <button type="submit">Search</button>
+    @if (q.Length > 0 || kind.Length > 0)
+    {
+        <a class="muted" href="/channels/@ch.Name">clear</a>
+    }
 </form>
+<p class="muted small">@packages.Count of @ch.Packages.Count package@(ch.Packages.Count == 1 ? "" : "s")@(q.Length > 0 ? $" for “{q}”" : ""). This address holds the search, so it can be sent to someone.</p>
 <table class="list">
     <thead><tr><th>Package</th><th>Version</th><th class="hide-s">Kind</th><th class="hide-s">CPU</th><th class="num">Size</th><th class="num hide-s">Downloads</th></tr></thead>
     <tbody>
@@ -84,14 +97,14 @@
     {
         <tr class="@(p.Latest.Withdrawn ? "withdrawn" : "")">
             <td>
-                <a href="/packages/@ch.Name/@p.Name">@p.Name</a>
+                <a href="/packages/@ch.Name/@p.Name">@Site.Mark(p.Name, q)</a>
                 @if (Catalogue.IsPinned(p))
                 {
                     <span class="pin">pinned</span>
                 }
                 @if (p.Latest.Manifest.Short is { } sh)
                 {
-                    <div class="muted small">@sh</div>
+                    <div class="muted small">@Site.Mark(sh, q)</div>
                 }
             </td>
             <td><code>@p.Latest.Version</code></td>

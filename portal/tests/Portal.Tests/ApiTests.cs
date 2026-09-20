@@ -107,6 +107,29 @@ public class ApiTests : IClassFixture<ApiTests.Factory>
     }
 
     [Fact]
+    public async Task One_address_answers_a_readme_with_the_badge_and_a_person_with_the_page()
+    {
+        var c = f.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        // a README asks for an image: the badge, by name alone, no channel to write down
+        var img = new HttpRequestMessage(HttpMethod.Get, "/b/sdltool");
+        img.Headers.TryAddWithoutValidation("Accept", "image/avif,image/webp,*/*");
+        var badge = await c.SendAsync(img);
+        Assert.Equal(HttpStatusCode.OK, badge.StatusCode);
+        Assert.Equal("image/svg+xml", badge.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("sdltool: 1.1", XDocument.Parse(await badge.Content.ReadAsStringAsync()).Root!.Value);
+        // a person clicks it: the package's page, at the command that installs it
+        var page = new HttpRequestMessage(HttpMethod.Get, "/b/sdltool");
+        page.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml");
+        var seen = await c.SendAsync(page);
+        Assert.Equal(HttpStatusCode.Found, seen.StatusCode);
+        Assert.Equal("/packages/demo/sdltool#install", seen.Headers.Location?.ToString());
+        // the channel can still be named, and the badge alone keeps its .svg address
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/badge/sdltool.svg")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/badge/demo/sdltool.svg")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/b/nothing-of-that-name")).StatusCode);
+    }
+
+    [Fact]
     public async Task A_badge_is_svg_with_the_latest_version_and_escapes_what_it_shows()
     {
         var c = f.CreateClient();

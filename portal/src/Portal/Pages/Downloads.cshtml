@@ -19,63 +19,64 @@
 @{
     var dir = System.IO.Path.Combine(Options.Value.ChannelsDir, ch.Name);
     var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
+    var plain = "http://" + site[(site.IndexOf("://", StringComparison.Ordinal) + 3)..];
     var cpus = Bootstrap.ArosCpus(dir);
     var hosts = ChannelPaths.HostBootstraps.Where(h => System.IO.File.Exists(System.IO.Path.Combine(dir, h.Value))).ToList();
-    (string Eyebrow, string Title, string Text) Host(string platform) => platform switch
+    var sh = $"curl -fsSL {site}/install | sh";
+    var ps = $"irm {site}/install.ps1 | iex";
+    var getpkg = $"wget -q -O RAM:Get-Pkg {plain}/Get-Pkg\nExecute RAM:Get-Pkg";
+    var upgrade = $"Pkg UPGRADE ALL ROOT SYS: CHANNEL {site}/{ch.Name}";
+    static string HostName(string platform) => platform switch
     {
-        "macos-arm64" => ("macOS", "Pkg for macOS, Apple Silicon", "Point ROOT at your mounted AROS disk, an image or an emulator's folder."),
-        "macos-x86_64" => ("macOS", "Pkg for macOS, Intel", "Point ROOT at your mounted AROS disk, an image or an emulator's folder."),
-        "linux-x86_64" => ("Linux", "Pkg for Linux x86_64", "One static program, nothing to install beside it."),
-        "linux-arm64" => ("Linux", "Pkg for Linux aarch64", "One static program: a Raspberry Pi runs it too."),
-        _ => ("Windows", "Pkg for Windows", "A single pkg.exe, no installer."),
+        "macos-arm64" => "macOS, Apple Silicon", "macos-x86_64" => "macOS, Intel",
+        "linux-x86_64" => "Linux x86_64", "linux-arm64" => "Linux aarch64", _ => "Windows",
     };
-    var upgrade = $"pkg UPGRADE ALL ROOT SYS: CHANNEL {site}/{ch.Name}";
 }
-<p class="lead">The Pkg client, version @pkg.Latest.Version. Run it on AROS itself, or on another machine that can see your AROS disk. It installs everything else on this site.</p>
-<div class="cards">
-    @foreach (var cpu in cpus)
-    {
-        <div class="card">
-            <span class="eyebrow">AROS</span>
-            <span class="card-title">Pkg for AROS @cpu</span>
-            <span class="muted">A small drawer that installs Pkg as a signed package: unpack it, then run its Install-Pkg.</span>
-            <span class="foot-row"><span>@Site.Size(Bootstrap.Offer(dir, $"Bootstrap/{cpu}/Pkg").Size) · .zip</span><a class="button outline" href="/get/@ch.Name/pkg-@(cpu).zip">Download</a></span>
-        </div>
-    }
-    @foreach (var (platform, rel) in hosts)
-    {
-        var h = Host(platform);
-        <div class="card">
-            <span class="eyebrow">@h.Eyebrow</span>
-            <span class="card-title">@h.Title</span>
-            <span class="muted">@h.Text</span>
-            <span class="foot-row"><span>@Site.Size(Bootstrap.Offer(dir, rel).Size)</span><a class="button outline" href="/get/@ch.Name/@platform">Download</a></span>
-        </div>
-    }
+<p class="lead">Pkg @pkg.Latest.Version, the one program that installs the rest. Let it install itself with one line; it lands as a signed package, and <code>Pkg UPGRADE pkg</code> keeps it current from then on.</p>
+
+<div class="grid">
+<div>
+    <h2 class="label">On AROS</h2>
+    <p>With a network and <code>wget</code> (AROS One, Icaros, the nightly with its contrib), in a Shell:</p>
+    <div class="cmd lines"><code>@getpkg</code><button class="copy" data-copy="@getpkg">Copy</button></div>
+    <p class="muted small">It fetches the Pkg for this machine's CPU, which then installs the signed <code>pkg</code> package from the portal. If <code>wget</code> ends at once without a word, it wants its settings file first: <code>Echo "" &gt;ENV:wgetcfg</code>. Without a network, take the drawer for your CPU on the right, copy it over, and run <code>Execute &lt;drawer&gt;/Install-Pkg &lt;drawer&gt;</code>.</p>
+
+    <h2 class="label">On macOS and Linux</h2>
+    <p>In a terminal, to manage a hosted AROS, a disk image or a drawer from your computer:</p>
+    <div class="cmd wrapcode"><code>@sh</code><button class="copy" data-copy="@sh">Copy</button></div>
+    <p class="muted small">It picks the build for your computer, checks it against the portal's signed checksums, and puts <code>pkg</code> where you can run it by name. On a Mac it also drops the AROS drawer into the folder a hosted AROS shares. Run it again to upgrade. Read it first: <a href="/install.sh">install.sh</a>.</p>
+
+    <h2 class="label">On Windows</h2>
+    <p>In PowerShell:</p>
+    <div class="cmd wrapcode"><code>@ps</code><button class="copy" data-copy="@ps">Copy</button></div>
+    <p class="muted small">The same checks, into <code>%LOCALAPPDATA%\Programs\pkg</code>. Read it first: <a href="/install.ps1">install.ps1</a>.</p>
+
+    <h2 class="label">Then</h2>
+    <div class="cmd"><code>@upgrade</code><button class="copy" data-copy="@upgrade">Copy</button></div>
+    <p class="muted">keeps everything you installed current, Pkg included. Taking something out again: <a href="/docs/removing">Removing software</a>. Where packages come from: <a href="/channels">Channels</a>.</p>
 </div>
-
-<h2 class="label">@(cpus.Count + hosts.Count > 0 ? "Or let it install itself" : "Get Pkg")</h2>
-<partial name="_GetPkg" model="ch" />
-
-<h2 class="label">Then</h2>
-<div class="cmd"><code>@upgrade</code><button class="copy" data-copy="@upgrade">Copy</button></div>
-<p class="muted">This keeps everything you installed current, Pkg included. Taking something out again: <a href="/docs/removing">Removing software</a>.</p>
-<p class="muted">Every download is signed like a package. The checksums and the signer's key are on the <a href="/trust">Trust</a> page.</p>
-
-<h2 class="label">Channels</h2>
-<p>A channel is an address Pkg reads packages from. Give it to <code>CHANNEL</code>.</p>
-<table class="list">
-    <thead><tr><th>Channel</th><th>Address</th><th class="num">Packages</th></tr></thead>
-    <tbody>
-    @foreach (var c in Catalogue.Listed())
-    {
-        var url = Site.ChannelUrl(Request, Options.Value, c.Name);
-        <tr>
-            <td><a href="/channels/@c.Name">@c.Name</a></td>
-            <td><code>@url</code> <button class="copy" data-copy="@url">Copy</button></td>
-            <td class="num">@c.Packages.Count</td>
-        </tr>
-    }
-    </tbody>
-</table>
-<p class="muted">Want your software here? <a href="/publishers#publish">Publish on this portal</a> says how to ask.</p>
+<aside class="rail">
+    <div class="card">
+        <span class="eyebrow">Every file, for a machine that cannot fetch its own</span>
+        <span class="card-title">Download Pkg @pkg.Latest.Version</span>
+        <span class="muted small">This is the way we like least: a file you download installs nothing by itself, and you check it yourself against the <a href="/trust">signed checksums</a>. The lines on the left do both for you.</span>
+        <ul class="files">
+        @foreach (var cpu in cpus)
+        {
+            var f = Bootstrap.Offer(dir, $"Bootstrap/{cpu}/Pkg");
+            <li><a href="/get/@ch.Name/pkg-@(cpu).zip">AROS @cpu</a><span class="muted">drawer · @Site.Size(f.Size)</span></li>
+        }
+        @foreach (var (platform, rel) in hosts)
+        {
+            var f = Bootstrap.Offer(dir, rel);
+            <li><a href="/get/@ch.Name/@platform">@HostName(platform)</a><span class="muted">@Site.Size(f.Size)</span></li>
+        }
+        </ul>
+        <span class="muted small">An AROS drawer is a channel of its own: unpack it and run <code>Execute &lt;drawer&gt;/Install-Pkg &lt;drawer&gt;</code>, which installs the signed package through Pkg's own checks.</span>
+    </div>
+    <div class="card">
+        <span class="eyebrow">Check what you downloaded</span>
+        <span class="muted small">Every file here is listed with its SHA-256 in <code>Bootstrap/SHA256SUMS</code>, signed by the portal's bootstrap key. The installers check that signature before they install anything; by hand, <a href="/trust">Trust</a> shows the commands.</span>
+    </div>
+</aside>
+</div>

@@ -68,15 +68,40 @@ public static class Endpoints
                 ? Atom(http, o.Value, $"AROS Packages: new in {ch.Name}", $"/channels/{ch.Name}/feed", $"/channels/{ch.Name}", ch.Packages.Values)
                 : Results.NotFound());
 
-        app.MapGet("/badge/{channel}/{file}", (HttpContext http, string channel, string file, Catalogue c) =>
+        // A badge needs no more than the site's address and the package's name:
+        // /badge/<name>.svg, and /badge/<channel>/<name>.svg when two channels
+        // carry the same name.
+        app.MapGet("/badge/{a}/{b?}", (HttpContext http, string a, string? b, Catalogue c) =>
         {
+            var file = b ?? a;
             if (!file.EndsWith(".svg", StringComparison.Ordinal)) return Results.NotFound();
-            var p = c.Package(channel, file[..^4]);
+            var p = b is null ? Find(c, file[..^4]) : c.Package(a, file[..^4]);
             if (p is null) return Results.NotFound();
             http.Response.Headers.CacheControl = "public, max-age=300";
             return Results.Text(Badge(p.Name, p.Latest.Version), "image/svg+xml; charset=utf-8");
         });
+
+        // One address for a package, badge and link both: a README shows it as an
+        // image, a person who clicks it lands on the page that installs it.
+        app.MapGet("/b/{a}/{b?}", (HttpContext http, string a, string? b, Catalogue c) =>
+        {
+            var p = b is null ? Find(c, a) : c.Package(a, b);
+            if (p is null) return Results.NotFound();
+            var wants = http.Request.Headers.Accept.ToString();
+            if (wants.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+                return Results.Redirect($"/packages/{p.Channel}/{p.Name}#install");
+            http.Response.Headers.CacheControl = "public, max-age=300";
+            return Results.Text(Badge(p.Name, p.Latest.Version), "image/svg+xml; charset=utf-8");
+        });
     }
+
+    /// The package of that name: a pinned one first, else the channel that has
+    /// the newest of it. A name is enough for a badge; two channels rarely share one.
+    public static PackageInfo? Find(Catalogue c, string name) =>
+        c.Pinned().FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+        ?? c.Listed().SelectMany(ch => ch.Packages.Values)
+            .Where(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(p => p.Updated).FirstOrDefault();
 
     static string Site(HttpContext http, PortalOptions o) =>
         o.PublicUrl.Length > 0 ? o.PublicUrl.TrimEnd('/') : $"{http.Request.Scheme}://{http.Request.Host}";

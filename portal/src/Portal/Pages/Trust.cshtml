@@ -26,13 +26,14 @@
 <p class="lead">Those are the two questions Pkg answers before anything touches your disk. Every package version is signed by the person who published it, and Pkg checks the signature and every file on your machine, every time, and tells you in plain words. This site holds no signing key: it cannot sign, change or replace a package, only refuse to publish one.</p>
 
 <h2 class="label">What you will see</h2>
+<p class="muted small">Each state has its own mark as well as its colour: <span class="s-ok"><span class="dot" data-mark="✓" aria-hidden="true"></span>it installs</span>, <span class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>it stops and asks you</span>, <span class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>it refuses.</span></p>
 <table class="list states">
     <tbody>
-        <tr><td class="s-ok"><span class="dot"></span>ok</td><td>The signature matches the manifest, every file matches the manifest, and the key is the one your machine remembers for this package. Pkg installs.</td></tr>
-        <tr><td class="s-warn"><span class="dot"></span>key changed</td><td>This version is signed by another key than the one pinned at the first install. Pkg stops (exit 14), prints both keys, and goes on only if you accept the new one with <code>ACCEPTKEY</code>.</td></tr>
-        <tr><td class="s-warn"><span class="dot"></span>withdrawn</td><td>The publisher withdrew this version. It stays in the channel so nothing that refers to it breaks, and Pkg no longer installs it.</td></tr>
-        <tr><td class="s-bad"><span class="dot"></span>file differs</td><td>A file does not match the size and SHA-256 its manifest gives. Pkg refuses (exit 12) before it has written anything.</td></tr>
-        <tr><td class="s-bad"><span class="dot"></span>bad signature</td><td>The manifest is not what its publisher signed, or is not signed. Pkg refuses (exit 13).</td></tr>
+        <tr><td class="s-ok"><span class="dot" data-mark="✓" aria-hidden="true"></span>ok</td><td>The signature matches the manifest, every file matches the manifest, and the key is the one your machine remembers for this package. Pkg installs.</td></tr>
+        <tr><td class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>key changed</td><td>This version is signed by another key than the one pinned at the first install. Pkg stops (exit 14), prints both keys, and goes on only if you accept the new one with <code>ACCEPTKEY</code>.</td></tr>
+        <tr><td class="s-warn"><span class="dot" data-mark="!" aria-hidden="true"></span>withdrawn</td><td>The publisher withdrew this version. It stays in the channel so nothing that refers to it breaks, and Pkg no longer installs it.</td></tr>
+        <tr><td class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>file differs</td><td>A file does not match the size and SHA-256 its manifest gives. Pkg refuses (exit 12) before it has written anything.</td></tr>
+        <tr><td class="s-bad"><span class="dot" data-mark="✕" aria-hidden="true"></span>bad signature</td><td>The manifest is not what its publisher signed, or is not signed. Pkg refuses (exit 13).</td></tr>
     </tbody>
 </table>
 

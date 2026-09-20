@@ -17,6 +17,34 @@ public static class Site
     public static string InstallCommand(string url, string name, string? version = null) =>
         $"Pkg INSTALL {name} ROOT SYS: CHANNEL {url}" + (version is null ? "" : $" VERSION {version}");
 
+    /// <summary>
+    /// Text with what a search matched marked in it. Everything is encoded,
+    /// and only the words of the query end up inside a mark, so a package's
+    /// own text can never carry markup into a page.
+    /// </summary>
+    public static Microsoft.AspNetCore.Html.IHtmlContent Mark(string? text, string query)
+    {
+        if (text is null) return new Microsoft.AspNetCore.Html.HtmlString("");
+        var words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(w => w.Length > 1).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (words.Count == 0) return new Microsoft.AspNetCore.Html.HtmlString(System.Net.WebUtility.HtmlEncode(text));
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < text.Length; )
+        {
+            int at = -1, len = 0;
+            foreach (var w in words)
+            {
+                var k = text.IndexOf(w, i, StringComparison.OrdinalIgnoreCase);
+                if (k >= 0 && (at < 0 || k < at)) { at = k; len = w.Length; }
+            }
+            if (at < 0) { sb.Append(System.Net.WebUtility.HtmlEncode(text[i..])); break; }
+            sb.Append(System.Net.WebUtility.HtmlEncode(text[i..at]))
+              .Append("<mark>").Append(System.Net.WebUtility.HtmlEncode(text.Substring(at, len))).Append("</mark>");
+            i = at + len;
+        }
+        return new Microsoft.AspNetCore.Html.HtmlString(sb.ToString());
+    }
+
     public static string Size(long bytes) => bytes switch
     {
         < 1024 => $"{bytes} B",

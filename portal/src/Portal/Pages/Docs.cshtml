@@ -2,9 +2,11 @@
 @using Portal.Docs
 @{
     var slug = (string?)RouteData.Values["slug"] ?? "";
+    var q = Request.Query["q"].ToString().Trim();
     var doc = UserDocs.Render(slug);
     if (doc is null) { Response.StatusCode = 404; ViewData["Title"] = "No such page"; }
     else ViewData["Title"] = doc.Title;
+    string Href(string s) => "/docs" + (s.Length > 0 ? "/" + s : "") + (q.Length > 0 ? "?q=" + Uri.EscapeDataString(q) : "");
 }
 @if (doc is null)
 {
@@ -12,15 +14,17 @@
     <p><a href="/docs">The documentation starts here.</a></p>
     return;
 }
-<h1>@doc.Title</h1>
 <div class="docs">
 <nav class="toc" aria-label="Documentation">
+    <form action="@("/docs" + (slug.Length > 0 ? "/" + slug : ""))" method="get" role="search" class="docsearch">
+        <input type="search" name="q" value="@q" placeholder="Search the guides" aria-label="Search the guides" />
+    </form>
     @foreach (var p in UserDocs.Pages.Where(p => p.InMenu))
     {
         // A command's page sits under Commands in the menu.
         var current = p.Slug == slug || (p.Slug.Length > 0 && slug.StartsWith(p.Slug + "/", StringComparison.Ordinal));
-        <a class="@(current ? "on" : "")" href="/docs@(p.Slug.Length > 0 ? "/" + p.Slug : "")">@p.Title</a>
-        @if (current)
+        <a class="@(current ? "on" : "")" href="@Href(p.Slug)">@p.Title</a>
+        @if (current && q.Length == 0)
         {
             @foreach (var h in doc.Headings.Where(h => h.Level == 2))
             {
@@ -30,6 +34,30 @@
     }
 </nav>
 <article class="prose">
+@if (q.Length > 0)
+{
+    var hits = UserDocs.Search(q);
+    <h1>@hits.Count result@(hits.Count == 1 ? "" : "s") for “@q”</h1>
+    @if (hits.Count == 0)
+    {
+        <p class="muted">Nothing in the guides holds that. <a href="@("/docs" + (slug.Length > 0 ? "/" + slug : ""))">Back to @doc.Title</a>, or search the <a href="/search?q=@Uri.EscapeDataString(q)">packages</a>.</p>
+    }
+    <ul class="rows">
+    @foreach (var h in hits)
+    {
+        var to = "/docs" + (h.Page.Slug.Length > 0 ? "/" + h.Page.Slug : "") + "?q=" + Uri.EscapeDataString(q) + (h.Anchor is null ? "" : "#" + h.Anchor);
+        <li>
+            <span><a class="n" href="@to">@h.Page.Title</a></span>
+            <span class="d">@Site.Mark(h.Snippet, q)</span>
+        </li>
+    }
+    </ul>
+    <p class="muted small">Reading a guide with a search still on marks the words in it. <a href="@("/docs" + (slug.Length > 0 ? "/" + slug : ""))">Clear the search</a>.</p>
+}
+else
+{
+    <h1>@doc.Title</h1>
     @Html.Raw(doc.Html)
+}
 </article>
 </div>

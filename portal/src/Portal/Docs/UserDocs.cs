@@ -22,6 +22,10 @@ public static partial class UserDocs
     public sealed record Page(string Slug, string Title, string File, bool InMenu);
     public sealed record Rendered(string Title, string Html, List<(int Level, string Id, string Text)> Headings);
 
+    /// A page a search answers: where it is, how well it matched, and the
+    /// sentence it matched in, to show under the title.
+    public sealed record Hit(Page Page, int Score, string Snippet, string? Anchor);
+
     static readonly string Root = Path.Combine(AppContext.BaseDirectory, "userdocs");
 
     public static readonly Page[] Pages = Discover();
@@ -52,6 +56,73 @@ public static partial class UserDocs
         .UsePipeTables().UseAutoLinks().Build();
 
     static readonly ConcurrentDictionary<string, Rendered?> Cache = new();
+    static readonly ConcurrentDictionary<string, string> PlainText = new();
+
+    /// The guides that answer a query, best first. The search is over the words
+    /// of the Markdown itself, so what a reader sees is what is searched.
+    public static List<Hit> Search(string query)
+    {
+        var words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(w => w.Length > 1).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (words.Count == 0) return [];
+        var hits = new List<Hit>();
+        foreach (var page in Pages)
+        {
+            var text = PlainText.GetOrAdd(page.Slug, _ =>
+            {
+                var path = Path.Combine(Root, page.File);
+                return File.Exists(path) ? File.ReadAllText(path) : "";
+            });
+            if (text.Length == 0) continue;
+            int score = 0, first = -1;
+            string? firstWord = null;
+            foreach (var w in words)
+            {
+                var n = Count(text, w);
+                if (n == 0) continue;
+                score += n + (page.Title.Contains(w, StringComparison.OrdinalIgnoreCase) ? 40 : 0);
+                var at = text.IndexOf(w, StringComparison.OrdinalIgnoreCase);
+                if (at >= 0 && (first < 0 || at < first)) { first = at; firstWord = w; }
+            }
+            if (score == 0 || first < 0) continue;
+            hits.Add(new Hit(page, score, Sentence(text, first), AnchorAt(text, first, firstWord!)));
+        }
+        return hits.OrderByDescending(h => h.Score).ThenBy(h => h.Page.Title, StringComparer.Ordinal).ToList();
+    }
+
+    static int Count(string text, string word)
+    {
+        int n = 0;
+        for (int i = text.IndexOf(word, StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = text.IndexOf(word, i + word.Length, StringComparison.OrdinalIgnoreCase)) n++;
+        return n;
+    }
+
+    /// The sentence around a match, trimmed of the Markdown that surrounds it.
+    static string Sentence(string text, int at)
+    {
+        int from = Math.Max(0, at - 120), to = Math.Min(text.Length, at + 160);
+        var cut = text[from..to].Replace('\n', ' ').Replace('\r', ' ');
+        cut = MarkdownBits().Replace(cut, "$1");
+        cut = Spaces().Replace(cut, " ").Trim();
+        return (from > 0 ? "…" : "") + cut + (to < text.Length ? "…" : "");
+    }
+
+    /// The heading a match sits under, so a result lands where the word is.
+    static string? AnchorAt(string text, int at, string word)
+    {
+        var before = text[..at];
+        var line = before.LastIndexOf("\n## ", StringComparison.Ordinal);
+        if (line < 0) return null;
+        var end = text.IndexOf('\n', line + 1);
+        var heading = text[(line + 4)..(end < 0 ? text.Length : end)].Trim();
+        var id = new string(heading.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray());
+        while (id.Contains("--", StringComparison.Ordinal)) id = id.Replace("--", "-");
+        return id.Trim('-');
+    }
+
+    [GeneratedRegex(@"[*_`#>]|\[([^\]]*)\]\([^)]*\)")] private static partial Regex MarkdownBits();
+    [GeneratedRegex(@"\s{2,}")] private static partial Regex Spaces();
 
     public static Rendered? Render(string slug) => Cache.GetOrAdd(slug, s =>
     {
