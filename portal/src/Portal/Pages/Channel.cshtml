@@ -45,8 +45,10 @@
 
 <p class="small"><a href="/channels/@ch.Name/feed">Feed of new versions</a> (Atom) · <a href="/api/search?channel=@ch.Name">as JSON</a></p>
 <h2 class="label">Use this channel</h2>
+<div class="cmd"><code>Pkg CHANNEL ADD @url ROOT SYS:</code><button class="copy" data-copy="Pkg CHANNEL ADD @url ROOT SYS:">Copy</button></div>
+<p class="muted small">Once, and the machine keeps it: <code>INSTALL</code>, <code>UPGRADE</code>, <code>STATUS</code>, <code>SHOW</code>, <code>SEARCH</code>, <code>REPAIR</code>, <code>ROLLBACK</code> and <code>RESOLVE</code> then read this channel without being told, together with the others the machine knows, in the order they were added. <a href="/docs/commands/channel">CHANNEL</a> lists and removes them.</p>
 <div class="cmd"><code>Pkg STATUS ROOT SYS: CHANNEL @url</code><button class="copy" data-copy="Pkg STATUS ROOT SYS: CHANNEL @url">Copy</button></div>
-<p class="muted small">pkg reads this address on AROS as on a Mac or a PC. What you install is proven by its signature, not by the connection.</p>
+<p class="muted small">Or name the address on the line, for this command alone. pkg reads it on AROS as on a Mac or a PC, and what you install is proven by its signature, not by the connection.</p>
 
 @if (builds.Count > 0)
 {
