@@ -110,6 +110,7 @@ builder.Services.AddSingleton<Portal.Channels.Downloads>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Downloads>());
 builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ArchiveChecker>());
+builder.Services.AddHostedService<Portal.Channels.WithdrawalsAtStart>();
 builder.Services.AddRazorPages();
 // Per address, so one client cannot drown the site: pushes send one request per
 // file (a whole contrib nightly is about 210), admin and search much fewer.
@@ -122,9 +123,24 @@ builder.Services.AddRateLimiter(r =>
     r.AddPolicy("push", c => Per(c, 1200));
     r.AddPolicy("admin", c => Per(c, 60));
     r.AddPolicy("api", c => Per(c, 300));
+    // Reading a channel is counted differently. Pkg asks for one file at a
+    // time on one connection, and a whole channel is hundreds of files in a
+    // minute, so a count per minute would refuse the honest reader first. What
+    // this machine cannot take is many files at once, so the limit is how many
+    // an address may have in flight; the rest wait their turn and are served.
+    r.AddPolicy("reads", c => RateLimitPartition.GetConcurrencyLimiter(
+        c.Connection.RemoteIpAddress?.ToString() ?? "?",
+        _ => new ConcurrencyLimiterOptions
+        {
+            PermitLimit = 8,
+            QueueLimit = 64,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+        }));
     r.OnRejected = async (ctx, ct) =>
     {
         ctx.HttpContext.Response.ContentType = "text/plain; charset=utf-8";
+        // A machine is told when to come back, in the header and in the record.
+        ctx.HttpContext.Response.Headers.RetryAfter = "60";
         await ctx.HttpContext.Response.WriteAsync(Record.Refused(20, "too many requests from this address", "wait a minute and try again").ToString(), ct);
     };
 });
@@ -525,7 +541,7 @@ app.MapMethods("/{channel}/{**path}", ["GET", "HEAD"], async (HttpContext http, 
     var etag = new EntityTagHeaderValue($"\"{info.Length:x}-{info.LastWriteTimeUtc.Ticks:x}\"");
     return Results.File(full, ChannelPaths.ContentType(path), lastModified: info.LastWriteTimeUtc,
         entityTag: etag, enableRangeProcessing: true);
-});
+}).RequireRateLimiting("reads");
 
 app.Run();
 

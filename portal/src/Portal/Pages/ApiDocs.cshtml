@@ -8,6 +8,12 @@
 <h1>API and feeds</h1>
 <p class="lead">For tools, agents and feed readers. Read-only, no key, JSON or Atom. Channels themselves are plain files: pkg reads them directly.</p>
 
+<h2 class="label">Reading a channel</h2>
+<pre><code>curl '@site/pkg/index'
+curl '@site/pkg/withdrawals'</code></pre>
+<p>A channel is the directory channel byte for byte: <code>index</code>, one line per published version and CPU, and <code>objects/&lt;digest&gt;.manifest</code>, <code>.sig</code>, <code>.pkg</code> beside it. <code>withdrawals</code> names the versions whose publisher withdrew them, header first and one digest per line, so a reader asks for a signed <code>.withdrawn</code> file only where there is one instead of once per entry. It is written by the portal and empty when nothing is withdrawn; what it names is still proven by the signed file. <a href="/docs/channels">Channels</a> describes the format in full.</p>
+<p>Take a channel one file at a time, as pkg does. An address may have eight requests in flight at once; more than that wait their turn and are served. A refusal from the parts of the site that do count requests, such as this API, answers <code>429</code> with <code>Retry-After</code> and a record saying to wait a minute.</p>
+
 <h2 class="label">Search</h2>
 <pre><code>curl '@site/api/search?q=rexx'</code></pre>
 <p>The results of the search page, as JSON. Parameters, all optional: <code>q</code>, <code>channel</code>, <code>kind</code>, <code>arch</code>, <code>tag</code>, <code>category</code>, <code>sort</code> (<code>newest</code> or <code>downloads</code>; relevance otherwise), <code>take</code> (1 to 500, 100 by default). Each result gives the channel, name, latest version, kind, CPUs, short description, category, tags, the libraries it provides, authors, licence, signer, last update, downloads, why it matched when not by name, its page, its channel address and the command that installs it.</p>

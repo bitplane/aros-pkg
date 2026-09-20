@@ -96,9 +96,47 @@ sdl2 2.30 aarch64 07a2f17b1001fdf631e75e8b562f3a621da1f678cb8f6c3737f5cd383a0c92
 - `archives/<name>`: the archive a package's files stay in, for packages
   published from someone else's archive, unless its makers publish it
   themselves (`UPSTREAM`).
+- `withdrawals`, in a channel served over the network: which versions have a
+  withdrawal, so that a reader asks for one only where there is one. See
+  below.
 
-Nothing in a channel is ever rewritten except `index`: a published version
-stays as it is, so a copy of a channel made at any moment is consistent.
+Nothing in a channel is ever rewritten except `index` and `withdrawals`: a
+published version stays as it is, so a copy of a channel made at any moment is
+consistent.
+
+## The list of withdrawn versions
+
+A withdrawal is `objects/<digest>.withdrawn`, signed by the key that signed
+the version. In a directory that costs nothing to find. Over the network it
+does: without a list, a reader asking whether anything is withdrawn asks once
+per entry, and in the contrib nightly channel, 208 versions of which none is
+withdrawn today, all 208 of those requests answer nothing.
+
+A channel served by the portal therefore holds one more file beside the index:
+
+```console
+$ curl -s https://aros-pkg.azurewebsites.net/contrib-nightly/withdrawals
+Format: pkg-withdrawals 1
+```
+
+The header first, then the digests that have a withdrawal, one per line, in
+order; that channel has none, so a reader that has read this file asks for no
+`.withdrawn` file at all. The file is written by the server from the signed
+withdrawals it holds; a push may not send one. Every channel the portal serves
+has it, empty when nothing is withdrawn, so a reader that finds it knows it
+need ask for nothing else.
+
+It is a hint, never authority. What the list names is still the signed
+`.withdrawn` file, read and checked as before; a list naming a version whose
+withdrawal does not check costs one request and changes nothing. A list that
+leaves a version out hides its withdrawal — exactly as deleting the signed
+file from that copy of the channel would, which anyone serving a channel could
+always do. A withdrawal has never been a way to keep a version out of reach of
+whoever serves it; it is how a publisher tells the readers who ask that this
+version is not to be used.
+
+A channel without the file — a directory, a copy someone made, a server that
+does not write one — is read exactly as before, one request per entry.
 
 ## Check a channel
 

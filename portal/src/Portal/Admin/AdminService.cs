@@ -85,6 +85,7 @@ public sealed class AdminService(IOptions<PortalOptions> options, Catalogue cata
             await File.WriteAllTextAsync(tmp, string.Concat(remaining.Select(l => l + "\n")), ct);
             File.Move(tmp, Path.Combine(live, "index"), overwrite: true);
             foreach (var f in files) File.Move(Path.Combine(live, f), Path.Combine(stash, f));
+            Portal.Channels.Withdrawals.Write(live);
 
             // The portal's own records of those versions go with them.
             var seenPath = catalogue.FirstSeenPath(channel);
@@ -139,6 +140,7 @@ public sealed class AdminService(IOptions<PortalOptions> options, Catalogue cata
                 var tmp = Path.Combine(live, $".index.{Guid.NewGuid():N}");
                 await File.WriteAllTextAsync(tmp, string.Concat(have.Concat(back).Select(l => l + "\n")), ct);
                 File.Move(tmp, index, overwrite: true);
+                Portal.Channels.Withdrawals.Write(live);
                 if (File.Exists(Path.Combine(stash, "first-seen")))
                 {
                     var seen = catalogue.FirstSeenPath(channel);

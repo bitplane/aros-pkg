@@ -45,12 +45,14 @@ public static partial class ChannelPaths
     public static bool IsChannelName(string name) =>
         ChannelName().IsMatch(name) && !Reserved.Contains(name);
 
-    public enum Kind { None, Index, Object, Archive, ArchiveDigest, Mutable }
+    public enum Kind { None, Index, Withdrawals, Object, Archive, ArchiveDigest, Mutable }
 
     /// What a relative path is; None for anything a channel does not hold.
     public static Kind Classify(string path)
     {
         if (path == "index") return Kind.Index;
+        // The server writes it from the signed withdrawals it holds; a push never sends it.
+        if (path == Withdrawals.File1) return Kind.Withdrawals;
         if (ObjectPath().IsMatch(path)) return Kind.Object;
         if (path is "Install-Pkg" or "ReadMe" or "Bootstrap/SHA256SUMS" or "Bootstrap/SHA256SUMS.sig"
             || BootstrapPath().IsMatch(path) || HostBootstraps.Values.Contains(path))
@@ -89,7 +91,7 @@ public static partial class ChannelPaths
 
     public static string ContentType(string path) => Classify(path) switch
     {
-        Kind.Index or Kind.ArchiveDigest => "text/plain; charset=utf-8",
+        Kind.Index or Kind.Withdrawals or Kind.ArchiveDigest => "text/plain; charset=utf-8",
         Kind.Object when path.EndsWith(".pkg", StringComparison.Ordinal) => "application/octet-stream",
         Kind.Object => "text/plain; charset=utf-8",
         Kind.Mutable when path is "ReadMe" or "Install-Pkg" => "text/plain; charset=iso-8859-1",

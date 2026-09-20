@@ -29,8 +29,36 @@ public class ChannelTests
         PkgVersion.Order.Compare("1.0a", "1.0b");
     }
 
+    [Fact]
+    public void The_withdrawals_list_names_every_signed_withdrawal_once_and_in_order()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "portal-withdrawals-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "objects"));
+        static string D(char c) => new(c, 64);
+        foreach (var c in "b9a")
+        {
+            File.WriteAllText(Path.Combine(dir, "objects", D(c) + ".withdrawn"), "withdrawn\n");
+            File.WriteAllText(Path.Combine(dir, "objects", D(c) + ".withdrawn.sig"), "sig\n");
+        }
+        // A published version that is not withdrawn is not in it.
+        File.WriteAllText(Path.Combine(dir, "objects", D('c') + ".manifest"), "Format: pkg-manifest 1\n");
+
+        Withdrawals.Write(dir);
+        var lines = File.ReadAllLines(Path.Combine(dir, Withdrawals.File1));
+        Assert.Equal(Withdrawals.Header, lines[0]);
+        Assert.Equal([D('9'), D('a'), D('b')], lines[1..]);
+
+        // A channel with nothing withdrawn still answers, with an empty list:
+        // finding it is how a reader knows it need ask for nothing else.
+        foreach (var f in Directory.EnumerateFiles(Path.Combine(dir, "objects"), "*.withdrawn")) File.Delete(f);
+        Withdrawals.Write(dir);
+        Assert.Equal(Withdrawals.Header + "\n", File.ReadAllText(Path.Combine(dir, Withdrawals.File1)));
+        Directory.Delete(dir, true);
+    }
+
     [Theory]
     [InlineData("index", ChannelPaths.Kind.Index)]
+    [InlineData("withdrawals", ChannelPaths.Kind.Withdrawals)]
     [InlineData("objects/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.manifest", ChannelPaths.Kind.Object)]
     [InlineData("objects/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.withdrawn.sig", ChannelPaths.Kind.Object)]
     [InlineData("archives/AROS-20260918-pc-x86_64-contrib.tar.bz2", ChannelPaths.Kind.Archive)]
@@ -47,6 +75,14 @@ public class ChannelTests
     [InlineData("Bootstrap/x86_64/../../../etc/passwd", ChannelPaths.Kind.None)]
     public void Only_channel_files_are_served(string path, ChannelPaths.Kind kind) =>
         Assert.Equal(kind, ChannelPaths.Classify(path));
+
+    [Fact]
+    public void The_index_and_the_withdrawals_list_are_written_by_the_server_never_pushed()
+    {
+        Assert.False(ChannelPaths.Pushable("index"));
+        Assert.False(ChannelPaths.Pushable(Withdrawals.File1));
+        Assert.True(ChannelPaths.Pushable($"objects/{new string('a', 64)}.withdrawn"));
+    }
 
     [Theory]
     [InlineData("contrib-nightly", true)]

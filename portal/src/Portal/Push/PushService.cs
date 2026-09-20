@@ -363,6 +363,10 @@ public sealed class PushService(IOptions<PortalOptions> options, PkgRunner pkg, 
             Place(staging, live, $"objects/{w.Digest}.withdrawn");
             Place(staging, live, $"objects/{w.Digest}.withdrawn.sig");
         }
+        // The list beside the index, so a reader asks for a signed withdrawal
+        // only where one exists. Written after the files it names, and on every
+        // commit, so a channel published today holds one from its first push.
+        Withdrawals.Write(live);
         // Channel files (Bootstrap, Install-Pkg, ReadMe) change only with a
         // commit that refuses nothing: a bootstrap never runs ahead of its package.
         int mutable = 0;
