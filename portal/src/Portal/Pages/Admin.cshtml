@@ -20,10 +20,10 @@
     {
         if (Maintainer() is not { } who) return NotFound();
         // A maintainer never shuts themselves out: that is for another maintainer to do.
-        if (what is "suspend" && Registry.ByAccount(account) is { } self
+        if (what is "suspend" or "remove" && Registry.ByAccount(account) is { } self
             && string.Equals(self.Login, who, StringComparison.OrdinalIgnoreCase))
         {
-            Done = "You cannot suspend your own account. Another maintainer can.";
+            Done = $"You cannot {what} your own account. Another maintainer can.";
             return Page();
         }
         switch (what)
@@ -32,6 +32,12 @@
             case "resume":    Registry.Change(account, r => r with { Suspended = false }); Done = "Resumed."; break;
             case "files-on":  Registry.Change(account, r => r with { Files = true });      Done = "That publisher may upload files."; break;
             case "files-off": Registry.Change(account, r => r with { Files = false });     Done = "That publisher publishes by link only."; break;
+            case "remove":
+                var gone = Registry.ByAccount(account)?.Name;
+                Done = Registry.Remove(account)
+                       ? $"Removed the registration of {gone}. What it published stays, signed as it was; it may push nothing more, and it may register again."
+                       : "There is no such registration.";
+                break;
             case "list" when channel is not null && ChannelPaths.IsChannelName(channel):
                 Done = (await Service.SetListed("github:" + who, channel, true, HttpContext.RequestAborted)).Get("summary"); break;
             case "unlist" when channel is not null && ChannelPaths.IsChannelName(channel):
@@ -94,6 +100,8 @@ else
                         else
                         {
                             <button class="linklike" name="what" value="@(r.Suspended ? "resume" : "suspend")">@(r.Suspended ? "resume" : "suspend")</button>
+                            <button class="linklike danger" name="what" value="remove"
+                                    onclick="return confirm('Remove the registration of @r.Name? What it published stays where it is. It may register again.')">remove</button>
                         }
                         <button class="linklike" name="what" value="@(r.Files ? "files-off" : "files-on")">@(r.Files ? "links only" : "allow files")</button>
                     </form>

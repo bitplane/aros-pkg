@@ -23,6 +23,15 @@ public sealed class Publishers(Catalogue catalogue, IOptions<PortalOptions> opti
     readonly PortalOptions o = options.Value;
     string SignersFile => Path.Combine(o.StateDir, "signers");
 
+    /* Every version of every channel, grouped by the key that signed it: the
+     * page that lists packages asks for a publisher's name once per row, and
+     * working that out per row read the names file from disk each time, which
+     * on a file system that is really a network share is where the seconds of
+     * a 104-row listing went. It is kept until a channel changes or the names
+     * file does. */
+    readonly object gate = new();
+    (int Version, DateTime Stamp, long Len, List<PublisherInfo> List) held = (-1, default, -1, []);
+
     public sealed record Profile(string Name, string? Url, string? Contact);
 
     /// Profiles from Portal:Publishers, by key.
@@ -69,6 +78,19 @@ public sealed class Publishers(Catalogue catalogue, IOptions<PortalOptions> opti
     }
 
     public List<PublisherInfo> All()
+    {
+        var f = new FileInfo(SignersFile);
+        var stamp = f.Exists ? f.LastWriteTimeUtc : DateTime.MinValue;
+        var len = f.Exists ? f.Length : -1;
+        lock (gate)
+            if (held.Version == catalogue.Version && held.Stamp == stamp && held.Len == len)
+                return held.List;
+        var made = Gather();
+        lock (gate) held = (catalogue.Version, stamp, len, made);
+        return made;
+    }
+
+    List<PublisherInfo> Gather()
     {
         var names = Names();
         var profiles = Profiles();

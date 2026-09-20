@@ -165,4 +165,31 @@ public class PagesTests
         Assert.Contains("Suspended", await Act(2, "suspend"));            // another account still can be
         Assert.True(registry.ByAccount(2)!.Suspended);
     }
+
+    [Fact]
+    public async Task A_registration_can_be_removed_but_not_ones_own()
+    {
+        using var f = new Site();
+        var registry = (Portal.Accounts.Registry)f.Services.GetService(typeof(Portal.Accounts.Registry))!;
+        Assert.Null(registry.Register(1, "jonx", "JKN", new string('1', 64), "mine"));
+        Assert.Null(registry.Register(2, "jane", "Jane", new string('2', 64), "hers"));
+        var c = f.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true });
+        async Task<string> Act(long id, string what)
+        {
+            var page = await c.GetStringAsync("/admin");
+            var at = page.IndexOf("__RequestVerificationToken", StringComparison.Ordinal);
+            var from = page.IndexOf("value=\"", at, StringComparison.Ordinal) + 7;
+            var token = page[from..page.IndexOf('"', from)];
+            var r = await c.PostAsync("/admin", new FormUrlEncodedContent(
+                [new("what", what), new("account", id.ToString()), new("__RequestVerificationToken", token)]));
+            return await r.Content.ReadAsStringAsync();
+        }
+        Assert.Contains("You cannot remove your own account", await Act(1, "remove"));
+        Assert.NotNull(registry.ByAccount(1));
+        Assert.Contains("Removed the registration of Jane", await Act(2, "remove"));
+        Assert.Null(registry.ByAccount(2));
+        Assert.Null(registry.ByKey(new string('2', 64)));                 // and it pushes nothing more
+        Assert.Null(registry.Register(2, "jane", "Jane", new string('2', 64), "hers"));   // it may register again
+        Assert.NotNull(registry.ByAccount(2));
+    }
 }

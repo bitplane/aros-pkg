@@ -130,7 +130,13 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
 .search input { width: 100%; max-width: 220px; background: var(--surface-2); }
 .tools { display: flex; align-items: center; gap: 8px; }
 .theme { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
-.theme button { font: inherit; border: 0; background: none; color: var(--muted); padding: 5px 7px; cursor: pointer; line-height: 0; }
+/* The segments meet on straight edges: only the ends of the pill are round,
+   and the radius is stated here because a button is round by default on some
+   browsers, which put a curve in the middle of the group. */
+.theme button { font: inherit; border: 0; border-radius: 0; background: none; color: var(--muted); padding: 5px 9px; cursor: pointer; display: inline-flex; align-items: center; }
+.theme button:first-child { border-radius: 999px 0 0 999px; }
+.theme button:last-child { border-radius: 0 999px 999px 0; }
+.theme button:hover { background: var(--surface-2); color: var(--fg); }
 .theme button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .theme svg, .who svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .who { display: inline-flex; align-items: center; gap: 8px; color: var(--fg); padding: 3px 12px 3px 4px; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; font-size: 0.95rem; white-space: nowrap; cursor: pointer; list-style: none; }
@@ -271,7 +277,7 @@ table.list tr.withdrawn td:last-child { text-decoration: none; }
 table.list tr.current td { background: var(--selected); }
 table.mono td { font-family: var(--mono); font-size: 0.84rem; }
 table.states td:first-child { white-space: nowrap; font-family: var(--mono); font-size: 0.88rem; width: 11rem; }
-.dot { display: inline-grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; border: 1.5px solid currentColor; margin-right: 10px; vertical-align: -4px; font-size: 11px; font-weight: 700; font-family: var(--sans); line-height: 1; }
+.dot { display: inline-grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; border: 1.5px solid currentColor; margin-right: 10px; vertical-align: middle; font-size: 11px; font-weight: 700; font-family: var(--sans); line-height: 1; }
 .dot::before { content: attr(data-mark); }
 .s-ok { color: var(--ok); } .s-warn { color: var(--warn); } .s-bad { color: var(--bad); }
 
@@ -346,6 +352,7 @@ a.button.outline:hover { background: var(--selected); filter: none; }
 .form input[name="PublicKey"] { font-family: var(--mono); font-size: 0.9rem; }
 form.inline { display: inline; margin-right: .6rem; }
 .linklike { font: inherit; background: none; border: 0; padding: 0; color: var(--name); cursor: pointer; }
+.linklike.danger { color: var(--bad); }
 .linklike:hover { text-decoration: underline; }
 .notice { padding: .7rem .9rem; border-left: 2px solid var(--accent); background: var(--surface); border-radius: 0 var(--radius) var(--radius) 0; color: var(--fg); }
 .notice.bad { border-left-color: var(--bad); }

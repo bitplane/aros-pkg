@@ -102,6 +102,23 @@ public sealed partial class Registry
         return null;
     }
 
+    /// Takes a registration away. What that account published stays where it
+    /// is, signed by its key as it always was: a package is what its publisher
+    /// signed, and nothing here can unsign it. What goes is the right to push
+    /// again under that key, and the hold on its channel names. It may
+    /// register anew, which is why suspending is the gentler answer.
+    public bool Remove(long id)
+    {
+        lock (gate)
+        {
+            var before = all.Count;
+            all = all.Where(r => r.GitHubId != id).ToList();
+            if (all.Count == before) return false;
+            Save();
+        }
+        return true;
+    }
+
     /// The keys the settings name (Portal:SignedKeys), which a maintainer may take under their account.
     public IEnumerable<(string Name, string Key, List<string> Channels, bool Files)> SettingsKeys() =>
         o.SignedKeys.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

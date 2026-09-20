@@ -95,6 +95,11 @@ public sealed class Catalogue(IOptions<PortalOptions> options, IHttpContextAcces
 {
     readonly PortalOptions o = options.Value;
     readonly ConcurrentDictionary<string, (DateTime Stamp, long Len, ChannelInfo Info)> cache = new();
+    int version;
+
+    /// Moves whenever a channel is read again or dropped, so what is derived
+    /// from the channels (the publishers, say) knows to work itself out anew.
+    public int Version => Volatile.Read(ref version);
 
     public IEnumerable<string> ChannelNames() =>
         Directory.Exists(o.ChannelsDir)
@@ -143,10 +148,15 @@ public sealed class Catalogue(IOptions<PortalOptions> options, IHttpContextAcces
         if (cache.TryGetValue(channel, out var c) && c.Stamp == stamp && c.Len == len) return c.Info;
         var info = Build(channel, dir, index);
         cache[channel] = (stamp, len, info);
+        Interlocked.Increment(ref version);
         return info;
     }
 
-    public void Invalidate(string channel) => cache.TryRemove(channel, out _);
+    public void Invalidate(string channel)
+    {
+        cache.TryRemove(channel, out _);
+        Interlocked.Increment(ref version);
+    }
 
     /// The pinned packages that exist, in the order the setting gives.
     public List<PackageInfo> Pinned() =>

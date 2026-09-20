@@ -37,7 +37,7 @@
             }
             <a href="/channels/@c.Name">What is in it</a> · <a href="/channels/@c.Name/feed">feed</a> · <a href="/api/search?channel=@c.Name">JSON</a>
         </p>
-        <div class="cmd"><code>@Site.InstallCommand(url, pinned.FirstOrDefault()?.Name ?? "&lt;package&gt;")</code><button class="copy" data-copy="@Site.InstallCommand(url, pinned.FirstOrDefault()?.Name ?? "<package>")">Copy</button></div>
+        <div class="cmd"><code>@Site.InstallCommand(url, pinned.FirstOrDefault()?.Name ?? "<package>")</code><button class="copy" data-copy="@Site.InstallCommand(url, pinned.FirstOrDefault()?.Name ?? "<package>")">Copy</button></div>
     </section>
 }
 <h2 class="label">An unlisted channel</h2>
