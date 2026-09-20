@@ -16,7 +16,11 @@ export PATH="$HOME/.dotnet:$PATH"
 command -v dotnet > /dev/null && [ -f "$dll" ] || { echo "withdrawals: the portal is not built; skipped" >&2; exit 0; }
 # A portal built before the sources it is tested against fails checks that
 # have nothing wrong with them: say so rather than let it look like a defect.
-newer=$(find "$repo_root/portal/src/Portal" -name '*.cs' -newer "$dll" -print -quit)
+# Sources only: obj/ and bin/ hold files a build writes itself (a deploy's
+# publish step rewrites Portal.AssemblyInfo.cs), which would make a current
+# binary look stale.
+newer=$(find "$repo_root/portal/src/Portal" \( -name obj -o -name bin \) -prune -o \
+        \( -name '*.cs' -o -name '*.cshtml' \) -newer "$dll" -print -quit)
 [ -z "$newer" ] || { echo "withdrawals: $dll is older than $newer; rebuild it (dotnet build portal/src/Portal -c Release)" >&2; exit 69; }
 T=$(mktemp -d); port=5083; site="http://127.0.0.1:$port"
 trap 'kill $srv 2>/dev/null; wait $srv 2>/dev/null; rm -rf "$T"' EXIT
