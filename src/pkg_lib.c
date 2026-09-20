@@ -2249,9 +2249,10 @@ static int read_info(const struct pkg_options *a)
     free(buf);
     if (rc != 0) {
         pkg_pkginfo_free(&cur_info);
+        /* the publisher's own file, like a keyword's value: a mistake to correct */
         if (line > 0)
-            return refuse_c(12, "%s, line %d: %s", info_shown, line, err);
-        return refuse_c(12, "%s: %s", info_shown, err);
+            return refuse_c(20, "%s, line %d: %s. Correct the file", info_shown, line, err);
+        return refuse_c(20, "%s: %s. Correct the file", info_shown, err);
     }
     have_info = 1;
     tr("INFO %s: name %s, version %s, kind %s, %lu file%s", info_shown,

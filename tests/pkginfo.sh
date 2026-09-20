@@ -127,19 +127,19 @@ bad() {  # bad <what> <exit code> <pattern> <sed program>
     ok $? "$what"
 }
 bad "a Format number this Pkg does not read is refused, saying Pkg is older" \
-    12 'line 1: it is pkginfo 2' 's/^Format: pkginfo 1/Format: pkginfo 2/'
+    20 'line 1: it is pkginfo 2' 's/^Format: pkginfo 1/Format: pkginfo 2/'
 bad "a Short over 40 characters is refused, naming its line" \
-    12 'line 5: Short is 65 characters' 's|^Short: .*|Short: Small TLS library to link into programs that speak to the network|'
+    20 'line 5: Short is 65 characters' 's|^Short: .*|Short: Small TLS library to link into programs that speak to the network|'
 bad "a category that is no Aminet type is refused" \
-    12 'line 6: Category is an Aminet type' 's|^Category: .*|Category: crypto/lib|'
+    20 'line 6: Category is an Aminet type' 's|^Category: .*|Category: crypto/lib|'
 bad "a Files path that climbs out of the drawer is refused" \
-    12 'the path contains' 's|^Files: Developer/lib/libmbedtls.a|Files: ../../etc/passwd|'
+    20 'the path contains' 's|^Files: Developer/lib/libmbedtls.a|Files: ../../etc/passwd|'
 bad "a Files path the drawer does not hold is refused, naming it" \
     11 'names "Developer/lib/libmbedssl.a" in Files' 's|^Files: Developer/lib/libmbedtls.a|Files: Developer/lib/libmbedssl.a|'
 bad "a licence that is no SPDX expression is refused" \
-    12 'line 11: License is an SPDX expression' 's|^License: .*|License: Apache-2.0/GPL-2.0|'
+    20 'line 11: License is an SPDX expression' 's|^License: .*|License: Apache-2.0/GPL-2.0|'
 bad "a line that is no Key: value is refused, naming it" \
-    12 'is not a "Key: value" line' 's|^Port: .*|this line has no colon|'
+    20 'is not a "Key: value" line' 's|^Port: .*|this line has no colon|'
 $PKG MANIFEST d INFO nowhere.pkginfo MACHINE > o6 2>&1
 [ $? -eq 11 ] && has o6 'no .pkginfo at "nowhere.pkginfo"'
                                                       ok $? "an INFO file that is not there is refused with 11"
