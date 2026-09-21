@@ -34,6 +34,12 @@
 }
 <p class="lead">pkg @pkg.Latest.Version, the one program that installs the rest. Let it install itself with one line; it lands as a signed package, and <code>Pkg UPGRADE pkg</code> keeps it current from then on.</p>
 
+<section class="card" aria-labelledby="embed-pkg">
+    <h2 id="embed-pkg" class="label">Update checks in your own application</h2>
+    <p>Embed <code>libpkg</code> in your C application to check for a newer compatible build and display the publisher's signed release notes. Set the package, installation root and channel in code or a <code>.pkgupdate</code> file; pkg reads the installed version from its database.</p>
+    <p>The check leaves the installation unchanged. Your application chooses when to check and asks the user before requesting an ordinary pkg upgrade. <a href="/docs/self-update">Read the integration guide</a> for the API, a minimal C example, and a local HTTP server demonstration with two 1.7.0 builds.</p>
+</section>
+
 <div class="grid">
 <div>
     <h2 class="label">On AROS</h2>

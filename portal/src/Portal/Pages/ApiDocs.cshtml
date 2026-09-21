@@ -29,12 +29,21 @@ curl '@site/pkg/withdrawals'</code></pre>
 <h2 class="label">Feeds</h2>
 <p>Atom, the 50 newest versions first: <a href="/feed">every channel</a>, or one channel at <code>/channels/&lt;name&gt;/feed</code>, such as <a href="/channels/contrib-nightly/feed">contrib-nightly</a>.</p>
 
-<h2 class="label">Badges</h2>
-<p>One address per package, <code>/b/&lt;name&gt;</code>: it answers with the badge to a README and with the package's page to a person who clicks it, right at the command that installs it. Nothing else to write down.</p>
-<p><img src="/b/pkg" alt="pkg badge" /></p>
-@{ var snippet = $"[![pkg]({site}/b/pkg)]({site}/b/pkg)"; }
-<div class="cmd wrapcode"><code>@snippet</code><button class="copy" data-copy="@snippet">Copy</button></div>
-<p class="muted small">Two channels carrying the same name: <code>/b/&lt;channel&gt;/&lt;name&gt;</code> says which. <code>/badge/&lt;name&gt;.svg</code> and <code>/badge/&lt;channel&gt;/&lt;name&gt;.svg</code> are the badge alone, for anything that insists on an address ending in <code>.svg</code>.</p>
+<h2 class="label" id="badges">Badges</h2>
+<p>Share a package from a README, website or forum with a linked image. Choose a small version badge or a large download badge. A click opens the package's installation command; the pkg badge opens <a href="/downloads">Downloads</a>.</p>
+@foreach (var size in new[] { "small", "large" })
+{
+    var imageUrl = $"{site}/badge/pkg.svg" + (size == "large" ? "?size=large" : "");
+    var link = $"{site}/b/pkg";
+    var markdown = $"[![Get pkg]({imageUrl})]({link})";
+    var html = $"<a href=\"{link}\"><img src=\"{imageUrl}\" alt=\"Get pkg\" /></a>";
+    <h3>@(size == "large" ? "Large" : "Small") badge</h3>
+    <p><a href="@link"><img src="@imageUrl" alt="Get pkg" style="max-width:100%;height:auto" /></a></p>
+    <div class="cmd wrapcode"><code>@markdown</code><button class="copy" data-copy="@markdown">Copy Markdown</button></div>
+    <div class="cmd wrapcode"><code>@html</code><button class="copy" data-copy="@html">Copy HTML</button></div>
+}
+<p>Replace <code>pkg</code> with your package name. Each <a href="/search">package page</a> supplies ready-to-copy badges with its channel included, so the link identifies the intended package.</p>
+<p class="muted small"><code>/badge/&lt;channel&gt;/&lt;name&gt;.svg</code> serves the image and <code>/b/&lt;channel&gt;/&lt;name&gt;</code> is its link. Add <code>?size=large</code> to the image for the large format. Both routes also accept a name alone. The existing <code>/b/&lt;name&gt;</code> image address supports both sizes and redirects browser visits to the package's installation command or to Downloads for pkg.</p>
 
 <h2 class="label">How pkg spreads</h2>
 <p><a href="/api/usage">/api/usage</a> hands over every tally the portal keeps: for each day, how many channel reads, packages taken and pushes came from each pkg version, system and CPU. That is all of it; there is nothing per request, per address or per person. <a href="/privacy">Privacy</a> says what is kept and what is not.</p>

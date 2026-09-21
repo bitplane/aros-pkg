@@ -67,12 +67,21 @@ else if (!isLatest)
 
 @{
     var siteUrl = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
-    var badge = $"[![{p.Name}]({siteUrl}/b/{p.Name})]({siteUrl}/b/{p.Name})";
+    var badgeLink = $"{siteUrl}/b/{p.Channel}/{p.Name}";
 }
 <details class="files badge-block">
-    <summary><h2>A badge for your README <span class="muted"><img src="/b/@p.Channel/@p.Name" alt="" /></span></h2></summary>
-    <p>One address, which answers with this badge to a README and with this page to a person who clicks it, at the command above:</p>
-    <div class="cmd wrapcode"><code>@badge</code><button class="copy" data-copy="@badge">Copy</button></div>
+    <summary><h2>Share this package <span class="muted"><img src="/badge/@p.Channel/@(p.Name).svg" alt="" /></span></h2></summary>
+    <p>Put a badge in a README, website or forum that supports linked images. A click opens @(p.Name == "pkg" ? "the downloads page" : "this package's installation command").</p>
+    @foreach (var size in new[] { "small", "large" })
+    {
+        var imageUrl = $"{siteUrl}/badge/{p.Channel}/{p.Name}.svg" + (size == "large" ? "?size=large" : "");
+        var markdown = $"[![Get {p.Name}]({imageUrl})]({badgeLink})";
+        var html = $"<a href=\"{badgeLink}\"><img src=\"{imageUrl}\" alt=\"Get {p.Name}\" /></a>";
+        <h3>@(size == "large" ? "Large" : "Small") badge</h3>
+        <p><a href="@badgeLink"><img src="@imageUrl" alt="Get @p.Name" style="max-width:100%;height:auto" /></a></p>
+        <div class="cmd wrapcode"><code>@markdown</code><button class="copy" data-copy="@markdown">Copy Markdown</button></div>
+        <div class="cmd wrapcode"><code>@html</code><button class="copy" data-copy="@html">Copy HTML</button></div>
+    }
 </details>
 
 @if (m.Description.Count > 0)

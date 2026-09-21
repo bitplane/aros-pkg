@@ -7,6 +7,10 @@ A program can use `libpkg` to compare its installed version with the highest com
 offered by its channels. The result includes the publisher's signed release notes, version, signing
 key and package sizes. The program decides when to check and how to display the result.
 
+Publish signed builds with [Publishing packages](publishing.md). After user acceptance, an ordinary
+`pkg UPGRADE` can install the offered build. Share the [online guide](https://aros-pkg.azurewebsites.net/docs/self-update)
+with application authors integrating the check.
+
 The check preserves installed files, the package database and trusted keys. Network reads can
 populate Pkg's download cache. An application serializes its libpkg calls; a graphical application
 can perform the check on its worker thread and pass the result to its interface.

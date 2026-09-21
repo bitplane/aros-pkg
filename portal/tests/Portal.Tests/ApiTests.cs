@@ -130,6 +130,51 @@ public class ApiTests : IClassFixture<ApiTests.Factory>
     }
 
     [Fact]
+    public async Task Online_update_guide_has_readable_examples()
+    {
+        var c = f.CreateClient();
+        Assert.Contains("pkg_update_check", await c.GetStringAsync("/docs/self-update"));
+        Assert.Contains("pkg_update_check", await c.GetStringAsync("/examples/selfupdate.c"));
+        Assert.Contains("ThreadingHTTPServer", await c.GetStringAsync("/examples/selfupdate-demo.sh"));
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/examples/private.txt")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/badge/sdltool.svg?size=large")]
+    [InlineData("/badge/demo/sdltool.svg?size=large")]
+    [InlineData("/b/demo/sdltool?size=large")]
+    public async Task Large_badges_are_accessible_SVG_and_link_to_installation(string url)
+    {
+        var c = f.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
+        var response = await c.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("image/svg+xml", response.Content.Headers.ContentType?.MediaType);
+        var svg = XDocument.Parse(await response.Content.ReadAsStringAsync()).Root!;
+        Assert.Equal("72", svg.Attribute("height")!.Value);
+        Assert.Contains("Get sdltool", svg.Value);
+        Assert.Contains("1.1", svg.Value);
+        var request = new HttpRequestMessage(HttpMethod.Get, "/b/demo/sdltool?size=large");
+        request.Headers.TryAddWithoutValidation("Accept", "text/html");
+        var clicked = await c.SendAsync(request);
+        Assert.Equal("/packages/demo/sdltool#install", clicked.Headers.Location?.ToString());
+        Assert.Contains("Accept", clicked.Headers.Vary);
+        var unsafeSvg = XDocument.Parse(Portal.Api.Endpoints.Badge("a&b", "<1>", true));
+        Assert.Contains("a&b", unsafeSvg.Root!.Value);
+        Assert.DoesNotContain("<1>", unsafeSvg.ToString());
+    }
+
+    [Fact]
+    public async Task Package_sharing_keeps_its_channel_and_offers_both_embed_formats()
+    {
+        var html = await f.CreateClient().GetStringAsync("/packages/demo/sdltool");
+        Assert.Contains("/badge/demo/sdltool.svg?size=large", html);
+        Assert.Contains("/b/demo/sdltool", html);
+        Assert.Contains("Copy Markdown", html);
+        Assert.Contains("Copy HTML", html);
+        Assert.DoesNotContain("comes in a later version", html);
+    }
+
+    [Fact]
     public async Task A_badge_is_svg_with_the_latest_version_and_escapes_what_it_shows()
     {
         var c = f.CreateClient();

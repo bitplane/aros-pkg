@@ -89,6 +89,11 @@ public static class Endpoints
                 ? Atom(http, o.Value, $"AROS Packages: new in {ch.Name}", $"/channels/{ch.Name}/feed", $"/channels/{ch.Name}", ch.Packages.Values)
                 : Results.NotFound());
 
+        app.MapGet("/examples/{name}", (string name) =>
+            name is "selfupdate.c" or "selfupdate-demo.sh"
+                ? Results.Text(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "examples", name)), "text/plain; charset=utf-8")
+                : Results.NotFound());
+
         // A badge needs no more than the site's address and the package's name:
         // /badge/<name>.svg, and /badge/<channel>/<name>.svg when two channels
         // carry the same name.
@@ -99,7 +104,7 @@ public static class Endpoints
             var p = b is null ? Find(c, file[..^4]) : c.Package(a, file[..^4]);
             if (p is null) return Results.NotFound();
             http.Response.Headers.CacheControl = "public, max-age=300";
-            return Results.Text(Badge(p.Name, p.Latest.Version), "image/svg+xml; charset=utf-8");
+            return Results.Text(Badge(p.Name, p.Latest.Version, http.Request.Query["size"] == "large"), "image/svg+xml; charset=utf-8");
         });
 
         // One address for a package, badge and link both: a README shows it as an
@@ -108,11 +113,12 @@ public static class Endpoints
         {
             var p = b is null ? Find(c, a) : c.Package(a, b);
             if (p is null) return Results.NotFound();
+            http.Response.Headers.Vary = "Accept";
             var wants = http.Request.Headers.Accept.ToString();
             if (wants.Contains("text/html", StringComparison.OrdinalIgnoreCase))
-                return Results.Redirect($"/packages/{p.Channel}/{p.Name}#install");
+                return Results.Redirect(p.Name == "pkg" ? "/downloads" : $"/packages/{p.Channel}/{p.Name}#install");
             http.Response.Headers.CacheControl = "public, max-age=300";
-            return Results.Text(Badge(p.Name, p.Latest.Version), "image/svg+xml; charset=utf-8");
+            return Results.Text(Badge(p.Name, p.Latest.Version, http.Request.Query["size"] == "large"), "image/svg+xml; charset=utf-8");
         });
     }
 
@@ -190,12 +196,27 @@ public static class Endpoints
     }
 
     /// A two-part badge, name and version, sized from the text.
-    public static string Badge(string name, string version)
+    public static string Badge(string name, string version, bool large = false)
     {
         static int W(string s) => 10 + (int)Math.Ceiling(s.Length * 6.6);
         int a = W(name), b = W(version), w = a + b;
         var n = SecurityElement.Escape(name);
         var v = SecurityElement.Escape(version);
+        if (large)
+        {
+            int width = Math.Max(280, 84 + Math.Max((name.Length + 4) * 12, (version.Length + 13) * 8));
+            return $"""
+                <svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="72" viewBox="0 0 {width} 72" role="img" aria-label="Get {n} from the pkg portal, version {v}">
+                  <title>Get {n} from the pkg portal, version {v}</title>
+                  <rect width="{width}" height="72" rx="10" fill="#59358c"/>
+                  <path d="M28 20v22m-8-8 8 8 8-8M18 48v6h20v-6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                  <g fill="#fff" font-family="Verdana,DejaVu Sans,sans-serif">
+                    <text x="56" y="29" font-size="18" font-weight="bold">Get {n}</text>
+                    <text x="56" y="51" font-size="12">{v} · pkg portal</text>
+                  </g>
+                </svg>
+                """;
+        }
         return $"""
             <svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="20" role="img" aria-label="{n}: {v}">
               <title>{n}: {v}</title>

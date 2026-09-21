@@ -92,6 +92,25 @@ make install            # into ~/.local: pkg, pkg.h, libpkg.a
 make build/pkg.exe      # Windows, cross-built with mingw-w64
 ```
 
+## Embed update checks in your application
+
+Link your C application with `libpkg` to check for a newer compatible build
+and display its version and the publisher's signed release notes. Supply
+the package name, installation root and channel in code or a `.pkgupdate`
+configuration file. pkg reads the installed version from its database.
+
+The check leaves the installation unchanged. Your application chooses when
+to check and asks the user before requesting an ordinary pkg upgrade.
+The [online integration guide](https://aros-pkg.azurewebsites.net/docs/self-update)
+covers the API, configuration and error handling; its
+[repository copy](docs/self-update.md) links the minimal C client and a
+local HTTP demonstration comparing two 1.7.0 builds:
+
+```sh
+make build/pkg build/example-selfupdate
+sh examples/selfupdate-demo.sh
+```
+
 ## Your first five minutes
 
 The examples below run on a Mac or a PC, where a *root* is a directory that

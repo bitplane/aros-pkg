@@ -17,6 +17,10 @@
     <Content Include="../../../tools/verify-manifest.py" Link="Install/verify-manifest.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="../../../examples/selfupdate.c;../../../examples/selfupdate-demo.sh" Link="examples/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- The user guides of this repository, rendered by /docs: the site's
        documentation always matches the Pkg built from the same commit. -->
   <ItemGroup>

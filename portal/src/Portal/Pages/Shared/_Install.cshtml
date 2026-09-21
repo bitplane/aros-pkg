@@ -6,10 +6,9 @@
     var verb = p.Name == "pkg" && isLatest ? "UPGRADE" : "INSTALL";
     var ver = isLatest ? "" : $" VERSION {v.Version}";
     var arch = v.Arch == "generic" ? "" : $" ARCH {v.Arch}";
-    var drawer = $"Work:{p.Channel}";
-    var aros = $"Pkg {verb} {p.Name}{ver} ROOT SYS: CHANNEL {drawer}";
+    var aros = $"Pkg {verb} {p.Name}{ver} ROOT SYS: CHANNEL {url}";
     var host = $"pkg {verb} {p.Name}{ver} ROOT aros CHANNEL {url}{arch}";
-    var arexx = $"ADDRESS PKG\nOPTIONS RESULTS\n'{verb} {p.Name}{ver} ROOT SYS: CHANNEL {drawer}'\nIF RC ~= 0 THEN SAY 'refused, class' RC";
+    var arexx = $"ADDRESS PKG\nOPTIONS RESULTS\n'{verb} {p.Name}{ver} ROOT SYS: CHANNEL {url}'\nIF RC ~= 0 THEN SAY 'refused, class' RC";
     var ask = verb == "UPGRADE"
         ? $"Upgrade pkg in ~/aros-root from {url}{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it."
         : $"Install {p.Name}{(ver.Length > 0 ? $" version {v.Version}" : "")} from {url} into ~/aros-root{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it.";
@@ -22,7 +21,7 @@
     <input type="radio" name="@id" id="@(id)k" /><label for="@(id)k">Ask an assistant</label>
     <div class="tab">
         <div class="cmd"><code>@aros</code><button class="copy" data-copy="@aros">Copy</button></div>
-        <p class="muted small">In a Shell. pkg on AROS reads a channel from a drawer for now: @drawer stands for a copy of this channel on one of your volumes (<a href="/docs/channels">how</a>). Reading it from its address comes in a later version.</p>
+        <p class="muted small">In an AROS Shell. <a href="/downloads">Get pkg</a> first if needed. <code>SYS:</code> names the system to install into; the channel is read directly over the network.</p>
     </div>
     <div class="tab">
         <div class="cmd"><code>@host</code><button class="copy" data-copy="@host">Copy</button></div>
