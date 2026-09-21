@@ -20,9 +20,13 @@ make build/pkg build/example-selfupdate
 sh examples/selfupdate-demo.sh
 ```
 
-The demonstration creates a temporary signed channel, installs `hello` 1.0, publishes 2.0 with
-release notes, and checks through both code and configuration. It displays the offered version and
-its changes, then shows that 1.0 is installed. Its temporary files are removed when it exits.
+The demonstration creates a temporary signed channel, installs `hello` 1.7.0+20260921, publishes 1.7.0+20260922 with
+release notes, then starts a Python 3 HTTP server on `127.0.0.1` with a free port. Both code and
+configuration checks read that server and display version 1.7.0+20260922 and its changes. Version 1.7.0+20260921 stays
+installed. The [demo script](../examples/selfupdate-demo.sh) explains each of its six steps.
+
+The server stops when the example exits. `KEEP=1 sh examples/selfupdate-demo.sh` preserves its
+fixtures, `.pkgupdate` file and `server.log` for inspection; the default removes them.
 
 [examples/selfupdate.c](../examples/selfupdate.c) is the minimal client. It accepts `PACKAGE ROOT
 CHANNEL`, or `--config FILE`.
