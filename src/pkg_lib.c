@@ -378,12 +378,34 @@ static void on_archive_read(long long done, long long total)
     pkg_activity_percent(done, total);
 }
 
-/* A file arriving over the network, named by the name it is fetched under. */
+/* A file arriving over the network, named as a person would name it. A
+ * channel names what it holds by its digest, and sixty-four hex characters
+ * say nothing on a line: those are shortened to the first twelve, the form
+ * the result sentences use ("payload c9e2bc15e3dc"). */
+static void download_name(char *out, size_t ol, const char *url)
+{
+    const char *slash = strrchr(url, '/'), *name = slash != NULL && slash[1] != '\0' ? slash + 1 : url;
+    const char *dot = strrchr(name, '.');
+    size_t stem = dot != NULL ? (size_t)(dot - name) : strlen(name);
+    size_t i;
+    if (stem == PKG_SHA256_HEXLEN) {
+        for (i = 0; i < stem; i++)
+            if (!isxdigit((unsigned char)name[i]))
+                break;
+        if (i == stem) {
+            snprintf(out, ol, "%.12s%s", name, dot != NULL ? dot : "");
+            return;
+        }
+    }
+    snprintf(out, ol, "%s", name);
+}
+
 static int net_get_watched(const char *url, const char *dest, char *err, size_t errlen)
 {
-    const char *slash = strrchr(url, '/');
+    char name[120];
     int rc;
-    doing("downloading", slash != NULL && slash[1] != '\0' ? slash + 1 : url);
+    download_name(name, sizeof name, url);
+    doing("downloading", name);
     rc = pkg_net_get(url, dest, err, errlen);
     did();
     return rc;
