@@ -224,7 +224,9 @@ Every command
 pkg is written in C99, with no dependency beyond the C library: bzip2 is
 included, and so is Mbed TLS (Apache-2.0), which the AROS builds use for
 `https`. It builds as a command and as a library, `libpkg`, for programs
-that want to install software themselves. MIT licence; the included
+that want to install software themselves. Programs can also
+[check their own updates](docs/self-update.md), with a C example and a
+configuration-file interface. MIT licence; the included
 libraries keep theirs, in `third_party/`.
 
 ## For contributors

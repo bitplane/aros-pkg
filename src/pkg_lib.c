@@ -3079,12 +3079,13 @@ static const char *chan_label(const char *ch)
 }
 
 static char net_err[400];           /* why the last fetch failed, for the refusal */
-static char fetched_once[16][128];  /* mutable files already fetched in this run */
+static int net_failed;
+static char fetched_once[16][65];  /* mutable files already fetched in this run */
 static size_t nfetched_once;
 
 static char *chan_file(const char *channel, const char *rel)
 {
-    char *cache, sub[PKG_SHA256_HEXLEN + 1], url[2300], *dir, *local;
+    char *cache, sub[PKG_SHA256_HEXLEN + 1], url[2300], fetch_id[65], *dir, *local;
     size_t k, rl = strlen(rel);
     int mutable_file, again = 1, rc;
 
@@ -3099,19 +3100,26 @@ static char *chan_file(const char *channel, const char *rel)
     local = dir ? pkg_join(dir, rel) : NULL;
     free(dir);
     if (local == NULL) return NULL;
+    if (snprintf(url, sizeof url, "%s%s%s", channel,
+                 channel[strlen(channel) - 1] == '/' ? "" : "/", rel) >= (int)sizeof url) {
+        snprintf(net_err, sizeof net_err, "channel URL is too long");
+        net_failed = 1;
+        free(local);
+        return NULL;
+    }
+    pkg_sha256_hex((const unsigned char *)url, strlen(url), fetch_id);
     mutable_file = strcmp(rel, "index") == 0
                    || strcmp(rel, "withdrawals") == 0
                    || (rl > 10 && strcmp(rel + rl - 10, ".withdrawn") == 0)
                    || (rl > 14 && strcmp(rel + rl - 14, ".withdrawn.sig") == 0);
     if (mutable_file) {
         for (k = 0; k < nfetched_once; k++)
-            if (strcmp(fetched_once[k], rel) == 0) again = 0;
+            if (strcmp(fetched_once[k], fetch_id) == 0) again = 0;
     } else if (pkg_fs_exists(local)) {
         again = 0;                  /* named by what it holds: a cached copy is the file */
     }
     if (!again)
         return local;
-    snprintf(url, sizeof url, "%s%s%s", channel, channel[strlen(channel) - 1] == '/' ? "" : "/", rel);
     {
         /* the cache directory for this file */
         char *slash = strrchr(local, '/');
@@ -3122,9 +3130,13 @@ static char *chan_file(const char *channel, const char *rel)
     if (rc == 1)
         pkg_fs_unlink(local);       /* not published there: no stale copy either */
     if (rc >= 0 && mutable_file && nfetched_once < 16)
-        snprintf(fetched_once[nfetched_once++], sizeof fetched_once[0], "%s", rel);
-    if (rc < 0 && !mutable_file)
-        pkg_fs_unlink(local);
+        snprintf(fetched_once[nfetched_once++], sizeof fetched_once[0], "%s", fetch_id);
+    if (rc < 0) {
+        net_failed = 1;
+        if (!mutable_file) pkg_fs_unlink(local);
+        free(local);
+        return NULL;
+    }
     return local;
 }
 
@@ -3144,7 +3156,8 @@ static int read_index(const char *channel, struct index *ix)
                         PKG_MAX_CHANNELS);
     path = chan_file(channel, "index");
     if (path == NULL)
-        return refuse("out of memory");
+        return net_failed ? refuse_c(17, "cannot reach the channel %s: %s", channel, net_err)
+                          : refuse("out of memory");
     if (!pkg_fs_exists(path)) {
         free(path);
         if (is_url(channel) && net_err[0])
@@ -3161,6 +3174,7 @@ static int read_index(const char *channel, struct index *ix)
     while (at < len) {
         const char *ls = (const char *)buf + at;
         const char *nl = (const char *)memchr(ls, '\n', len - at);
+        size_t digit;
         size_t ll = nl ? (size_t)(nl - ls) : len - at;
         struct entry en;
         char tmp[256];
@@ -3173,7 +3187,7 @@ static int read_index(const char *channel, struct index *ix)
         /* A hand-edited index may lack its last newline, or end its lines
          * with CR: both are read; what is written back is always clean. */
         if (ll >= sizeof tmp) {
-            free(buf); free(ix->e);
+            free(buf); free(ix->e); ix->e = NULL; ix->n = 0;
             return refuse_c(12, "the channel index is malformed at line %u", line);
         }
         memcpy(tmp, ls, ll);
@@ -3181,11 +3195,17 @@ static int read_index(const char *channel, struct index *ix)
         if (sscanf(tmp, "%64s %63s %31s %64s", en.name, en.version, en.arch, en.digest) != 4
             || pkg_check_name(en.name) || pkg_check_version(en.version)
             || pkg_check_arch(en.arch) || strlen(en.digest) != PKG_SHA256_HEXLEN) {
-            free(buf); free(ix->e);
+            free(buf); free(ix->e); ix->e = NULL; ix->n = 0;
             return refuse_c(12, "the channel index is malformed at line %u", line);
         }
+        for (digit = 0; digit < PKG_SHA256_HEXLEN; digit++) {
+            if (!isxdigit((unsigned char)en.digest[digit])) {
+                free(buf); free(ix->e); ix->e = NULL; ix->n = 0;
+                return refuse_c(12, "the channel index has a malformed digest at line %u", line);
+            }
+        }
         w = (struct entry *)realloc(ix->e, (ix->n + 1u) * sizeof *w);
-        if (w == NULL) { free(buf); return refuse("out of memory"); }
+        if (w == NULL) { free(buf); free(ix->e); ix->e = NULL; ix->n = 0; return refuse("out of memory"); }
         ix->e = w;
         en.withdrawn = -1;          /* not asked yet: see is_withdrawn */
         en.ch = (unsigned char)id;
@@ -3353,11 +3373,12 @@ static int open_channels(const struct pkg_options *a, struct index *ix)
             free(ix->e);
             ix->e = NULL;
             ix->n = 0;
-            chanlist_free(&cl);
-            return refuse_c(11, "%s lists the channel %s, and there is no channel there: not "
+            refuse_c(11, "%s lists the channel %s, and there is no channel there: not "
                             "mounted, or moved. Nothing was checked or changed; "
                             "CHANNEL REMOVE %s ROOT %s takes it off the list",
                             a->root, cl.v[i], cl.v[i], a->root);
+            chanlist_free(&cl);
+            return 1;
         }
         if (read_index(cl.v[i], &one) != 0) {
             free(ix->e);
@@ -4217,11 +4238,10 @@ done:
 
 static int show_defers_archives;    /* set by SHOW, which checks archives in one pass each */
 
-static int fetch(const char *channel, const struct entry *e, struct fetched *f)
+static int fetch_manifest(const char *channel, const struct entry *e, struct fetched *f)
 {
     char *mo = object_path(channel, e->digest, "manifest");
     char *so = object_path(channel, e->digest, "sig");
-    char *po = NULL;
     char hex[PKG_SHA256_HEXLEN + 1], err[300], what[160];
     int rc = 1;
 
@@ -4229,7 +4249,11 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
     pkg_manifest_init(&f->m);
     snprintf(what, sizeof what, "%s %s", e->name, e->version);
     memcpy(f->digest, e->digest, sizeof f->digest);
-    if (mo == NULL || so == NULL) { refuse("out of memory"); goto out; }
+    if (mo == NULL || so == NULL) {
+        if (net_failed) refuse_c(17, "cannot read package metadata: %s", net_err);
+        else refuse("out of memory");
+        goto out;
+    }
 
     /* 1. The manifest the index names, byte for byte. */
     if (pkg_fs_read(mo, &f->mtext, &f->mlen) != 0) {
@@ -4258,10 +4282,24 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
             tr("%s: ignored the key %s, which pkg does not know", what, f->m.ignored.v[k]);
     }
     if (strcmp(f->m.name, e->name) != 0 || pkg_version_cmp(f->m.version, e->version) != 0
+        || strcmp(f->m.architecture, e->arch) != 0
         || (f->m.payload == NULL) == (f->m.source == NULL)) {
         refuse_c(12, "the manifest of %s disagrees with the channel index about what it is", what);
         goto out;
     }
+    rc = 0;
+out:
+    free(mo); free(so);
+    return rc;
+}
+
+static int fetch(const char *channel, const struct entry *e, struct fetched *f)
+{
+    char *po = NULL;
+    char hex[PKG_SHA256_HEXLEN + 1], what[160];
+    int rc = 1;
+    if (fetch_manifest(channel, e, f) != 0) return 1;
+    snprintf(what, sizeof what, "%s %s", e->name, e->version);
     /* 4. The payload the signed manifest names, or its files in the archive
      *    it names, each checked against the manifest when it is placed. */
     if (f->m.source != NULL) {
@@ -4284,7 +4322,7 @@ static int fetch(const char *channel, const struct entry *e, struct fetched *f)
     tr("%s: payload %s matches the signed manifest", what, hex);
     rc = 0;
 out:
-    free(po); free(mo); free(so);
+    free(po);
     return rc;
 }
 
@@ -9465,6 +9503,9 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     pick_root = NULL;
     pick_refused = 0;
     chans_clear();
+    nfetched_once = 0;
+    net_failed = 0;
+    net_err[0] = '\0';
     opt_unpacked = o != NULL ? o->unpacked : NULL;
     pkg_fs_on_trace = s != NULL && s->trace != NULL ? net_trace_line : NULL;
     /* The activity line, for as long as this operation runs and no longer. */
@@ -9488,6 +9529,188 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     chans_clear();
     sink = NULL;
     return rc;
+}
+
+/* ---- read-only update checks ------------------------------------------ */
+
+static struct pkg_update_found *update_found;
+
+static int update_text(char **out, const char *text)
+{
+    *out = pkg_strdup(text ? text : "");
+    return *out != NULL ? 0 : refuse("out of memory");
+}
+
+static int update_changes(char **out, const struct pkg_strs *lines)
+{
+    size_t i, size = 1, at = 0;
+    for (i = 0; i < lines->n; i++) {
+        size_t n = strlen(lines->v[i]);
+        if (n > (size_t)-1 - size - 1) return refuse("changes text is too large");
+        size += n + 1;
+    }
+    *out = malloc(size);
+    if (*out == NULL) return refuse("out of memory");
+    for (i = 0; i < lines->n; i++) {
+        size_t n = strlen(lines->v[i]);
+        if (i) (*out)[at++] = '\n';
+        memcpy(*out + at, lines->v[i], n);
+        at += n;
+    }
+    (*out)[at] = '\0';
+    return 0;
+}
+
+static int cmd_update_check(const struct pkg_options *a)
+{
+    struct pkg_update_found *r = update_found;
+    struct pkg_manifest cur;
+    struct index ix = { NULL, 0 };
+    struct fetched offered;
+    const struct entry *e = NULL;
+    char pin[65], *path;
+    size_t i;
+    int rc = 1, loaded_index = 0;
+
+    pkg_manifest_init(&cur);
+    memset(&offered, 0, sizeof offered);
+    if (a->target == NULL || pkg_check_name(a->target) != NULL
+        || a->root == NULL || !a->root[0] || (a->channel && !a->channel[0]))
+        return refuse_c(20, "provide a valid package name and installation root");
+    path = root_path(a->root, "db", a->target);
+    if (path == NULL) return refuse("out of memory");
+    if (!pkg_fs_exists(path)) {
+        free(path);
+        r->state = PKG_UPDATE_NOT_MANAGED;
+        return 0;
+    }
+    free(path);
+    if (load_installed(a->root, a->target, &cur, 0) != 0) goto out;
+    if (strcmp(cur.name, a->target) != 0) {
+        refuse_c(12, "the installed database entry names another package");
+        goto out;
+    }
+    if (update_text(&r->installed, cur.version) != 0) goto out;
+    if (!pinned_key(a->root, a->target, pin)) {
+        refuse_c(14, "the installed package has no readable pinned publisher key");
+        goto out;
+    }
+    for (i = 0; i < 64; i++) {
+        if (!isxdigit((unsigned char)pin[i])) {
+            refuse_c(12, "the pinned publisher key is malformed");
+            goto out;
+        }
+    }
+    if (resolve_arch(a) != 0) goto out;
+    if (target_arch == NULL)
+        target_arch = cur.architecture;
+    if (a->channel && !is_url(a->channel) && !pkg_fs_is_dir(a->channel)) {
+        r->state = PKG_UPDATE_UNREACHABLE;
+        refuse_c(11, "cannot read the channel at %s", a->channel);
+        goto out;
+    }
+    if (open_channels(a, &ix) != 0) {
+        if (refused_class == 11 || refused_class == 17) r->state = PKG_UPDATE_UNREACHABLE;
+        goto out;
+    }
+    loaded_index = 1;
+    for (i = 0; i < ix.n; i++) {
+        const struct entry *old = &ix.e[i];
+        if (strcmp(old->name, cur.name) == 0
+            && pkg_version_cmp(old->version, cur.version) == 0
+            && strcmp(old->arch, cur.architecture) == 0 && is_withdrawn(old)) {
+            struct fetched verified;
+            int valid = fetch_manifest(chan_of(old), old, &verified) == 0;
+            if (valid && strcmp(verified.signer, pin) == 0) r->installed_withdrawn = 1;
+            fetched_free(&verified);
+            if (!valid) goto out;
+        }
+    }
+    /* A check reports a changed key on the highest compatible offer.
+     * Installation's trusted-key filtering would hide that information. */
+    for (i = 0; i < ix.n; i++) {
+        const struct entry *candidate = &ix.e[i];
+        if (strcmp(candidate->name, a->target) || !arch_matches(candidate)
+            || is_withdrawn(candidate)) continue;
+        if (e == NULL || pkg_version_cmp(candidate->version, e->version) > 0)
+            e = candidate;
+    }
+    if (net_failed) {
+        r->state = PKG_UPDATE_UNREACHABLE;
+        refuse_c(17, "cannot finish reading update metadata: %s", net_err);
+        goto out;
+    }
+    if (e == NULL) {
+        r->state = r->installed_withdrawn ? PKG_UPDATE_WITHDRAWN : PKG_UPDATE_NOT_OFFERED;
+        rc = 0;
+        goto out;
+    }
+    if (fetch_manifest(chan_of(e), e, &offered) != 0) goto out;
+    if (update_text(&r->offered, offered.m.version) != 0
+        || update_text(&r->channel, chan_of(e)) != 0
+        || update_text(&r->signer, offered.signer) != 0
+        || update_text(&r->homepage, offered.m.about.homepage) != 0
+        || update_text(&r->short_desc, offered.m.about.short_desc) != 0
+        || update_changes(&r->changes, &offered.m.about.changes) != 0) goto out;
+    snprintf(r->manifest, sizeof r->manifest, "%s", e->digest);
+    for (i = 0; i < offered.m.nfiles; i++) {
+        if (offered.m.files[i].size > ~0ull - r->installed_bytes) {
+            refuse_c(12, "the offered package's file sizes overflow the byte count");
+            goto out;
+        }
+        r->installed_bytes += offered.m.files[i].size;
+    }
+    if (offered.m.archive_sha != NULL) {
+        r->download_size_known = 1;
+        r->download_bytes = offered.m.archive_size;
+    }
+    r->newer = pkg_version_cmp(offered.m.version, cur.version) > 0;
+    if (strcmp(offered.signer, pin) != 0) r->state = PKG_UPDATE_KEY_CHANGED;
+    else if (r->newer) r->state = PKG_UPDATE_AVAILABLE;
+    else if (r->installed_withdrawn) r->state = PKG_UPDATE_WITHDRAWN;
+    else r->state = PKG_UPDATE_NONE;
+    rc = 0;
+out:
+    if (net_failed) r->state = PKG_UPDATE_UNREACHABLE;
+    if (loaded_index) free(ix.e);
+    fetched_free(&offered);
+    pkg_manifest_free(&cur);
+    return rc;
+}
+
+static void update_record(void *user, const char *key, const char *value)
+{
+    struct pkg_update_found *r = user;
+    if (!strcmp(key, "reason")) snprintf(r->error, sizeof r->error, "%s", value);
+}
+
+int pkg_update_check(const struct pkg_update *u, struct pkg_update_found *found)
+{
+    struct pkg_sink output;
+    struct pkg_options options;
+    int code;
+    if (found == NULL) return PKG_UPDATE_ERROR;
+    pkg_update_found_free(found);
+    found->state = PKG_UPDATE_ERROR;
+    if (u == NULL) {
+        found->code = PKG_RC_USAGE;
+        snprintf(found->error, sizeof found->error, "provide the update configuration");
+        return found->state;
+    }
+    memset(&output, 0, sizeof output);
+    memset(&options, 0, sizeof options);
+    output.record = update_record;
+    output.user = found;
+    output.structured = 1;
+    options.target = u->package;
+    options.root = u->root;
+    options.channel = u->channel;
+    update_found = found;
+    code = call(&output, "update-check", cmd_update_check, &options);
+    update_found = NULL;
+    found->code = code;
+    if (code && found->state != PKG_UPDATE_UNREACHABLE) found->state = PKG_UPDATE_ERROR;
+    return found->state;
 }
 
 int pkg_keygen   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "keygen", cmd_keygen, o); }

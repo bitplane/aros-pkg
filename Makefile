@@ -14,7 +14,7 @@ BUILDDAY ?= $(shell date -u +%d.%m.%Y)
 VERFLAGS  = -DPKG_VERSION_PATCH='"$(PATCH)"' -DPKG_BUILD='"$(BUILD)"' -DPKG_BUILD_DAY='"$(BUILDDAY)"' 
 
 # Portable C99: everything except the host filesystem layer.
-LIB  = src/pkg_lib.c src/pkg_activity.c
+LIB  = src/pkg_lib.c src/pkg_activity.c src/pkg_update.c
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
        src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c \
        src/pkg_pkginfo.c
@@ -91,6 +91,13 @@ build/test_api: tests/test_api.c $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_api.c $(LIB) $(CORE) $(HOST)
 
+build/test_update: tests/test_update.c build/libpkg.a $(HDR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $< build/libpkg.a
+
+build/test_update_config: tests/test_update_config.c src/pkg_update.c $(HDR)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_update_config.c src/pkg_update.c
+
 build/test_activity: tests/test_activity.c src/pkg_activity.c $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_activity.c src/pkg_activity.c
@@ -147,6 +154,10 @@ test:
 	@sh tests/archive.sh
 	@echo "== fastarchive"
 	@PKG=./build/pkg sh tests/fastarchive.sh
+	@echo "== selfupdate"
+	@$(MAKE) --no-print-directory build/test_update build/test_update_config build/example-selfupdate
+	@./build/test_update_config
+	@PKG=./build/pkg python3 tests/selfupdate.py
 	@echo "== examples"
 	@rm -f build/libpkg.a build/example-basic build/example-browse
 	@$(MAKE) --no-print-directory build/example-basic build/example-browse

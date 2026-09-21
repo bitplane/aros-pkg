@@ -1,155 +1,143 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 John Knipper -->
 
-# A program that keeps itself up to date: specification
+# Checking a program's updates with libpkg
 
-Status: specification, not built. It says what a program that links libpkg
-can do to find out that a newer version of itself exists, tell its user, and
-install it when the user says yes.
+A program can use `libpkg` to compare its installed version with the highest compatible version
+offered by its channels. The result includes the publisher's signed release notes, version, signing
+key and package sizes. The program decides when to check and how to display the result.
 
-## What it is for
+The check preserves installed files, the package database and trusted keys. Network reads can
+populate Pkg's download cache. An application serializes its libpkg calls; a graphical application
+can perform the check on its worker thread and pass the result to its interface.
 
-A program ships as a package. Its author wants it to say "version 2.1 is
-out" and to update itself at a click, without writing any of the
-networking, the signature checks or the file replacement: those are pkg's
-and stay pkg's. The program decides only when to ask and how to show the
-answer.
+## Basic example
 
-The user decides whether to update. Nothing here ever installs anything on
-its own.
+Build and run the local demonstration:
 
-## What the program provides
-
-Three facts, in code or in a file beside the program:
-
-| | |
-|---|---|
-| its package name | `hello` |
-| where newer versions are published | a channel: a URL or a directory |
-| the root it is installed in | `SYS:` on AROS; found by the library when not given |
-
-Its own version is NOT one of them: the library reads what is installed
-from the root's database, which is the truth, and not what the program
-believes it is.
-
-### In a file
-
-`<program>.pkgupdate`, beside the executable or named explicitly, in the
-same `Key: value` form as a manifest:
-
+```sh
+make build/pkg build/example-selfupdate
+sh examples/selfupdate-demo.sh
 ```
+
+The demonstration creates a temporary signed channel, installs `hello` 1.0, publishes 2.0 with
+release notes, and checks through both code and configuration. It displays the offered version and
+its changes, then shows that 1.0 is installed. Its temporary files are removed when it exits.
+
+[examples/selfupdate.c](../examples/selfupdate.c) is the minimal client. It accepts `PACKAGE ROOT
+CHANNEL`, or `--config FILE`.
+
+## From code
+
+Include `pkg.h` and link `build/libpkg.a`. Initialize both structures before using them:
+
+```c
+struct pkg_update update;
+struct pkg_update_found found;
+int state;
+pkg_update_init(&update);
+pkg_update_found_init(&found);
+update.package = "hello";
+update.root = "SYS:";
+update.channel = "https://aros-pkg.azurewebsites.net/hello";
+state = pkg_update_check(&update, &found);
+if (state == PKG_UPDATE_AVAILABLE) {
+    printf("Version %s is available.\n%s\n", found.offered, found.changes);
+}
+pkg_update_found_free(&found);
+pkg_update_free(&update);
+```
+
+The package name and installation root are required. The installed version comes from that root's
+database. `channel = NULL` selects the root's configured channels. An explicit channel selects that
+source for this check; its signer is compared with the root's pinned key.
+
+Strings assigned directly to `update` belong to the application and must survive the call. Result
+strings belong to `found`; they survive until `pkg_update_found_free` or the next check using that
+structure. A repeated check clears the previous result and refreshes each remote channel index.
+
+## From a configuration file
+
+The application names the file explicitly:
+
+```c
+char error[512];
+int rc = pkg_update_from_file(&update, "PROGDIR:hello.pkgupdate",
+                              error, sizeof error);
+```
+
+Its contents use `Key: value` lines:
+
+```text
 Format: pkg-update 1
 Package: hello
+Root: SYS:
 Channel: https://aros-pkg.azurewebsites.net/hello
-Every: 7 days
 ```
 
-`Every` is advice to the program about how often to ask, never a schedule:
-pkg runs nothing in the background. Unknown keys are ignored.
+`Format`, `Package` and `Root` are required. `Channel` is optional. Relative root and local channel
+paths are resolved beside the configuration file. A file can live beside the executable or at an
+application-selected path.
 
-### In code
+Unknown keys are ignored. Duplicate known keys, empty required values, malformed lines and control
+characters are refused. A failed load preserves the previous configuration. `pkg_update_free`
+releases the parsed strings. The `Every` field from the installer design is advisory extension data;
+the check API gives scheduling to the application.
 
-```c
-struct pkg_update u;
-pkg_update_init(&u);
-u.package = "hello";
-u.channel = "https://aros-pkg.azurewebsites.net/hello";
-u.root    = NULL;                      /* found from the running program */
-```
+## Results
 
-or `pkg_update_from_file(&u, "PROGDIR:hello.pkgupdate")`.
+`pkg_update_check` returns a state and stores it in `found.state`:
 
-## The three calls
-
-```c
-/* 1. Is there something newer? Reads the channel's index; changes nothing. */
-int pkg_update_check(const struct pkg_update *u, struct pkg_update_found *found);
-
-/* 2. What would change: the versions, the size, what the publisher says
- *    changed, and whether the key is the one this machine trusts. */
-/*    (filled in `found` by the call above) */
-
-/* 3. Do it, once the user has said yes. */
-int pkg_update_apply(const struct pkg_update *u, const struct pkg_update_found *found,
-                     const struct pkg_sink *progress);
-```
-
-`pkg_update_check` returns:
-
-| | |
+| State | Meaning |
 |---|---|
-| `PKG_UPDATE_NONE` | installed is the newest offered |
-| `PKG_UPDATE_AVAILABLE` | `found` names the version, its size, its `Changes` text and its signer |
-| `PKG_UPDATE_NOT_MANAGED` | the program is not installed by pkg in that root: there is nothing to compare with, and nothing will be updated |
-| `PKG_UPDATE_UNREACHABLE` | the channel could not be read; say nothing to the user, try again later |
-| `PKG_UPDATE_WITHDRAWN` | the installed version was withdrawn by its publisher: worth telling the user even with nothing newer |
-| `PKG_UPDATE_KEY_CHANGED` | a newer version exists but is signed by another key than the pinned one: never applied by this API, the user must use pkg itself |
+| `PKG_UPDATE_NONE` | The channel offers no newer compatible version. |
+| `PKG_UPDATE_AVAILABLE` | A newer version is signed by the pinned publisher. |
+| `PKG_UPDATE_NOT_MANAGED` | The named package has no database entry in this root. |
+| `PKG_UPDATE_UNREACHABLE` | The channel or required network metadata could not be read. |
+| `PKG_UPDATE_WITHDRAWN` | The installed version has a verified withdrawal, with no newer offer. |
+| `PKG_UPDATE_KEY_CHANGED` | The selected offer uses a different signing key. |
+| `PKG_UPDATE_NOT_OFFERED` | The channels offer no compatible active version. |
+| `PKG_UPDATE_ERROR` | Invalid arguments, damaged metadata, invalid signature or another error. |
 
-`found` holds what a dialog needs: `installed`, `offered`, `bytes`,
-`changes` (the publisher's text for that version), `signer`, `channel`.
+`found.code` gives the `PKG_RC_*` error class and `found.error` its diagnostic. A failed check
+represents an unknown update state. The application decides whether to report the failure or offer a
+retry.
 
-`pkg_update_apply` is `UPGRADE <package>` with everything that implies:
-signature, every file against the manifest, the pinned key, staging, and the
-previous version kept for `ROLLBACK`. Its `progress` sink receives the
-activity lines of [docs/activity.md](activity.md), so the program draws
-them its own way (a gauge in a window, not a terminal line).
+`installed_withdrawn` also reports a withdrawal when a newer version exists. `newer` compares
+offered and installed versions. `installed`, `offered`, `changes`, `signer`, `channel`, `homepage`
+and `short_desc` supply display text. Fields without a verified offer can be NULL; missing optional
+text on a verified offer is an empty string. The manifest digest identifies that exact offer.
 
-## Replacing a program that is running
+`changes` contains the offered version's release notes, preserving their paragraphs.
+`installed_bytes` is the signed sum of that offer's file sizes. `download_bytes` is meaningful when
+`download_size_known` is set, as for an upstream archive whose signed manifest gives its size. A
+payload's compressed download size requires separate information; the check fetches metadata.
 
-The program is updating the file it was loaded from.
+Selection uses the root's recorded architecture, AROS's native architecture when applicable, or the
+installed package's architecture. It skips signed withdrawals and compares versions with Pkg's
+version ordering. Among several channels it selects the highest compatible version, then checks its
+signer. Channel order breaks a version tie. A changed key is exposed to the caller. Its signature
+verifies under the reported key; accepting that publisher key requires a separate decision. Upgrade
+performs dependency and installed-file checks when installation is requested.
 
-- **AROS, macOS, Linux:** the file is replaced on disk while the old image
-  keeps running; the new version starts at the next launch. `apply` returns
-  `PKG_UPDATE_RESTART` to say so. The program offers to restart; it is not
-  restarted for it.
-- **Windows:** a running `.exe` cannot be replaced. `apply` stages the new
-  version and returns `PKG_UPDATE_AT_EXIT`; the program calls
-  `pkg_update_finish()` as its last act, or pkg completes it at the next
-  launch.
-- A library or device in use follows pkg's existing rule for files in use
-  (replaced at restart).
+## Installer design
 
-## What it never does
+An installer is a separate operation from this check. Its design requires explicit user acceptance,
+the ordinary UPGRADE integrity and dependency checks, pinned-key enforcement, staging and rollback
+support. Its progress can use [the activity interface](activity.md). A key change belongs to the
+requester's explicit decision in Pkg. Scheduling and restarting the program belong to the
+application.
 
-- Never installs without the program calling `apply`, and the program only
-  calls it on the user's word.
-- Never runs on a timer or in the background: no scheduler, as the roadmap
-  has it.
-- Never accepts a new publisher key. That decision is made in pkg, by a
-  person, with both keys shown.
-- Never downgrades, never crosses to another channel than the one given.
-- Never reports the check to anyone: reading a channel's index sends what
-  any pkg request sends (the `User-Agent` of [docs/channels.md](channels.md))
-  and nothing about the program or the user.
+The proposed `pkg_update_apply` and `pkg_update_finish` calls require an implementation and platform
+tests. UNVERIFIED: replacement of the calling program while it runs on AROS, macOS and Linux, and a
+staged replacement at exit on Windows. Establishing those paths supplies the installation phase. The
+proposed installer result distinguishes `PKG_UPDATE_RESTART` after replacement from
+`PKG_UPDATE_AT_EXIT` for a staged replacement. It preserves the selected channel and refuses
+downgrades. Files in use, including libraries and devices, require a restart policy and platform
+verification.
 
-## The command line, for a script instead of a program
+Root discovery from an executable, accumulated release notes across versions, a conventional
+configuration-file location, and `STATUS FROM` on the command line are separate extensions.
 
-The same, with no code:
-
-```
-pkg STATUS hello ROOT SYS: CHANNEL <url> MACHINE      is there something newer
-pkg UPGRADE hello ROOT SYS: CHANNEL <url>              do it
-```
-
-and with the file: `pkg STATUS FROM PROGDIR:hello.pkgupdate`.
-
-## A sample
-
-`examples/selfupdate.c`: a program that reads its `.pkgupdate`, checks,
-prints what it found with the publisher's changes, asks `y/n`, applies, and
-says whether to restart. It is the reference for anyone integrating this,
-and it runs against a local channel in `tests/selfupdate.sh`, which covers
-every return value above, the refused key change, and a program not
-installed by pkg.
-
-## Open questions
-
-1. Where the `.pkgupdate` file lives by default on AROS: `PROGDIR:` beside
-   the executable is the obvious place, and it would be shipped inside the
-   package itself, so the package says where its own updates come from.
-2. Whether `found.changes` gives only the offered version's text or every
-   version between installed and offered. The second is more useful and
-   costs a few more manifest reads.
-3. Whether a program may ask for a different channel than the one the
-   package was installed from. Safer default: it may not, and the channel in
-   the file is only used when the root records none.
+Scripts can inspect installations with `STATUS ... MACHINE` and request an upgrade with `UPGRADE`.
+The C example and the config loader provide the check-only integration described here.

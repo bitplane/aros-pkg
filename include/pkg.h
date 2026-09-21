@@ -421,4 +421,61 @@ const char *pkg_next_words(const char *next);
 /* The value of field `key` among an item's fields, or NULL. */
 const char *pkg_field(int n, const char *const *keys, const char *const *values, const char *key);
 
+/* Read-only update checks for a program installed by Pkg.
+ * Strings assigned in code are borrowed. from_file owns its parsed strings
+ * until pkg_update_free; initialize before the first use. Root and package
+ * are required. A NULL channel selects the root's configured channels. */
+struct pkg_update {
+    const char *package;
+    const char *channel;
+    const char *root;
+    void *_owned;
+};
+
+enum pkg_update_state {
+    PKG_UPDATE_NONE = 0,       /* no newer version among the compatible offers */
+    PKG_UPDATE_AVAILABLE,
+    PKG_UPDATE_NOT_MANAGED,
+    PKG_UPDATE_UNREACHABLE,
+    PKG_UPDATE_WITHDRAWN,
+    PKG_UPDATE_KEY_CHANGED,
+    PKG_UPDATE_NOT_OFFERED,
+    PKG_UPDATE_ERROR
+};
+
+/* All strings are owned by this result and live until found_free or the
+ * next check. Initialize before the first check. Changes describes the
+ * offered version. installed_bytes is the signed sum of its file sizes;
+ * download_bytes is valid only when download_size_known is nonzero.
+ * A check reads metadata and may populate the network cache. Installed
+ * files, the root database and pinned keys are unchanged. Serialize calls
+ * with every other libpkg operation, as required by the library API. */
+struct pkg_update_found {
+    int state;
+    int code;                 /* PKG_RC_* on error; zero for a completed check */
+    int installed_withdrawn;
+    int newer;
+    char *installed, *offered, *changes, *signer, *channel;
+    char *homepage, *short_desc;
+    unsigned long long installed_bytes, download_bytes;
+    int download_size_known;
+    char manifest[65];        /* digest identifying the verified offered manifest */
+    char error[512];
+};
+
+void pkg_update_init(struct pkg_update *u);
+void pkg_update_free(struct pkg_update *u);
+/* Reads an explicitly named file with Format: pkg-update 1, Package, Root
+ * and optional Channel. Relative paths are relative to the config file.
+ * Failure preserves u. Returns PKG_RC_*; err receives a diagnostic when
+ * non-NULL and errlen is positive. Unknown keys are ignored. */
+int pkg_update_from_file(struct pkg_update *u, const char *path,
+                         char *err, unsigned long errlen);
+void pkg_update_found_init(struct pkg_update_found *found);
+void pkg_update_found_free(struct pkg_update_found *found);
+/* Returns a PKG_UPDATE_* state, also stored in found.state. The installed
+ * version comes from the root database. A different publisher key is
+ * reported explicitly; the check accepts no keys and installs nothing. */
+int pkg_update_check(const struct pkg_update *u, struct pkg_update_found *found);
+
 #endif
