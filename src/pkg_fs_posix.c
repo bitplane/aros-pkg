@@ -1044,6 +1044,8 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
             if (said_waiting) { waiting(NULL); said_waiting = 0; }
             if (clen < 0) clen = dumped_length(hdrs);
             pkg_fs_on_transfer((long long)sb.st_size, clen);
+        } else if (said_waiting) {
+            waiting(host);       /* nothing yet: the mark says pkg is alive */
         }
         usleep(100000);
     }

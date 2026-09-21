@@ -344,13 +344,20 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
 
 /* The activity line's mark is three character cells wide; in bytes that is
  * three, or four where the middle dot arrives as UTF-8 (0xC2 0xB7). */
+/* How many bytes of the line are the mark, and 0 when there is none: a line
+ * that carries a figure instead begins with two spaces, and the colour of
+ * the mark has no business on a number. */
 static size_t mark_bytes(const char *text)
 {
-    return text[0] != '\0' && (unsigned char)text[1] == 0xC2u ? 4u : 3u;
+    if (text[0] == '\0' || (text[0] == ' ' && text[1] == ' '))
+        return 0;
+    return (unsigned char)text[1] == 0xC2u ? 4u : 3u;
 }
 
 /* Take the activity line off the screen, leaving the cursor at the left of
  * the line it stood on, so that whatever comes next starts there. */
+static char last_activity[400];
+
 static void erase_activity(struct buf *b, int e)
 {
     if (activity_len <= 0)
@@ -573,14 +580,29 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
             int had = activity_len;
             erase_activity(&styled, e);
             if (caps[e].bold && had > 0)
-                badd(&styled, ESC "[?25h");
+                badd(&styled, ESC "?25h");
             break;
         }
         m = mark_bytes(text);
+        /* The words have not changed and only the mark has: write the mark
+         * alone, and leave the rest of the line where it is. */
+        if (m > 0 && activity_len > 0 && strlen(text) + 2 == (size_t)activity_len
+            && strcmp(text + m, last_activity + m) == 0) {
+            badd(&styled, "\r  ");
+            if (caps[e].bold) {
+                char head[8];
+                snprintf(head, sizeof head, "%.*s", (int)m, text);
+                badd(&styled, sgr(e, PURPLE)); badd(&styled, head); badd(&styled, sgr(e, RESET));
+            } else {
+                badd(&styled, text);
+            }
+            snprintf(last_activity, sizeof last_activity, "%s", text);
+            break;
+        }
         /* The cursor sits wherever the line ends and jumps with it: hidden
          * while the line is alive, shown again when it is erased. */
         if (caps[e].bold && activity_len == 0)
-            badd(&styled, ESC "[?25l");
+            badd(&styled, ESC "?25l");
         badd(&styled, "\r  ");
         if (caps[e].bold) {
             char head[8];
@@ -594,6 +616,7 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
             pad(&styled, was > now ? was - now : 0);
         }
         activity_len = (int)strlen(text) + 2;
+        snprintf(last_activity, sizeof last_activity, "%s", text);
         activity_err = e;
         break;
     }
@@ -619,7 +642,7 @@ void pkg_style_line(pkg_style_writer write, int kind, int is_error, const char *
         int e = activity_err;
         erase_activity(&clear, e);
         if (caps[e].bold)
-            badd(&clear, ESC "[?25h");          /* the cursor comes back with the text */
+            badd(&clear, ESC "?25h");          /* the cursor comes back with the text */
         write(e, clear.p != NULL ? clear.p : "", "");
         bfree(&clear);
     }

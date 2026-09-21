@@ -1,0 +1,76 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 John Knipper -->
+
+# What pkg shows while it works
+
+A person watching a command needs two things: to be told what is about to
+take time, before it takes it, and to see that it is still going. This is
+what pkg shows, and what it never shows.
+
+The whole behaviour lives in one file, `src/pkg_activity.c`, behind
+`include/pkg_activity.h`. Nothing else decides when a line appears, how
+often it is redrawn, or what it says. `examples/activity.c` is a sample
+that goes through every case; it is built as `build/example-activity` and
+takes no network and no large file.
+
+## The two shapes
+
+**A step that knows its size** says so and shows how far it has got, in one
+line rewritten in place:
+
+```
+  reading the archive contrib.tar.bz2, 212/637 MB  14 MB/s  0:30 left
+  checking contrib-nightly, 57/208
+```
+
+It appears at once, from the first byte, because a step that knows its size
+knew it would be long before it started. The figure is what shows that pkg
+is alive, so the line carries no mark.
+
+**A step that does not know** carries the mark instead, the project's logo
+pulsing in place:
+
+```
+ (O) waiting for aros-pkg.azurewebsites.net
+```
+
+It waits half a second before appearing, so that what turns out to be quick
+says nothing at all, and the mark then advances up to eight times a second.
+
+The mark never stands beside a figure: one or the other, never both.
+
+## The rules
+
+| | |
+|---|---|
+| Before the work | the line names the step and its size, and is drawn before the first byte is read |
+| While it runs | rewritten in place, at most eight times a second; the figure moves a point at a time from 0 |
+| A step inside a step | draws over the line; when it ends, the step around it takes its line back, so a long step made of small ones keeps saying how far it has got |
+| When it ends | the line is erased, the cursor comes back, and the result prints where the line stood |
+| Quicker than half a second | nothing is printed, unless the size was known |
+| Only the mark changed | only the mark is rewritten, so the words do not flicker |
+
+## Where it is never seen
+
+- `MACHINE` output: records only, never a frame, a carriage return or an escape.
+- A `LOG` file: the result and the refusals, never the line.
+- Output that is not a terminal, unless `PKG_PROGRESS=1` says otherwise.
+- `PKG_COLOR=never`: the line stays, in plain text, with no escape sequence.
+- `PKG_PROGRESS=0` switches it off everywhere.
+
+## The mark
+
+Six frames, a drop that becomes a ring and fades:
+
+```
+ ·    o    O   (O)  ( )   ·
+```
+
+Purple where the terminal has colours, the highlight pen on the AROS
+console. The middle dot is written as the one byte 0xB7 on AROS, as UTF-8
+under a UTF-8 locale, and as a full stop anywhere else.
+
+## The cursor
+
+Hidden while the line is alive, shown again by every path that erases it:
+a result, a refusal, a table, or the end of the command.

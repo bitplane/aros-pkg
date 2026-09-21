@@ -62,7 +62,7 @@ aros-channel: build/pkg
 	sh tools/make-aros-channel.sh "$(CHANNEL)"
 
 # The examples, built against libpkg.a as another program would.
-build/example-%: examples/%.c build/libpkg.a include/pkg.h
+build/example-%: examples/%.c build/libpkg.a include/pkg.h include/pkg_activity.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $< build/libpkg.a
 
 # Windows, cross-built with mingw-w64. tools/make-windows-kit.sh wraps it in a

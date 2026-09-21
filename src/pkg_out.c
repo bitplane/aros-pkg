@@ -167,7 +167,15 @@ void pkg_out(const char *fmt, ...)
     va_list ap;
     binary_once();
     va_start(ap, fmt);
-    if (capturing) cap_vadd(&cap_out, fmt, ap); else vfprintf(stdout, fmt, ap);
+    if (capturing) {
+        cap_vadd(&cap_out, fmt, ap);
+    } else {
+        vfprintf(stdout, fmt, ap);
+        /* The activity line carries no newline, and a terminal holds a line
+         * until one arrives: without this it reaches the screen minutes
+         * later, all at once, which is what a reader takes for a freeze. */
+        fflush(stdout);
+    }
     va_end(ap);
 }
 

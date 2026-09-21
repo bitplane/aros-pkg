@@ -326,6 +326,15 @@ static void say(const char *fmt, ...)
  * receives the same texts and draws them in its own way. Nothing is drawn in
  * machine output, and nothing where nobody is watching: pkg_sink.progress
  * says whether anybody is. */
+/* The sentence that announces a step: an ordinary line that stays. */
+static void activity_say(void *user, const char *text)
+{
+    (void)user;
+    if (sink == NULL || machine)
+        return;
+    say_kind(PKG_LINE_NOTE, "%s\n", "%s", text);
+}
+
 static void activity_show(void *user, const char *text)
 {
     (void)user;
@@ -339,9 +348,36 @@ static void activity_show(void *user, const char *text)
         say("\r%*s\r", 60, "");
 }
 
+/* A step begins. The two forms say how big the work is when that is known,
+ * so the sentence that announces it can be printed before the wait and not
+ * after it: bytes for a file, a count of things otherwise. */
+/* A file's size, for the sentence that announces the work, or 0 when it
+ * cannot be had: a step that does not know says nothing about its size. */
+static long long file_bytes(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    long long n = 0;
+    if (f == NULL)
+        return 0;
+    if (fseek(f, 0, SEEK_END) == 0)
+        n = (long long)ftell(f);
+    fclose(f);
+    return n > 0 ? n : 0;
+}
+
 static void doing(const char *verb, const char *object)
 {
-    pkg_activity_step(verb, object);
+    pkg_activity_step(verb, object, 0, PKG_ACTIVITY_NOTHING, NULL);
+}
+
+static void doing_bytes(const char *verb, const char *object, long long whole)
+{
+    pkg_activity_step(verb, object, whole, PKG_ACTIVITY_BYTES, NULL);
+}
+
+static void doing_things(const char *verb, const char *object, long long n, const char *word)
+{
+    pkg_activity_step(verb, object, n, PKG_ACTIVITY_THINGS, word);
 }
 
 static void did(void)
@@ -396,7 +432,7 @@ static void on_wait(const char *host)
 }
 static void on_archive_read(long long done, long long total)
 {
-    pkg_activity_percent(done, total);
+    pkg_activity_bytes(done, total);       /* an archive is read in bytes, and says so */
 }
 
 /* A file arriving over the network, named as a person would name it. */
@@ -3789,22 +3825,11 @@ static void from_note(const char *kind, const char *path)
     if (machine) {
         kv("archive-from", "%s %s", kind, path);
         if (cache != NULL) kv("cache", "%s", cache);
-    } else {
-        /* What is about to take time, in one line, before it takes it: the
-         * name of the archive, not the path it sits at. Whoever wants the
-         * path has TRACE, and the cache has its own line only when a
-         * download is what puts something there. */
-        const char *base = strrchr(path, '/');
-        base = base != NULL ? base + 1 : path;
-        say_kind(PKG_LINE_NOTE, "%s\n", "%s %s",
-                 strcmp(kind, "map") == 0 ? "reading the blocks it needs of" :
-                 strcmp(kind, "cache") == 0 ? "reading the cached archive" :
-                 strcmp(kind, "unpacked") == 0 ? "reading the unpacked archive" :
-                 strcmp(kind, "download") == 0 ? "keeping the archive as" :
-                 "reading the archive", base);
-        if (cache != NULL && strcmp(kind, "download") == 0)
-            say_kind(PKG_LINE_NOTE, "%s\n", "the cache is %s; PKG_CACHE names another place for it",
-                     cache);
+    } else if (strcmp(kind, "download") == 0 && cache != NULL) {
+        /* Where a downloaded archive is kept, said once. What pkg is doing
+         * is the step's own sentence, printed before the work starts. */
+        say_kind(PKG_LINE_NOTE, "%s\n", "the cache is %s; PKG_CACHE names another place for it",
+                 cache);
     }
     free(cache);
 }
@@ -4149,8 +4174,9 @@ static int fetch_from_archive(const char *channel, struct fetched *f, const char
     }
     from_note(used_map ? "map" : from_kind, ap);
     if (!used_map) {
+        const char *base = strrchr(ap, '/');
         tr("%s: reading its files out of %s", what, ap);
-        doing("reading", "the archive");
+        doing_bytes("reading the archive", base != NULL ? base + 1 : ap, file_bytes(ap));
         rc = pkg_archive_walk_map(ap, af_want, af_data, &af, &map, err, sizeof err);
         did();
         if (rc != 0) {
@@ -4872,7 +4898,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     same = 0;
     others.m = NULL;
     others.n = 0;
-    doing("checking", m->name);
+    doing_things("checking", m->name, (long long)m->nfiles, "file");
     for (i = 0; i < m->nfiles; i++) {
         const struct pkg_file *of = old ? find_file(old, m->files[i].path) : NULL;
         counting(i, m->nfiles);
@@ -5001,7 +5027,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     sc.done = 0;
     for (i = 0, sc.todo = 0; i < m->nfiles; i++)
         if (keep[i] < 2) sc.todo++;
-    doing("writing", m->name);
+    doing_things("writing", m->name, (long long)m->nfiles, "file");
     if (pkg_read(f->pkg, f->pkg_len, stage_entry, &sc, &stopped) != PKG_OK) {
         did();
         refuse_c(PKGRC_IO, "%s; nothing was changed", sc.err);
@@ -5012,7 +5038,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     }
     did();
 
-    doing("placing", m->name);
+    doing_things("placing", m->name, (long long)m->nfiles, "file");
     for (i = 0; i < m->nfiles; i++) {
         char *from, *to;
         int good;
@@ -5705,7 +5731,7 @@ static int cmd_show(const struct pkg_options *a)
     /* 1. Each entry: manifest against the index, signature, withdrawal, and
      *    the payload of a .pkg package. */
     show_defers_archives = 1;
-    doing("checking", chan_label(a->channel));
+    doing_things("checking", chan_label(a->channel), (long long)ix.n, "version");
     for (i = 0; i < ix.n; i++) {
         struct show_row *r = &row[i];
         if (a->target != NULL && strcmp(ix.e[i].name, a->target) != 0)
@@ -9443,7 +9469,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     pkg_fs_on_trace = s != NULL && s->trace != NULL ? net_trace_line : NULL;
     /* The activity line, for as long as this operation runs and no longer. */
     if (!machine && s != NULL && s->progress) {
-        pkg_activity_to(activity_show, NULL);
+        pkg_activity_to(activity_show, activity_say, NULL);
         pkg_fs_on_transfer = on_transfer;
         pkg_fs_on_wait = on_wait;
         pkg_archive_on_read = on_archive_read;
@@ -9451,7 +9477,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
     did();
-    pkg_activity_to(NULL, NULL);
+    pkg_activity_to(NULL, NULL, NULL);
     pkg_fs_on_transfer = NULL;
     pkg_fs_on_wait = NULL;
     pkg_archive_on_read = NULL;

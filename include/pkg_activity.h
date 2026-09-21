@@ -30,7 +30,10 @@
  * text means the step ended and the line must be erased. NULL, the default,
  * turns the activity line off and makes every call below cost nothing. */
 typedef void (*pkg_activity_show_fn)(void *user, const char *text);
-void pkg_activity_to(pkg_activity_show_fn show, void *user);
+/* Where the sentence that announces a step goes: an ordinary line, printed
+ * once, which stays on the screen after the step has ended. */
+typedef void (*pkg_activity_say_fn)(void *user, const char *text);
+void pkg_activity_to(pkg_activity_show_fn show, pkg_activity_say_fn say, void *user);
 
 /* How the mark's middle dot may be written, since the frames must be
  * readable on the terminal they land on: ASCII "." is the default and is
@@ -43,11 +46,26 @@ enum {
 };
 void pkg_activity_charset(int cs);
 
-/* A step begins: a verb in the tool's voice and what it acts on, which may
- * be NULL. Nothing is drawn yet; the line appears only once the step has
- * lasted longer than a person waits without an answer (about half a second,
- * PKG_PROGRESS_AFTER in milliseconds overrides it, 0 for a test). */
-void pkg_activity_step(const char *verb, const char *object);
+/* What the step's whole is counted in, for the sentence that announces it:
+ * bytes read "637 MB", a count reads "208 versions" with the word given. */
+enum {
+    PKG_ACTIVITY_NOTHING = 0,
+    PKG_ACTIVITY_BYTES,
+    PKG_ACTIVITY_THINGS
+};
+
+/* A step begins: a verb in the tool's voice, what it acts on (may be NULL),
+ * and how much there is of it (0 when that is not known yet), counted in
+ * one of the kinds above with `word` naming them for a count.
+ *
+ * What pkg is about to do is said at once, in a line of its own, when the
+ * work is known to be long: a person reads it before the wait, not after.
+ * When the size is unknown, that sentence waits with the line, and both
+ * appear once the step has lasted longer than a person waits without an
+ * answer (about half a second; PKG_PROGRESS_AFTER in milliseconds overrides
+ * it, 0 for a test). A step that ends before then says nothing at all. */
+void pkg_activity_step(const char *verb, const char *object,
+                       long long whole, int kind, const char *word);
 
 /* Work advanced. Each of these draws at most eight times a second, so a
  * fast loop does not spin the mark madly, and draws nothing before the
