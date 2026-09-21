@@ -75,17 +75,16 @@ public static partial class UserDocs
             });
             if (text.Length == 0) continue;
             int score = 0, first = -1;
-            string? firstWord = null;
             foreach (var w in words)
             {
                 var n = Count(text, w);
                 if (n == 0) continue;
                 score += n + (page.Title.Contains(w, StringComparison.OrdinalIgnoreCase) ? 40 : 0);
                 var at = text.IndexOf(w, StringComparison.OrdinalIgnoreCase);
-                if (at >= 0 && (first < 0 || at < first)) { first = at; firstWord = w; }
+                if (at >= 0 && (first < 0 || at < first)) { first = at; }
             }
             if (score == 0 || first < 0) continue;
-            hits.Add(new Hit(page, score, Sentence(text, first), AnchorAt(text, first, firstWord!)));
+            hits.Add(new Hit(page, score, Sentence(text, first), AnchorAt(text, first)));
         }
         return hits.OrderByDescending(h => h.Score).ThenBy(h => h.Page.Title, StringComparer.Ordinal).ToList();
     }
@@ -109,16 +108,14 @@ public static partial class UserDocs
     }
 
     /// The heading a match sits under, so a result lands where the word is.
-    static string? AnchorAt(string text, int at, string word)
+    static string? AnchorAt(string text, int at)
     {
-        var before = text[..at];
-        var line = before.LastIndexOf("\n## ", StringComparison.Ordinal);
-        if (line < 0) return null;
-        var end = text.IndexOf('\n', line + 1);
-        var heading = text[(line + 4)..(end < 0 ? text.Length : end)].Trim();
-        var id = new string(heading.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray());
-        while (id.Contains("--", StringComparison.Ordinal)) id = id.Replace("--", "-");
-        return id.Trim('-');
+        var md = TopTitle().Replace(text, "", 1);
+        var position = at - (text.Length - md.Length);
+        var doc = Markdown.Parse(md, Pipeline);
+        return doc.Descendants<HeadingBlock>()
+            .Where(h => h.Level is 2 or 3 && h.Span.Start <= position)
+            .LastOrDefault()?.GetAttributes().Id;
     }
 
     [GeneratedRegex(@"[*_`#>]|\[([^\]]*)\]\([^)]*\)")] private static partial Regex MarkdownBits();

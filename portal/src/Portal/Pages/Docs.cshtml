@@ -6,7 +6,7 @@
     var doc = UserDocs.Render(slug);
     if (doc is null) { Response.StatusCode = 404; ViewData["Title"] = "No such page"; }
     else ViewData["Title"] = doc.Title;
-    string Href(string s) => "/docs" + (s.Length > 0 ? "/" + s : "") + (q.Length > 0 ? "?q=" + Uri.EscapeDataString(q) : "");
+    string Href(string s) => "/docs" + (s.Length > 0 ? "/" + s : "");
 }
 @if (doc is null)
 {
@@ -45,14 +45,14 @@
     <ul class="rows">
     @foreach (var h in hits)
     {
-        var to = "/docs" + (h.Page.Slug.Length > 0 ? "/" + h.Page.Slug : "") + "?q=" + Uri.EscapeDataString(q) + (h.Anchor is null ? "" : "#" + h.Anchor);
+        var to = "/docs" + (h.Page.Slug.Length > 0 ? "/" + h.Page.Slug : "") + (h.Anchor is null ? "" : "#" + h.Anchor);
         <li>
             <span><a class="n" href="@to">@h.Page.Title</a></span>
             <span class="d">@Site.Mark(h.Snippet, q)</span>
         </li>
     }
     </ul>
-    <p class="muted small">Reading a guide with a search still on marks the words in it. <a href="@("/docs" + (slug.Length > 0 ? "/" + slug : ""))">Clear the search</a>.</p>
+    <p class="muted small">Choose a result to open its guide at the matching section. <a href="@("/docs" + (slug.Length > 0 ? "/" + slug : ""))">Clear the search</a>.</p>
 }
 else
 {

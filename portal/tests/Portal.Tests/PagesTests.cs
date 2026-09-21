@@ -96,6 +96,30 @@ public class PagesTests
         Assert.Contains("Nothing in the guides holds that", none);
     }
 
+    [Theory]
+    [InlineData("/docs?q=remove")]
+    [InlineData("/docs/removing?q=remove")]
+    public async Task Clicking_a_documentation_result_opens_the_guide(string search)
+    {
+        using var f = new Site();
+        var c = f.Https();
+        var results = await c.GetStringAsync(search);
+        var links = System.Text.RegularExpressions.Regex.Matches(results, "<a class=\"n\" href=\"([^\"]+)\"");
+        Assert.NotEmpty(links);
+        foreach (System.Text.RegularExpressions.Match link in links)
+        {
+            var target = WebUtility.HtmlDecode(link.Groups[1].Value);
+            Assert.DoesNotContain("?q=", target);
+            var guide = await c.GetStringAsync(target);
+            Assert.DoesNotContain("<ul class=\"rows\">", guide);
+            Assert.Contains("<article class=\"prose\">", guide);
+            if (target.Contains('#'))
+                Assert.Contains("id=\"" + target.Split('#')[1] + "\"", guide);
+        }
+        Assert.Contains("href=\"/docs/removing\"", results);
+        Assert.DoesNotContain("href=\"/docs/removing?q=", results);
+    }
+
     [Fact]
     public async Task What_is_counted_is_three_words_and_a_tally_and_nothing_else()
     {
