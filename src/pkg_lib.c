@@ -364,28 +364,13 @@ static const char *base_name(const char *path)
     return *p != '\0' ? p : path;
 }
 
-/* The work advancing, from the layers that do it. */
-static void on_transfer(long long done, long long total)
+/* A file named for the activity line. A channel names what it holds by its
+ * digest, and sixty-four hex characters say nothing on a line: those are cut
+ * to the first twelve, the form the result sentences use ("payload
+ * c9e2bc15e3dc"). Every other name is left as it is. */
+static void short_name(char *out, size_t ol, const char *path)
 {
-    pkg_activity_bytes(done, total);
-}
-static void on_wait(const char *host)
-{
-    pkg_activity_waiting(host);
-}
-static void on_archive_read(long long done, long long total)
-{
-    pkg_activity_percent(done, total);
-}
-
-/* A file arriving over the network, named as a person would name it. A
- * channel names what it holds by its digest, and sixty-four hex characters
- * say nothing on a line: those are shortened to the first twelve, the form
- * the result sentences use ("payload c9e2bc15e3dc"). */
-static void download_name(char *out, size_t ol, const char *url)
-{
-    const char *slash = strrchr(url, '/'), *name = slash != NULL && slash[1] != '\0' ? slash + 1 : url;
-    const char *dot = strrchr(name, '.');
+    const char *name = base_name(path), *dot = strrchr(name, '.');
     size_t stem = dot != NULL ? (size_t)(dot - name) : strlen(name);
     size_t i;
     if (stem == PKG_SHA256_HEXLEN) {
@@ -400,11 +385,26 @@ static void download_name(char *out, size_t ol, const char *url)
     snprintf(out, ol, "%s", name);
 }
 
+/* The work advancing, from the layers that do it. */
+static void on_transfer(long long done, long long total)
+{
+    pkg_activity_bytes(done, total);
+}
+static void on_wait(const char *host)
+{
+    pkg_activity_waiting(host);
+}
+static void on_archive_read(long long done, long long total)
+{
+    pkg_activity_percent(done, total);
+}
+
+/* A file arriving over the network, named as a person would name it. */
 static int net_get_watched(const char *url, const char *dest, char *err, size_t errlen)
 {
     char name[120];
     int rc;
-    download_name(name, sizeof name, url);
+    short_name(name, sizeof name, url);
     doing("downloading", name);
     rc = pkg_net_get(url, dest, err, errlen);
     did();
@@ -9571,7 +9571,11 @@ static int file_digest(const char *path, char hex[PKG_SHA256_HEXLEN + 1], unsign
     rewind(f);
     pkg_sha256_init(&c);
     *size = 0;
-    doing("hashing", base_name(path));
+    {
+        char shown[120];
+        short_name(shown, sizeof shown, path);
+        doing("hashing", shown);
+    }
     while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
         pkg_sha256_update(&c, buf, n);
         *size += n;
@@ -9843,6 +9847,7 @@ static int cmd_push(const struct pkg_options *a)
         free(ans);
         for (i = 0; i < nneed; i++) {
             char *full = pkg_join(a->channel, need[i]), hex[PKG_SHA256_HEXLEN + 1], result[64], rec[64];
+            char shown[120];
             unsigned long long size = 0, off = 0;
             int ok_file = 0;
             if (!push_path_ok(need[i]) || full == NULL || file_digest(full, hex, &size) != 0) {
@@ -9851,7 +9856,8 @@ static int cmd_push(const struct pkg_options *a)
                 continue;
             }
             snprintf(url, sizeof url, "%s/_push/files/%s", base, need[i]);
-            doing("uploading", base_name(need[i]));
+            short_name(shown, sizeof shown, need[i]);
+            doing("uploading", shown);
             counting(i, nneed);
             if (size <= partsz) {
                 if (push_send(&pa, "PUT", url, full, NULL, out, &code, err, sizeof err) == 0 && code == 200
