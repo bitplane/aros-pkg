@@ -431,6 +431,7 @@ int pkg_archive_walk_map(const char *file, pkg_archive_want_fn want, pkg_archive
         if (t > 0) r->fsize = (unsigned long long)t;
     }
     rewind(r->f);
+    report(r);
     if (fread(magic, 1, 3, r->f) == 3 && magic[0] == 'B' && magic[1] == 'Z' && magic[2] == 'h')
         r->bz = 1;
     rewind(r->f);

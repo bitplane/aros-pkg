@@ -1,26 +1,8 @@
 /* SPDX-License-Identifier: MIT
  * Copyright (c) 2026 John Knipper
  *
- * See pkg_activity.h. Three things are decided here and nowhere else:
- *
- * WHEN a line appears. A step that ends quickly must print nothing at all,
- * so the first frame waits until the step has lasted longer than a person
- * waits without an answer: half a second, or PKG_PROGRESS_AFTER
- * milliseconds, which a test sets to 0.
- *
- * HOW FAST the mark moves. Every draw is an advance of the work, never of a
- * clock: pkg has one thread and gains none here. A fast loop would then spin
- * the mark far too fast to read, so a draw is refused when the last one was
- * less than an eighth of a second ago. What this cannot do, and must not
- * pretend to do, is animate a blocking call: a connect or a spawned curl
- * says "waiting for <host>" once and the mark stands still, which is the
- * truth about what pkg is doing.
- *
- * WHAT the measure says. A percentage, a rate and the time left are stated
- * only where pkg knows the whole: a download's Content-Length, the size of
- * the archive being read, i of n for a counter. Without one, the verb and
- * the object stand alone rather than a figure nobody can trust. A
- * percentage is never more than 100 and never falls back within a step.
+ * Timed activity rendering. Callers supply measured work and poll during
+ * waits; this module owns the display delay, rate and nested steps.
  */
 
 #include "pkg_activity.h"
@@ -35,12 +17,10 @@
 #define DEF_AFTER 500            /* milliseconds before the first frame */
 
 static pkg_activity_show_fn show_fn;
-static pkg_activity_say_fn  say_fn;
 static void               *show_user;
-static int  said;                        /* the step has been announced */
 static int  measured;                    /* its size is known: it shows a figure */
+static int  overflow;
 static int  depth;                       /* steps inside steps */
-static char step_size[48];               /* "637 MB", "208 versions", or empty */
 static char last_line[400];              /* what this step last drew */
 static int                 charset;
 static int                 after = -1;
@@ -57,8 +37,12 @@ static int       last_pct;
 
 void pkg_activity_to(pkg_activity_show_fn show, pkg_activity_say_fn say, void *user)
 {
+    if (show_fn != NULL && (shown || depth > 0))
+        show_fn(show_user, "");
+    depth = overflow = 0;
+    last_line[0] = '\0';
     show_fn = show;
-    say_fn = say;
+    (void)say;
     show_user = user;
     running = shown = still = 0;
 }
@@ -186,14 +170,12 @@ static void put(const char *measure)
         frame = (frame + 1) % FRAMES;
 }
 
-static void announce(void);
-
 /* Whether this advance may be drawn now, and the moment it is drawn at:
  * after the delay, and no sooner than an eighth of a second after the last
  * one. A wait that is standing still is replaced straight away. */
 static int may_draw(long long *now)
 {
-    if (show_fn == NULL || !running)
+    if (show_fn == NULL || !running || overflow)
         return 0;
     *now = pkg_fs_now_ms();
     if (still) {
@@ -231,46 +213,35 @@ static void set_object(char *out, size_t ol, const char *in)
             out[n--] = '\0';
 }
 
-/* The sentence that says what is about to take time: the verb, what it acts
- * on, and how much of it there is. Printed once per step, and never twice. */
-static void announce(void)
-{
-    char line[200];
-    if (said || say_fn == NULL)
-        return;
-    said = 1;
-    snprintf(line, sizeof line, "%s%s%s%s%s", step_verb,
-             step_object[0] ? " " : "", step_object,
-             step_size[0] ? ", " : "", step_size);
-    say_fn(show_user, line);
-}
-
-/* Work worth announcing before it starts rather than after half a second of
- * silence: enough bytes that a person would wonder, or enough things to
- * count. Below this the sentence waits with the line, and a step that ends
- * quickly says nothing at all. */
-#define BIG_BYTES  (4ll << 20)
-#define BIG_THINGS 200ll
-
 /* What a step is, kept while a step inside it runs. */
 struct held {
-    char verb[48], object[72], size[48], line[400];
-    int said, measured, last_pct, shown;
-    long long began;
+    char verb[48], object[72], line[400];
+    int measured, last_pct, shown;
+    long long began, drawn_at, rate_at, rate_done;
+    double rate;
+    int frame, still;
+    char active_verb[48], active_object[72];
 };
-static struct held stack[4];
+static struct held stack[32];
 
 void pkg_activity_step(const char *v, const char *o, long long whole, int kind, const char *word)
 {
     if (show_fn == NULL)
         return;
-    if (running && depth < (int)(sizeof stack / sizeof stack[0])) {
+    if (overflow || (running && depth == (int)(sizeof stack / sizeof stack[0]))) {
+        overflow++;
+        return;
+    }
+    if (running) {
         struct held *h = &stack[depth++];
         snprintf(h->verb, sizeof h->verb, "%s", step_verb);
         snprintf(h->object, sizeof h->object, "%s", step_object);
-        snprintf(h->size, sizeof h->size, "%s", step_size);
-        h->said = said; h->measured = measured; h->last_pct = last_pct; h->began = began;
+        h->measured = measured; h->last_pct = last_pct; h->began = began;
         h->shown = shown;
+        h->drawn_at = drawn_at; h->rate_at = rate_at; h->rate_done = rate_done;
+        h->rate = rate; h->frame = frame; h->still = still;
+        snprintf(h->active_verb, sizeof h->active_verb, "%s", verb);
+        snprintf(h->active_object, sizeof h->active_object, "%s", object);
         snprintf(h->line, sizeof h->line, "%s", last_line);
     }
     /* What is on the screen stays there until this step draws over it: a step
@@ -279,23 +250,29 @@ void pkg_activity_step(const char *v, const char *o, long long whole, int kind, 
     set_object(step_object, sizeof step_object, o);
     snprintf(verb, sizeof verb, "%s", step_verb);
     snprintf(object, sizeof object, "%s", step_object);
-    step_size[0] = '\0';
     running = 1;
     measured = kind != PKG_ACTIVITY_NOTHING && whole > 0;
-    said = shown = still = 0;
+    shown = still = 0;
     frame = 0;
     began = drawn_at = pkg_fs_now_ms();
     rate_at = rate_done = 0;
     rate = 0.0;
     last_pct = 0;
     (void)word;
-    (void)announce;
+    last_line[0] = '\0';
+    if (measured) {
+        if (kind == PKG_ACTIVITY_BYTES) pkg_activity_bytes(0, whole);
+        else pkg_activity_count(0, (unsigned long long)whole, NULL);
+    }
 }
 
 void pkg_activity_bytes(long long done, long long total)
 {
     char measure[240], m[80], r[48], l[72];
     long long now;
+    if (show_fn == NULL || !running || overflow) return;
+    if (total <= 0) { pkg_activity_tick(); return; }
+    if (!measured) { measured = 1; shown = 0; }
     if (!may_draw(&now))
         return;
     /* the rate over the last half second at least, smoothed so it does not
@@ -325,6 +302,8 @@ void pkg_activity_percent(long long done, long long total)
     char measure[32];
     long long now;
     int pct;
+    if (show_fn == NULL || !running || overflow) return;
+    if (total > 0 && !measured) { measured = 1; shown = 0; }
     if (!may_draw(&now))
         return;
     if (total <= 0) {
@@ -343,6 +322,8 @@ void pkg_activity_count(unsigned long long i, unsigned long long n, const char *
 {
     char measure[80];
     long long now;
+    if (show_fn == NULL || !running || overflow) return;
+    if (n > 0 && !measured) { measured = 1; shown = 0; }
     if (!may_draw(&now))
         return;
     if (n == 0) {
@@ -358,7 +339,7 @@ void pkg_activity_count(unsigned long long i, unsigned long long n, const char *
 void pkg_activity_waiting(const char *host)
 {
     long long now;
-    if (show_fn == NULL || !running)
+    if (show_fn == NULL || !running || overflow)
         return;
     if (host == NULL) {                  /* the wait is over; the step goes on */
         if (still) {
@@ -385,28 +366,51 @@ void pkg_activity_waiting(const char *host)
     put("");                             /* the mark moves: that is the whole of it */
 }
 
+/* Polling a wait advances the pulse without changing a measured counter. */
+void pkg_activity_tick(void)
+{
+    long long now;
+    if (show_fn == NULL || !running || overflow) return;
+    if (still) {
+        char host[72];
+        snprintf(host, sizeof host, "%s", object);
+        pkg_activity_waiting(host);
+        return;
+    }
+    if (measured) return;
+    if (may_draw(&now)) put("");
+}
+
 void pkg_activity_done(void)
 {
     if (show_fn == NULL) {
         running = shown = still = 0;
         return;
     }
+    if (overflow) { overflow--; return; }
     still = 0;
     if (depth > 0) {
         struct held *h = &stack[--depth];
         snprintf(step_verb, sizeof step_verb, "%s", h->verb);
         snprintf(step_object, sizeof step_object, "%s", h->object);
-        snprintf(step_size, sizeof step_size, "%s", h->size);
         snprintf(verb, sizeof verb, "%s", h->verb);
         snprintf(object, sizeof object, "%s", h->object);
-        said = h->said;
         measured = h->measured;
         last_pct = h->last_pct;
         began = h->began;
-        drawn_at = 0;                 /* its figure may be drawn again at once */
+        drawn_at = h->drawn_at;
+        rate_at = h->rate_at; rate_done = h->rate_done; rate = h->rate;
+        frame = h->frame; still = h->still;
+        snprintf(verb, sizeof verb, "%s", h->active_verb);
+        snprintf(object, sizeof object, "%s", h->active_object);
         running = 1;
         shown = h->shown;
         snprintf(last_line, sizeof last_line, "%s", h->line);
+        if (!shown) {
+            int i = depth;
+            while (i > 0 && !stack[i - 1].shown) i--;
+            show_fn(show_user, i > 0 ? stack[i - 1].line : "");
+        }
         if (shown && last_line[0] != '\0')
             show_fn(show_user, last_line);   /* what pkg is still doing, back in its place */
         return;

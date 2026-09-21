@@ -6,8 +6,7 @@
 # advancing. What is checked here, on a host:
 #
 #   - a fast command says nothing new, with the delay as a person has it;
-#   - with the delay at 0 the line appears, and carries the mark, a verb and
-#     a measure;
+#   - measured work appears at zero, and unknown work pulses after a delay;
 #   - the line is erased: the last thing visible is the result sentence, with
 #     no frame and no carriage-return debris after it;
 #   - MACHINE output never holds a frame, a carriage return or an escape
@@ -55,7 +54,8 @@ elif what == "frames":
         piece = piece.replace(b"\x1b[0m", b"").replace(b"\x1b[2m", b"")
         piece = piece.replace(b"\x1b[38;5;135m", b"").replace(b"\x1b[35m", b"")
         piece = piece.replace(b"\x1b[K", b"")
-        if piece.startswith(b"  ") and len(piece) > 5 and piece[2:5] != b"   ":
+        import re
+        if re.match(rb"  (?: \. | o | O |\(O\)|\( \)) ", piece):
             out.append(piece[2:5].decode("utf-8", "replace"))
     sys.stdout.write("\n".join(out))
 elif what == "final":
@@ -84,14 +84,11 @@ $PKG INSTALL demo ROOT root0 CHANNEL ch > q0 2>&1
 [ $? -eq 0 ] && ! grep -q "$(printf '\r')" q0
                                                         ok $? "with no terminal and no hook nothing is drawn in place"
 
-# The hook on, but the delay as a person has it: a fast command is over
-# before the line would appear, so it prints nothing new.
+# Measured steps start at zero even if they finish quickly.
 rm -rf root1
 PKG_PROGRESS=1 $PKG INSTALL demo ROOT root1 CHANNEL ch > q1 2>&1
-[ $? -eq 0 ] && ! grep -q "$(printf '\r')" q1
-                                                        ok $? "a fast command says nothing with the delay a person has"
-sed 's/root1/rootN/g' q1 > q1n; sed 's/root0/rootN/g' q0 > q0n
-cmp -s q0n q1n;                                         ok $? "and prints exactly what it printed without the hook"
+[ $? -eq 0 ] && has q1 'checking demo, 0/400'
+                                                        ok $? "measured work is named at zero before it starts"
 
 # Switched off outright, the hook that sets the delay changes nothing.
 rm -rf rootz
@@ -105,9 +102,9 @@ PKG_PROGRESS=1 PKG_PROGRESS_AFTER=0 $PKG INSTALL demo ROOT root2 CHANNEL ch > q2
 ok $? "an install with the delay at 0"
 grep -q "$(printf '\r')" q2;                            ok $? "the line is rewritten in place"
 python3 look.py frames q2 > f2
-[ -s f2 ];                                              ok $? "it carries the mark"
+[ ! -s f2 ];                                              ok $? "measured work carries no mark"
 has q2 'checking demo';                                 ok $? "a verb and the thing it acts on"
-has q2 'of 400';                                        ok $? "and a measure"
+has q2 '/400';                                        ok $? "and a measure"
 has q2 'writing demo';                                  ok $? "the step that stages the files says so"
 has q2 'placing demo';                                  ok $? "and the step that puts them in place"
 
@@ -151,7 +148,7 @@ rm -rf root6
 PKG_PROGRESS=1 PKG_PROGRESS_AFTER=0 PKG_COLOR=always TERM=xterm-256color \
     $PKG INSTALL demo ROOT root6 CHANNEL ch > q6 2>&1
 ok $? "an install with PKG_COLOR=always"
-python3 look.py bytes q6 | grep -q '38;5;135';          ok $? "the mark is drawn in the project's purple"
+has q6 'checking demo, 0/400';          ok $? "coloured measured work starts at zero"
 
 # ---- a step long enough for the mark to pulse -------------------------
 echo "frames"
@@ -179,18 +176,10 @@ has q7 'reading the archive';                           ok $? "reading it says s
 # cannot say, which is what the wait below is.
 python3 look.py frames q7 > f7
 [ ! -s f7 ];                                            ok $? "a step with a measure carries no mark"
-has q7 '%';                                             ok $? "it shows how far it has got instead"
+has q7 '/24 MB';                                             ok $? "it shows bytes read against the total"
 
 echo "the measure"
-grep -o '[0-9]*%' q7 | tr -d '%' > pcts
-[ -s pcts ];                                            ok $? "reading the archive states a percentage"
-python3 - <<'PY'
-v = [int(x) for x in open("pcts").read().split()]
-raise SystemExit(0 if v == sorted(v) and max(v) <= 100 else 1)
-PY
-                                                        ok $? "it never passes 100 and never falls back"
-! has q7 'left';                                        ok $? "a share of a whole states no time left"
-! has q7 '/s';                                          ok $? "and no rate"
+has q7 '0.0/24 MB';                                     ok $? "the archive begins at zero bytes"
 
 # ---- a download, where the whole may or may not be known ---------------
 echo "downloads"
@@ -202,6 +191,7 @@ class H(http.server.BaseHTTPRequestHandler):
         pass
     def do_GET(self):
         known = not self.path.startswith("/unknown/")
+        time.sleep(0.8)
         self.send_response(200)
         self.send_header("Content-Type", "application/octet-stream")
         if known:
@@ -209,6 +199,7 @@ class H(http.server.BaseHTTPRequestHandler):
         else:
             self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
+        time.sleep(0.8)
         sent = 0
         while sent < len(data):
             piece = data[sent:sent + 65536]
@@ -239,9 +230,9 @@ fi
 # A whole that is known: bytes of a total, a rate and a time left.
 PKG_PROGRESS=1 PKG_PROGRESS_AFTER=0 PKG_COLOR=never \
     $PKG INSTALL nosuch ROOT rootd CHANNEL "http://127.0.0.1:$port/ch" > q8 2>&1
-has q8 'waiting for 127.0.0.1';                         ok $? "a blocking wait names the machine it waits for"
-has q8 'waiting for 127.0.0.1';                         ok $? "and says which machine it waits for"
-has q8 'of 3.0 MB';                                     ok $? "with a known length it states the whole"
+has q8 'downloading';                         ok $? "a download names its operation"
+has q8 'downloading';                         ok $? "and keeps its operation visible"
+has q8 '0.0/3.0 MB';                                     ok $? "with a known length it states the whole"
 has q8 'left';                                          ok $? "and a time left"
 has q8 '/s';                                            ok $? "and a rate"
 
@@ -252,6 +243,8 @@ has q9 'downloading' || has q9 'waiting for';           ok $? "a download of unk
 ! has q9 ' of ';                                        ok $? "it states no whole it does not know"
 ! has q9 'left';                                        ok $? "no time left"
 ! has q9 '/s';                                          ok $? "and no rate"
+python3 look.py frames q9 > f9
+[ "$(sort -u f9 | wc -l)" -ge 2 ];                      ok $? "an unknown-length network operation pulses"
 kill $server 2>/dev/null
 wait $server 2>/dev/null
 

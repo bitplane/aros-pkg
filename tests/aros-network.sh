@@ -49,6 +49,8 @@ cp "$repo_root/build/aros/Pkg" "$work/drawer/C/NetHello"
 PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/drawer" CHANNEL "$work/www/ch" NAME nethello VERSION 1.0 \
     KIND application > /dev/null 2>&1
 ok $? "the host publishes nethello 1.0"
+# A served withdrawals list avoids a 404 that closes the keep-alive connection.
+printf 'Format: pkg-withdrawals 1\n' > "$work/www/ch/withdrawals"
 free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
 port=$(free_port)
 python3 -m http.server --bind 127.0.0.1 --directory "$work/www" "$port" > "$work/srv.log" 2>&1 &
@@ -62,7 +64,7 @@ cp "$work/tls/ca.pem" "$share/tls/ca.pem"
 tls_ports=
 for name in good other wrongname expired; do
     p=$(free_port)
-    python3 "$repo_root/tests/https_server.py" "$work/tls/$name.pem" "$work/www" "$p" > "$work/$name.log" 2>&1 &
+    PKG_TEST_DELAY=0.9 python3 "$repo_root/tests/https_server.py" "$work/tls/$name.pem" "$work/www" "$p" > "$work/$name.log" 2>&1 &
     tls_pids="$tls_pids $!"
     tls_ports="$tls_ports $p"
 done
@@ -97,8 +99,17 @@ C:SetEnv PKG_CAFILE MacRW:tls/ca.pem
 C:MakeDir RAM:sys2
 $P SHOW CHANNEL https://127.0.0.1:$good_port/ch >MacRW:out/n05.o
 C:Echo \"\$RC\" >MacRW:out/n05.rc
+C:SetEnv PKG_PROGRESS 1
+C:SetEnv PKG_COLOR never
 $P INSTALL nethello ROOT RAM:sys2 CHANNEL https://127.0.0.1:$good_port/ch >MacRW:out/n06.o
 C:Echo \"\$RC\" >MacRW:out/n06.rc
+C:MakeDir RAM:dns-cache
+C:SetEnv PKG_CACHE RAM:dns-cache
+$P SHOW CHANNEL http://localhost:$port/ch >MacRW:out/dns.o
+C:Echo \"\$RC\" >MacRW:out/dns.rc
+C:UnSetEnv PKG_CACHE
+C:UnSetEnv PKG_PROGRESS
+C:UnSetEnv PKG_COLOR
 $P VERIFY nethello ROOT RAM:sys2 MACHINE >MacRW:out/n07.o
 C:Echo \"\$RC\" >MacRW:out/n07.rc
 $P SHOW CHANNEL https://127.0.0.1:$other_port/ch >MacRW:out/n08.o
@@ -155,6 +166,16 @@ exits n04 11 "a web address with no channel is refused as not found"
 exits n05 0 "SHOW reads the same channel over https"
 has "$O/n05.o" '^nethello  *1.0 .* ok ';              ok $? "and checks its entry: ok"
 exits n06 0 "INSTALL over https"
+exits dns 0 "AROS resolves a host name in its resolver worker"
+python3 - "$O/n06.o" <<'PYTEST'
+import re, sys
+raw = open(sys.argv[1], 'rb').read()
+frames = re.findall(rb'\r  ( \xb7 | o | O |\(O\)|\( \)) ', raw)
+assert len(set(frames)) >= 2, 'the TLS response wait must pulse'
+assert re.search(rb'downloading [^\r\n]+, 0\.0/', raw), 'download must start at zero'
+assert b'\x1b' not in raw, 'plain output must contain no escape codes'
+PYTEST
+ok $? "AROS TLS wait pulses, then measured download begins at zero"
 exits n07 0 "VERIFY of what came over TLS"
 has "$O/n07.o" '^result: intact$';                    ok $? "intact against its signed manifest"
 [ "$(code n08)" != 0 ];                               ok $? "a certificate from an authority Pkg was not given is refused (\$RC $(code n08))"

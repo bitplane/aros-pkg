@@ -22,7 +22,7 @@ CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
 HOST = src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c src/pkg_style.c
 HDR  = $(wildcard include/*.h)
 
-UNITS = test_container test_sha256 test_manifest test_ed25519 test_image test_ameta
+UNITS = test_activity test_container test_sha256 test_manifest test_ed25519 test_image test_ameta
 
 .PHONY: all test test-ubsan check-portability check-m68k check-image check check-aros clean install aros-channel
 
@@ -91,6 +91,10 @@ build/test_api: tests/test_api.c $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_api.c $(LIB) $(CORE) $(HOST)
 
+build/test_activity: tests/test_activity.c src/pkg_activity.c $(HDR)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_activity.c src/pkg_activity.c
+
 build/test_%: tests/test_%.c $(CORE) $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $< $(CORE)
@@ -112,6 +116,9 @@ test:
 	@PKG=./build/pkg sh tests/crossarch.sh
 	@echo "== status"
 	@PKG=./build/pkg sh tests/status.sh
+	@echo "== activity"
+	@PKG=./build/pkg sh tests/activity.sh
+	@PKG=./build/pkg python3 tests/activity-network.py
 	@echo "== network"
 	@PKG=./build/pkg sh tests/network.sh
 	@echo "== channels"
@@ -174,7 +181,7 @@ test-ubsan:
 	@mkdir -p build/san
 	@for t in $(UNITS); do \
 		$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \
-			-o build/san/$$t tests/$$t.c $(CORE) || exit 1; \
+			-o build/san/$$t tests/$$t.c $(CORE) src/pkg_activity.c || exit 1; \
 		./build/san/$$t > /dev/null || { echo "test-ubsan: $$t FAILED"; exit 1; }; \
 	done
 	@$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \

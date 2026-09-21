@@ -9472,6 +9472,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
         pkg_activity_to(activity_show, activity_say, NULL);
         pkg_fs_on_transfer = on_transfer;
         pkg_fs_on_wait = on_wait;
+        pkg_fs_on_tick = pkg_activity_tick;
         pkg_archive_on_read = on_archive_read;
     }
     rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
@@ -9480,6 +9481,7 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     pkg_activity_to(NULL, NULL, NULL);
     pkg_fs_on_transfer = NULL;
     pkg_fs_on_wait = NULL;
+    pkg_fs_on_tick = NULL;
     pkg_archive_on_read = NULL;
     pkg_net_idle_close();               /* nothing the network holds open outlives the operation */
     pkg_fs_on_trace = NULL;
@@ -9607,12 +9609,12 @@ static int file_digest(const char *path, char hex[PKG_SHA256_HEXLEN + 1], unsign
     {
         char shown[120];
         short_name(shown, sizeof shown, path);
-        doing("hashing", shown);
+        doing_bytes("hashing", shown, whole);
     }
     while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
         pkg_sha256_update(&c, buf, n);
         *size += n;
-        pkg_activity_percent((long long)*size, whole);
+        pkg_activity_bytes((long long)*size, whole);
     }
     did();
     fclose(f);

@@ -317,6 +317,7 @@ int pkg_fs_random_typed(void *buf, size_t len)
 
 void (*pkg_fs_on_transfer)(long long done, long long total);
 void (*pkg_fs_on_wait)(const char *host);
+void (*pkg_fs_on_tick)(void);
 
 /* Milliseconds, for the activity line's pace and for the trace's own account
  * of where a request's time went. Only differences are used. */
@@ -776,6 +777,8 @@ void pkg_fs_unlock_dir(void *lock)
 
 /* ---- the network ------------------------------------------------------ */
 
+static int net_connect(int s, const void *address, unsigned int length);
+
 void (*pkg_fs_on_trace)(const char *line);
 
 /* A line for the TRACE, when one is running. */
@@ -800,6 +803,8 @@ static void nettr(const char *fmt, ...)
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <sys/ioctl.h>
+#include <pthread.h>
 #include "pkg_tls.h"
 
 struct Library *SocketBase;
@@ -817,11 +822,69 @@ static int net_start(char *err, size_t errlen)
     return 0;
 }
 
+/* AROS socket bases and resolver storage belong to the task that opens
+ * them. The worker owns its base and copies the answer before closing it. */
+struct host_lookup {
+    pthread_mutex_t mutex;
+    const char *host;
+    struct in_addr address;
+    int done, found;
+};
+
+static void *lookup_host(void *user)
+{
+    struct host_lookup *lookup = user;
+    struct Library *SocketBase = OpenLibrary((CONST_STRPTR)"bsdsocket.library", 3);
+    struct in_addr address;
+    int found = 0;
+    if (SocketBase != NULL) {
+        struct hostent *he = gethostbyname((char *)lookup->host);
+        if (he != NULL && he->h_addrtype == AF_INET && he->h_length == sizeof address
+            && he->h_addr_list != NULL && he->h_addr_list[0] != NULL) {
+            memcpy(&address, he->h_addr_list[0], sizeof address);
+            found = 1;
+        }
+        CloseLibrary(SocketBase);
+    }
+    pthread_mutex_lock(&lookup->mutex);
+    if (found) lookup->address = address;
+    lookup->found = found;
+    lookup->done = 1;
+    pthread_mutex_unlock(&lookup->mutex);
+    return NULL;
+}
+
+static int resolve_host(const char *host, struct in_addr *address)
+{
+    struct host_lookup lookup;
+    pthread_t worker;
+    int done;
+    memset(&lookup, 0, sizeof lookup);
+    lookup.host = host;
+    if (pthread_mutex_init(&lookup.mutex, NULL) != 0) return -1;
+    if (pthread_create(&worker, NULL, lookup_host, &lookup) != 0) {
+        pthread_mutex_destroy(&lookup.mutex);
+        return -1;
+    }
+    do {
+        pthread_mutex_lock(&lookup.mutex);
+        done = lookup.done;
+        pthread_mutex_unlock(&lookup.mutex);
+        if (!done) {
+            if (pkg_fs_on_tick) pkg_fs_on_tick();
+            Delay(5);
+        }
+    } while (!done);
+    pthread_join(worker, NULL);
+    pthread_mutex_destroy(&lookup.mutex);
+    if (lookup.found) *address = lookup.address;
+    return lookup.found ? 0 : -1;
+}
+
 static int net_open(const char *host, const char *port, int tls, void **tlsh, char *err, size_t errlen)
 {
     static int prepared;                /* the authorities are read once per process */
     struct sockaddr_in sa;
-    struct hostent *he;
     long long t0, t1;
     int s;
 
@@ -837,15 +900,13 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
     sa.sin_port = htons((unsigned short)atoi(port));
     sa.sin_addr.s_addr = inet_addr((char *)host);
     if (sa.sin_addr.s_addr == INADDR_NONE) {
-        he = gethostbyname((char *)host);
-        if (he == NULL || he->h_addr_list == NULL || he->h_addr_list[0] == NULL) {
+        if (resolve_host(host, &sa.sin_addr) != 0) {
             snprintf(err, errlen, "cannot find the host %s: check the network's name servers", host);
             return -1;
         }
-        memcpy(&sa.sin_addr, he->h_addr_list[0], sizeof sa.sin_addr);
     }
     s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0 || connect(s, (struct sockaddr *)&sa, sizeof sa) != 0) {
+    if (s < 0 || net_connect(s, &sa, sizeof sa) != 0) {
         if (s >= 0) CloseSocket(s);
         snprintf(err, errlen, "cannot connect to %s:%s", host, port);
         return -1;
@@ -873,7 +934,9 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
 }
 static ssize_t net_read(int s, void *t, void *buf, size_t n)
 {
-    return t != NULL ? pkg_tls_read((struct pkg_tls *)t, buf, n) : (ssize_t)recv(s, buf, (LONG)n, 0);
+    if (t != NULL) return pkg_tls_read((struct pkg_tls *)t, buf, n);
+    if (pkg_fs_socket_wait(s, 0) != 0) return -1;
+    return (ssize_t)recv(s, buf, (LONG)n, 0);
 }
 static ssize_t net_write(int s, void *t, const void *buf, size_t n)
 {
@@ -957,7 +1020,17 @@ static int send_https(const char *method, const char *url, const char *body_file
     posix_spawn_file_actions_destroy(&fa);
     close(fd);
     if (saved != 0) { unlink(codefile); snprintf(err, errlen, "PUSH needs curl, which is not on this machine's PATH"); return -1; }
-    if (waitpid(pid, &st, 0) < 0 || !WIFEXITED(st)) { unlink(codefile); snprintf(err, errlen, "curl did not finish"); return -1; }
+    for (;;) {
+        pid_t w = waitpid(pid, &st, pkg_fs_on_tick ? WNOHANG : 0);
+        if (w == pid) break;
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            unlink(codefile); snprintf(err, errlen, "curl did not finish"); return -1;
+        }
+        pkg_fs_on_tick();
+        usleep(100000);
+    }
+    if (!WIFEXITED(st)) { unlink(codefile); snprintf(err, errlen, "curl did not finish"); return -1; }
     fd = open(codefile, O_RDONLY);
     n = fd >= 0 ? (int)read(fd, codebuf, sizeof codebuf - 1) : 0;
     if (fd >= 0) close(fd);
@@ -996,21 +1069,36 @@ static void url_host(const char *url, char *out, size_t ol)
 static long long dumped_length(const char *path)
 {
     unsigned char *b;
-    size_t len, i;
-    long long clen = -1;
+    size_t len, at = 0;
+    long long clen = -1, complete = -1;
+    int status = 0, chunked = 0;
     if (pkg_fs_read(path, &b, &len) != 0)
         return -1;
-    for (i = 0; i + 16 < len; i++) {
-        if ((b[i] != 'C' && b[i] != 'c') || strncasecmp((const char *)b + i, "content-length:", 15) != 0)
-            continue;
-        if (i > 0 && b[i - 1] != '\n')
-            continue;
-        if (memchr(b + i, '\n', len - i) == NULL)
-            break;                      /* the line is still being written */
-        clen = strtoll((const char *)b + i + 15, NULL, 10);
+    while (at < len) {
+        const unsigned char *end = memchr(b + at, '\n', len - at);
+        char line[1024];
+        size_t n;
+        if (end == NULL) break;
+        n = (size_t)(end - b) - at;
+        if (n && b[at + n - 1] == '\r') n--;
+        if (n < sizeof line) {
+            memcpy(line, b + at, n); line[n] = '\0';
+            if (!strncmp(line, "HTTP/", 5)) {
+                const char *space = strchr(line, ' ');
+                status = space ? atoi(space + 1) : 0;
+                clen = complete = -1; chunked = 0;
+            } else if (!strncasecmp(line, "Content-Length:", 15)) {
+                clen = strtoll(line + 15, NULL, 10);
+            } else if (!strncasecmp(line, "Transfer-Encoding:", 18)) {
+                chunked = 1;
+            } else if (n == 0 && status >= 200 && status < 300) {
+                complete = chunked ? -1 : clen;
+            }
+        }
+        at = (size_t)(end - b) + 1;
     }
     free(b);
-    return clen > 0 ? clen : -1;
+    return complete > 0 ? complete : -1;
 }
 
 /* https: the system's curl, with no shell in between. */
@@ -1039,14 +1127,25 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
         pid_t w = waitpid(pid, &st, pkg_fs_on_transfer ? WNOHANG : 0);
         struct stat sb;
         if (w == pid) break;
-        if (w < 0) { snprintf(err, errlen, "curl did not finish"); unlink(hdrs); return -1; }
-        if (stat(tmp, &sb) == 0 && sb.st_size > 0) {
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            snprintf(err, errlen, "curl did not finish"); unlink(hdrs); return -1;
+        }
+        if (clen < 0 && pkg_fs_on_transfer) {
+            clen = dumped_length(hdrs);
+            if (clen > 0) {
+                waiting(NULL); said_waiting = 0;
+                pkg_fs_on_transfer(0, clen);
+            }
+        }
+        if (stat(tmp, &sb) == 0 && sb.st_size > 0 && pkg_fs_on_transfer) {
             if (said_waiting) { waiting(NULL); said_waiting = 0; }
             if (clen < 0) clen = dumped_length(hdrs);
             pkg_fs_on_transfer((long long)sb.st_size, clen);
         } else if (said_waiting) {
             waiting(host);       /* nothing yet: the mark says pkg is alive */
         }
+        if (pkg_fs_on_tick) pkg_fs_on_tick();
         usleep(100000);
     }
     waiting(NULL);
@@ -1097,7 +1196,7 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
     }
     for (a = ai; a && s < 0; a = a->ai_next) {
         s = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
-        if (s >= 0 && connect(s, a->ai_addr, a->ai_addrlen) != 0) { close(s); s = -1; }
+        if (s >= 0 && net_connect(s, a->ai_addr, (unsigned int)a->ai_addrlen) != 0) { close(s); s = -1; }
     }
     freeaddrinfo(ai);
     if (s < 0) snprintf(err, errlen, "cannot connect to %s:%s", host, port);
@@ -1105,12 +1204,79 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
     waiting(NULL);
     return s;
 }
-static ssize_t net_read(int s, void *t, void *buf, size_t n) { (void)t; return read(s, buf, n); }
+static ssize_t net_read(int s, void *t, void *buf, size_t n)
+{
+    (void)t;
+    if (pkg_fs_socket_wait(s, 0) != 0) return -1;
+    return read(s, buf, n);
+}
 static ssize_t net_write(int s, void *t, const void *buf, size_t n) { (void)t; return write(s, buf, n); }
 static void net_close(int s, void *t) { (void)t; close(s); }
 #define get_https get_with_curl
 
 #endif
+
+/* A timeout gives the display a turn even when no bytes have arrived. */
+int pkg_fs_socket_wait(int socket, int writing)
+{
+    if (socket < 0 || socket >= FD_SETSIZE) { errno = EINVAL; return -1; }
+    for (;;) {
+        fd_set fds;
+        struct timeval timeout;
+        int rc;
+        FD_ZERO(&fds);
+        FD_SET(socket, &fds);
+        timeout.tv_sec = 0; timeout.tv_usec = 100000;
+#ifdef __AROS__
+        rc = WaitSelect(socket + 1, writing ? NULL : &fds,
+                        writing ? &fds : NULL, NULL, &timeout, NULL);
+#else
+        rc = select(socket + 1, writing ? NULL : &fds,
+                    writing ? &fds : NULL, NULL, &timeout);
+#endif
+        if (rc > 0) return 0;
+        if (rc < 0) {
+#ifdef __AROS__
+            if (Errno() == EINTR) continue;
+#else
+            if (errno == EINTR) continue;
+#endif
+            return -1;
+        }
+        if (pkg_fs_on_tick) pkg_fs_on_tick();
+    }
+}
+
+/* The connection can take time before its first readable byte. */
+static int net_connect(int s, const void *address, unsigned int length)
+{
+    int rc, error = 0;
+    socklen_t size = sizeof error;
+#ifdef __AROS__
+    LONG nonblock = 1;
+    if (IoctlSocket(s, FIONBIO, (char *)&nonblock) != 0) return -1;
+#else
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags < 0 || fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0) return -1;
+#endif
+    rc = connect(s, (const struct sockaddr *)address, length);
+#ifdef __AROS__
+    if (rc < 0 && (Errno() == EINPROGRESS || Errno() == EWOULDBLOCK)) {
+#else
+    if (rc < 0 && (errno == EINPROGRESS || errno == EWOULDBLOCK)) {
+#endif
+        rc = pkg_fs_socket_wait(s, 1);
+        if (rc == 0 && (getsockopt(s, SOL_SOCKET, SO_ERROR, (void *)&error, &size) != 0 || error))
+            rc = -1;
+    }
+#ifdef __AROS__
+    nonblock = 0;
+    if (IoctlSocket(s, FIONBIO, (char *)&nonblock) != 0) rc = -1;
+#else
+    if (fcntl(s, F_SETFL, flags) < 0) rc = -1;
+#endif
+    return rc;
+}
 
 /* ---- the HTTP client, the same on every system ------------------------ *
  *
@@ -1313,6 +1479,8 @@ static int read_body(struct netconn *c, long long clen, int chunked, struct sink
     char buf[65536];
     ssize_t n;
 
+    if (pkg_fs_on_transfer && b->fd >= 0)
+        pkg_fs_on_transfer(0, chunked ? -1 : clen);
     if (chunked) {
         for (;;) {
             char line[64];
@@ -1332,7 +1500,7 @@ static int read_body(struct netconn *c, long long clen, int chunked, struct sink
                 if (n <= 0) { snprintf(err, errlen, "%s ended a chunked reply early", host); return -1; }
                 if (body_put(b, buf, (size_t)n) != 0) { snprintf(err, errlen, "cannot write the download: %s", strerror(errno)); return -1; }
                 got += n;
-                if (pkg_fs_on_transfer && b->fd >= 0 && b->total / 262144 != (b->total - n) / 262144)
+                if (pkg_fs_on_transfer && b->fd >= 0)
                     pkg_fs_on_transfer(b->total, -1);
             }
             if (conn_line(c, buf, sizeof buf) != 0) { snprintf(err, errlen, "%s ended a chunked reply early", host); return -1; }
@@ -1356,7 +1524,7 @@ static int read_body(struct netconn *c, long long clen, int chunked, struct sink
             }
             if (body_put(b, buf, (size_t)n) != 0) { snprintf(err, errlen, "cannot write the download: %s", strerror(errno)); return -1; }
             got += n;
-            if (pkg_fs_on_transfer && b->fd >= 0 && b->total / 262144 != (b->total - n) / 262144)
+            if (pkg_fs_on_transfer && b->fd >= 0)
                 pkg_fs_on_transfer(b->total, clen);
         }
         return 0;
@@ -1365,7 +1533,7 @@ static int read_body(struct netconn *c, long long clen, int chunked, struct sink
      * cannot be used again */
     while ((n = conn_read(c, buf, sizeof buf)) > 0) {
         if (body_put(b, buf, (size_t)n) != 0) { snprintf(err, errlen, "cannot write the download: %s", strerror(errno)); return -1; }
-        if (pkg_fs_on_transfer && b->fd >= 0 && b->total / 262144 != (b->total - n) / 262144)
+        if (pkg_fs_on_transfer && b->fd >= 0)
             pkg_fs_on_transfer(b->total, -1);
     }
     return 1;

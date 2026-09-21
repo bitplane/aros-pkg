@@ -74,3 +74,26 @@ under a UTF-8 locale, and as a full stop anywhere else.
 
 Hidden while the line is alive, shown again by every path that erases it:
 a result, a refusal, a table, or the end of the command.
+
+## Connecting work to the display
+
+`pkg_activity_step` draws a measured step at zero before returning to its
+caller. The same line names the work and carries its counter. A byte total
+learned from an HTTP response is reported at zero before reading its body.
+The archive reader reports its file size before reading the archive.
+
+`pkg_activity_tick` advances an unknown-duration pulse after the display
+delay. Socket readiness waits call it every 100 milliseconds. The AROS TLS
+transport uses these waits for its socket reads and writes, including the
+handshake. AROS resolves host names in a worker with its own socket-library
+base; the caller services ticks until that worker finishes. The POSIX curl child is polled while it runs. A known total keeps
+its counter during a wait. The eye represents activity; byte and item
+counts represent completed work.
+
+A nested step saves the enclosing counter, rate and display timing. Ending
+the nested step restores the nearest visible enclosing step. Disconnecting
+the display erases its line and clears the nesting state.
+
+Run `make test` for the activity state tests and the CLI checks. The network
+checks use local HTTP and HTTPS servers that delay their headers and body,
+and exercise redirects with measured and unknown-length responses.

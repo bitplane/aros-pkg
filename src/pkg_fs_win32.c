@@ -540,6 +540,7 @@ int pkg_fs_list(const char *dir, char ***names, size_t *count)
 
 void (*pkg_fs_on_transfer)(long long done, long long total);
 void (*pkg_fs_on_wait)(const char *host);
+void (*pkg_fs_on_tick)(void);
 void (*pkg_fs_on_trace)(const char *line);
 
 /* Milliseconds since the machine started: only differences are used. */

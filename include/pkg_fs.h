@@ -73,6 +73,10 @@ extern void (*pkg_fs_on_transfer)(long long done, long long total);
  * a curl that has not written a byte yet. `host` is the machine being waited
  * for, NULL when that step is over. NULL, the default, asks for nothing. */
 extern void (*pkg_fs_on_wait)(const char *host);
+extern void (*pkg_fs_on_tick)(void);
+/* Wait for socket readiness while servicing the activity callback.
+ * Used by the POSIX/AROS network transport, including TLS's socket layer. */
+int pkg_fs_socket_wait(int socket, int writing);
 
 /* Milliseconds counted from some moment of this run: gettimeofday under
  * POSIX and on AROS, GetTickCount64 on Windows. Only differences are used,

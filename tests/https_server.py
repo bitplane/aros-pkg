@@ -20,13 +20,20 @@ import http.server
 import os
 import ssl
 import sys
+import time
 
 cert, directory, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
 bind = sys.argv[4] if len(sys.argv) > 4 else "127.0.0.1"
 
 if os.environ.get("PKG_TEST_KEEPALIVE") == "1":
     http.server.SimpleHTTPRequestHandler.protocol_version = "HTTP/1.1"
-handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=directory)
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        time.sleep(float(os.environ.get("PKG_TEST_DELAY", "0")))
+        super().do_GET()
+
+
+handler = functools.partial(Handler, directory=directory)
 httpd = http.server.HTTPServer((bind, port), handler)
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(cert)

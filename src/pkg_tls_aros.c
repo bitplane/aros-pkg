@@ -17,6 +17,7 @@
  * sentence. */
 
 #include "pkg_tls.h"
+#include "pkg_fs.h"
 #include "pkg.h"
 
 #include <stdio.h>
@@ -81,6 +82,7 @@ mbedtls_ms_time_t mbedtls_ms_time(void)
 static int sock_send(void *c, const unsigned char *buf, size_t len)
 {
     int n, s = *(const int *)c;
+    if (pkg_fs_socket_wait(s, 1) != 0) return MBEDTLS_ERR_NET_SEND_FAILED;
     n = (int)send(s, (APTR)buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
     return n > 0 ? n : MBEDTLS_ERR_NET_SEND_FAILED;
 }
@@ -88,6 +90,7 @@ static int sock_send(void *c, const unsigned char *buf, size_t len)
 static int sock_recv(void *c, unsigned char *buf, size_t len)
 {
     int n, s = *(const int *)c;
+    if (pkg_fs_socket_wait(s, 0) != 0) return MBEDTLS_ERR_NET_RECV_FAILED;
     n = (int)recv(s, buf, (LONG)(len > 0x7fffffffu ? 0x7fffffffu : len), 0);
     /* 0 is the server's close, which Mbed TLS reports as the end of the
      * connection; only a negative return is a failure. */
