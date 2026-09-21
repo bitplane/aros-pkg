@@ -429,3 +429,23 @@ form.inline { display: inline; margin-right: .6rem; }
 .guru { margin: 24px 0; padding: 14px 18px; border: 2px solid var(--bad); color: var(--bad); font-family: var(--mono); font-size: 0.9rem; border-radius: 4px; }
 .guru p { margin: 0.2em 0; }
 .guru strong { color: var(--bad); }
+
+/* Compact library guide in the downloads rail. */
+.embed-card h2, .embed-card p { margin: 0; }
+.embed-card { gap: 10px; }
+.downloads-grid > .rail { min-width: 0; }
+
+/* Each command keeps its form above an indented description. */
+.docs .prose table.verb-list { display: block; width: 100%; }
+.verb-list thead { display: none; }
+.verb-list tbody { display: block; }
+.verb-list tr { display: grid; grid-template-columns: 9rem minmax(0, 1fr); border-bottom: 1px solid var(--line); padding: 10px 0; }
+.docs .prose .verb-list td { border: 0; padding: 2px 8px; min-width: 0; }
+.docs .prose .verb-list td:nth-child(3) { grid-column: 1 / -1; padding: 6px 8px 2px 24px; }
+.docs .prose .verb-list code { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .downloads-grid { gap: 24px; }
+}
+@media (max-width: 600px) {
+  .verb-list tr { grid-template-columns: 7rem minmax(0, 1fr); }
+}

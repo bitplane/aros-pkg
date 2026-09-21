@@ -34,13 +34,8 @@
 }
 <p class="lead">pkg @pkg.Latest.Version, the one program that installs the rest. Let it install itself with one line; it lands as a signed package, and <code>Pkg UPGRADE pkg</code> keeps it current from then on.</p>
 
-<section class="card" aria-labelledby="embed-pkg">
-    <h2 id="embed-pkg" class="label">Update checks in your own application</h2>
-    <p>Embed <code>libpkg</code> in your C application to check for a newer compatible build and display the publisher's signed release notes. Set the package, installation root and channel in code or a <code>.pkgupdate</code> file; pkg reads the installed version from its database.</p>
-    <p>The check leaves the installation unchanged. Your application chooses when to check and asks the user before requesting an ordinary pkg upgrade. <a href="/docs/self-update">Read the integration guide</a> for the API, a minimal C example, and a local HTTP server demonstration with two 1.7.0 builds.</p>
-</section>
 
-<div class="grid">
+<div class="grid downloads-grid">
 <div>
     <h2 class="label">On AROS</h2>
     <p>With a network and <code>wget</code> (AROS One, Icaros, the nightly with its contrib), in a Shell:</p>
@@ -84,5 +79,10 @@
         <span class="eyebrow">Check what you downloaded</span>
         <span class="muted small">Every file here is listed with its SHA-256 in <code>Bootstrap/SHA256SUMS</code>, signed by the portal's bootstrap key. The installers check that signature before they install anything; by hand, <a href="/trust">Trust</a> shows the commands.</span>
     </div>
+    <section class="card embed-card" aria-labelledby="embed-pkg">
+        <h2 id="embed-pkg" class="eyebrow">Update checks in your own application</h2>
+        <p class="small">Embed <code>libpkg</code> to check for a newer compatible build and display signed release notes. Configure the package, root and channel in code or a <code>.pkgupdate</code> file. Your application asks the user before requesting an upgrade.</p>
+        <p class="small"><a href="/docs/self-update">Read the integration guide</a>, with a C example and a local HTTP demo.</p>
+    </section>
 </aside>
 </div>

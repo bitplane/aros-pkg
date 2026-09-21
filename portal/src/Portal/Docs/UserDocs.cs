@@ -137,6 +137,12 @@ public static partial class UserDocs
             }
         }
         var doc = Markdown.Parse(md, Pipeline);
+        foreach (var table in doc.Descendants<Markdig.Extensions.Tables.Table>())
+        {
+            if (table.Count > 0 && string.Concat(table[0].Descendants<Markdig.Syntax.Inlines.LiteralInline>()
+                    .Select(l => l.Content.ToString())) == "VerbFormDoes")
+                table.GetAttributes().AddClass("verb-list");
+        }
         var headings = doc.Descendants<HeadingBlock>().Where(h => h.Level is 2 or 3)
             .Select(h => (h.Level, h.GetAttributes().Id ?? "", Inline(h))).ToList();
         var here = page.File.Contains('/') ? page.File[..(page.File.LastIndexOf('/') + 1)] : "";
