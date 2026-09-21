@@ -570,10 +570,17 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
          * escape sequence anywhere. */
         size_t m;
         if (*text == '\0') {
+            int had = activity_len;
             erase_activity(&styled, e);
+            if (caps[e].bold && had > 0)
+                badd(&styled, ESC "[?25h");
             break;
         }
         m = mark_bytes(text);
+        /* The cursor sits wherever the line ends and jumps with it: hidden
+         * while the line is alive, shown again when it is erased. */
+        if (caps[e].bold && activity_len == 0)
+            badd(&styled, ESC "[?25l");
         badd(&styled, "\r  ");
         if (caps[e].bold) {
             char head[8];
@@ -611,6 +618,8 @@ void pkg_style_line(pkg_style_writer write, int kind, int is_error, const char *
         struct buf clear = { NULL, 0, 0 };
         int e = activity_err;
         erase_activity(&clear, e);
+        if (caps[e].bold)
+            badd(&clear, ESC "[?25h");          /* the cursor comes back with the text */
         write(e, clear.p != NULL ? clear.p : "", "");
         bfree(&clear);
     }

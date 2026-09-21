@@ -3790,13 +3790,19 @@ static void from_note(const char *kind, const char *path)
         kv("archive-from", "%s %s", kind, path);
         if (cache != NULL) kv("cache", "%s", cache);
     } else {
+        /* What is about to take time, in one line, before it takes it: the
+         * name of the archive, not the path it sits at. Whoever wants the
+         * path has TRACE, and the cache has its own line only when a
+         * download is what puts something there. */
+        const char *base = strrchr(path, '/');
+        base = base != NULL ? base + 1 : path;
         say_kind(PKG_LINE_NOTE, "%s\n", "%s %s",
-                 strcmp(kind, "map") == 0 ? "reading only the blocks its files lie in, out of" :
-                 strcmp(kind, "cache") == 0 ? "reading the archive already in the cache at" :
-                 strcmp(kind, "unpacked") == 0 ? "reading the unpacked archive at" :
-                 strcmp(kind, "download") == 0 ? "the archive is kept at" :
-                 "reading the archive of the channel at", path);
-        if (cache != NULL)
+                 strcmp(kind, "map") == 0 ? "reading the blocks it needs of" :
+                 strcmp(kind, "cache") == 0 ? "reading the cached archive" :
+                 strcmp(kind, "unpacked") == 0 ? "reading the unpacked archive" :
+                 strcmp(kind, "download") == 0 ? "keeping the archive as" :
+                 "reading the archive", base);
+        if (cache != NULL && strcmp(kind, "download") == 0)
             say_kind(PKG_LINE_NOTE, "%s\n", "the cache is %s; PKG_CACHE names another place for it",
                      cache);
     }

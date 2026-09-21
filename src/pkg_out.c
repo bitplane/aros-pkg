@@ -190,7 +190,13 @@ void pkg_verr(const char *fmt, va_list ap)
 void pkg_outraw(const char *buf, size_t len)
 {
     binary_once();
-    if (capturing) cap_add(&cap_out, buf, len); else fwrite(buf, 1, len, stdout);
+    if (capturing) { cap_add(&cap_out, buf, len); return; }
+    fwrite(buf, 1, len, stdout);
+    /* The activity line ends in no newline, and a terminal holds a line until
+     * one comes: without this it reached the screen kilobytes at a time, which
+     * is not a pulse but a stutter. */
+    if (len > 0 && buf[len - 1] != '\n')
+        fflush(stdout);
 }
 
 #endif
