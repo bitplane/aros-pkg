@@ -14,6 +14,7 @@
  */
 
 #include "pkg.h"
+#include "pkg_activity.h"
 #include "pkg_fs.h"
 #include "pkg_out.h"
 #include "pkg_port.h"
@@ -468,11 +469,22 @@ static int run_verb(int argc, char **argv)
     out_sink.line = machine ? NULL : print_line;
     pkg_style_init(!serving_port && pkg_out_interactive(0),
                    !serving_port && pkg_out_interactive(1), on_aros);
+    /* The activity line's mark holds a middle dot: one Latin-1 byte on the
+     * AROS console, two UTF-8 bytes under a UTF-8 locale, and a full stop
+     * where neither can be trusted. */
+    pkg_activity_charset(on_aros ? PKG_ACTIVITY_LATIN1
+                         : pkg_style_caps(0)->utf8 ? PKG_ACTIVITY_UTF8
+                         : PKG_ACTIVITY_ASCII);
     trace_path = getenv("PKG_TRACE");
     out_sink.trace = trace_path != NULL && *trace_path ? print_trace : NULL;
-    /* a person at a terminal sees long steps count; PKG_PROGRESS=1 asks for it anywhere */
-    out_sink.progress = !machine && ((getenv("PKG_PROGRESS") && *getenv("PKG_PROGRESS") == '1')
-                                     || pkg_fs_interactive());
+    /* A person at a terminal is shown the activity line while a step is
+     * long. PKG_PROGRESS decides it outright when it is set: 1 draws it
+     * wherever the output goes, anything else switches it off. */
+    {
+        const char *p = getenv("PKG_PROGRESS");
+        out_sink.progress = !machine
+                            && (p != NULL && *p != '\0' ? *p == '1' : pkg_fs_interactive());
+    }
     if (argc < 2) {
         if (machine) pkg_usage_error(&out_sink, "pkg", "no verb given");
         else usage();

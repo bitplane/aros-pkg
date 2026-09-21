@@ -28,6 +28,7 @@
  */
 
 #include "pkg.h"
+#include "pkg_activity.h"
 #include "pkg_container.h"
 #include "pkg_ed25519.h"
 #include "pkg_sha512.h"
@@ -313,62 +314,79 @@ static void say(const char *fmt, ...)
     va_end(ap);
 }
 
-/* A download a person is watching: "downloading 12.4 of 640.0 MB", rewritten
- * in place like the counter below, and cleared when the file is there. */
-static int transfer_shown;
-static void transfer_progress(long long done, long long total)
+/* ---- the activity line ------------------------------------------------ *
+ *
+ * What pkg is doing while a step takes time, and that the step is
+ * advancing: see pkg_activity.h. A step that can be long says what it is
+ * doing with `doing`, hands the module the work as it advances, and ends
+ * with `did`. The module alone decides when a line appears, how fast the
+ * mark moves and what the measure says; this file knows only the verbs.
+ *
+ * It leaves on the sink's own channel for it, so a program using libpkg
+ * receives the same texts and draws them in its own way. Nothing is drawn in
+ * machine output, and nothing where nobody is watching: pkg_sink.progress
+ * says whether anybody is. */
+static void activity_show(void *user, const char *text)
 {
-    char text[80];
-    if (total > 0)
-        snprintf(text, sizeof text, "downloading %.1f of %.1f MB", done / 1048576.0, total / 1048576.0);
-    else
-        snprintf(text, sizeof text, "downloading %.1f MB", done / 1048576.0);
-    transfer_shown = 1;
+    (void)user;
+    if (sink == NULL)
+        return;
     if (sink->line != NULL)
         sink->line(sink->user, PKG_LINE_PROGRESS, 0, text);
-    else
+    else if (text[0] != '\0')
         say("\r  %s", text);
-}
-static int net_get_watched(const char *url, const char *dest, char *err, size_t errlen)
-{
-    int rc;
-    pkg_fs_on_transfer = (!machine && sink != NULL && sink->progress) ? transfer_progress : NULL;
-    transfer_shown = 0;
-    rc = pkg_net_get(url, dest, err, errlen);
-    pkg_fs_on_transfer = NULL;
-    if (transfer_shown) {
-        if (sink->line != NULL)
-            sink->line(sink->user, PKG_LINE_PROGRESS, 0, "");
-        else
-            say("\r%*s\r", 40, "");
-    }
-    return rc;
+    else
+        say("\r%*s\r", 60, "");
 }
 
-/* A counter for a person watching a long step: "checking 800/1500",
- * rewritten in place, cleared when the step ends. */
-static void progress(const char *what, size_t i, size_t n)
+static void doing(const char *verb, const char *object)
 {
-    static char last[80];
-    if (machine || sink == NULL || !sink->progress || n < 40)
-        return;
-    if (i < n && i % 20 != 0)
-        return;
-    if (i >= n) {
-        if (last[0]) {
-            if (sink->line != NULL)
-                sink->line(sink->user, PKG_LINE_PROGRESS, 0, "");
-            else
-                say("\r%*s\r", (int)strlen(last), "");
-        }
-        last[0] = '\0';
-        return;
-    }
-    snprintf(last, sizeof last, "%s %lu/%lu", what, (unsigned long)i, (unsigned long)n);
-    if (sink->line != NULL)
-        sink->line(sink->user, PKG_LINE_PROGRESS, 0, last);
-    else
-        say("\r  %s", last);
+    pkg_activity_step(verb, object);
+}
+
+static void did(void)
+{
+    pkg_activity_done();
+}
+
+/* A counter under a step already named: "checking hello  57 of 208". */
+static void counting(size_t i, size_t n)
+{
+    pkg_activity_count((unsigned long long)i, (unsigned long long)n, NULL);
+}
+
+/* The last part of a path, which is the name a person gave the file. */
+static const char *base_name(const char *path)
+{
+    const char *p = path + strlen(path);
+    while (p > path && p[-1] != '/' && p[-1] != '\\' && p[-1] != ':')
+        p--;
+    return *p != '\0' ? p : path;
+}
+
+/* The work advancing, from the layers that do it. */
+static void on_transfer(long long done, long long total)
+{
+    pkg_activity_bytes(done, total);
+}
+static void on_wait(const char *host)
+{
+    pkg_activity_waiting(host);
+}
+static void on_archive_read(long long done, long long total)
+{
+    pkg_activity_percent(done, total);
+}
+
+/* A file arriving over the network, named by the name it is fetched under. */
+static int net_get_watched(const char *url, const char *dest, char *err, size_t errlen)
+{
+    const char *slash = strrchr(url, '/');
+    int rc;
+    doing("downloading", slash != NULL && slash[1] != '\0' ? slash + 1 : url);
+    rc = pkg_net_get(url, dest, err, errlen);
+    did();
+    return rc;
 }
 
 static void say_err(const char *fmt, ...)
@@ -1296,6 +1314,7 @@ static char *archive_index(const char *archive, char *err, size_t errlen)
     size_t len = 0;
     struct idx_build *ib;
     char *text_out;
+    int rc;
 
     if (pkg_fs_identity(archive, &id) != 0 || !id.exists) {
         snprintf(err, errlen, "cannot read %s", archive);
@@ -1319,7 +1338,10 @@ static char *archive_index(const char *archive, char *err, size_t errlen)
     ib = (struct idx_build *)calloc(1, sizeof *ib);
     if (ib == NULL) { snprintf(err, errlen, "out of memory"); free(ip); return NULL; }
     ib_put(ib, head);
-    if (pkg_archive_walk(archive, ib_want, ib_data, ib, err, errlen) != 0 || ib->oom) {
+    doing("reading", "the archive");
+    rc = pkg_archive_walk(archive, ib_want, ib_data, ib, err, errlen);
+    did();
+    if (rc != 0 || ib->oom) {
         if (ib->oom && !err[0]) snprintf(err, errlen, "out of memory");
         free(ib->out); free(ib); free(ip);
         return NULL;
@@ -2228,8 +2250,10 @@ static int read_info(const struct pkg_options *a)
         snprintf(info_shown, sizeof info_shown, "%s!/%s", arch_file, g.want);
         tr("reading %s out of %s", g.want, arch_file);
         err[0] = '\0';
-        if (pkg_archive_walk(arch_file, grab_want, grab_data, &g, err, sizeof err) != 0
-            && !g.found) {
+        doing("reading", "the archive");
+        rc = pkg_archive_walk(arch_file, grab_want, grab_data, &g, err, sizeof err);
+        did();
+        if (rc != 0 && !g.found) {
             free(g.data);
             if (g.oom) return refuse("out of memory");
             return refuse_c(err[0] ? 12 : 11, "%s", err[0] ? err : "no file at that path in the archive");
@@ -2538,11 +2562,14 @@ static int build(const struct pkg_options *a, struct built *out)
             return refuse_c(20, "\"%s\" is not a directory", a->target);
         d.root = a->target;
         d.files = a->files;
+        doing("reading", a->target);
         if (pkg_fs_walk(a->target, load_one, leave_out, &d, &out->skipped, d.err, sizeof d.err) != 0) {
+            did();
             refuse_c(20, "%s", d.err[0] ? d.err : "cannot read the drawer");
             drawer_free(&d);
             return 1;
         }
+        did();
     }
     if (info_files) {
         /* Every path the .pkginfo claims must be there: a port that moved a
@@ -2971,6 +2998,26 @@ static const char *chans_text(void)
 static int is_url(const char *ch)
 {
     return ch != NULL && (strncmp(ch, "http://", 7) == 0 || strncmp(ch, "https://", 8) == 0);
+}
+
+/* What to call a channel on the activity line: the last part of its path or
+ * URL, which is the name a person knows it by, with no trailing separator. */
+static const char *chan_label(const char *ch)
+{
+    static char out[80];
+    const char *p;
+    size_t n;
+    if (ch == NULL || *ch == '\0')
+        return "the channel";
+    n = strlen(ch);
+    while (n > 0 && (ch[n - 1] == '/' || ch[n - 1] == ':'))
+        n--;
+    for (p = ch + n; p > ch && p[-1] != '/' && p[-1] != ':'; p--)
+        ;
+    if (p == ch + n)
+        return "the channel";
+    snprintf(out, sizeof out, "%.*s", (int)(ch + n - p), p);
+    return out;
 }
 
 static char net_err[400];           /* why the last fetch failed, for the refusal */
@@ -4057,8 +4104,10 @@ static int fetch_from_archive(const char *channel, struct fetched *f, const char
     map = map_read(ap, &f->m);
     if (map != NULL) {
         tr("%s: %s has a block map; reading only the blocks its files lie in", what, ap);
-        if (pkg_archive_read_mapped(ap, map, af_want, af_data, &af, err, sizeof err) == 0
-            && af_as_signed(&af)) {
+        doing("reading", "the archive");
+        rc = pkg_archive_read_mapped(ap, map, af_want, af_data, &af, err, sizeof err);
+        did();
+        if (rc == 0 && af_as_signed(&af)) {
             used_map = 1;
         } else {
             tr("%s: the block map of %s did not serve this read; reading the archive whole and "
@@ -4072,7 +4121,10 @@ static int fetch_from_archive(const char *channel, struct fetched *f, const char
     from_note(used_map ? "map" : from_kind, ap);
     if (!used_map) {
         tr("%s: reading its files out of %s", what, ap);
-        if (pkg_archive_walk_map(ap, af_want, af_data, &af, &map, err, sizeof err) != 0) {
+        doing("reading", "the archive");
+        rc = pkg_archive_walk_map(ap, af_want, af_data, &af, &map, err, sizeof err);
+        did();
+        if (rc != 0) {
             if (af.oversize >= 0)
                 refuse_c(12, "the archive %s holds a %s longer than the %llu bytes %s's signed manifest "
                          "gives it; it was not read further. Nothing was installed", ap,
@@ -4577,7 +4629,7 @@ static int stage_entry(const struct pkg_entry *e, void *ctx)
         if (pf != NULL && s->keep[pf - s->m->files] >= 2)
             return 0;           /* stays as it is: nothing to write */
     }
-    progress("writing", s->done++, s->todo);
+    counting(s->done++, s->todo);
     p = pkg_join(s->staging, e->path);
     if (p == NULL || pkg_fs_write_new(p, e->data, e->data_len) != 0) {
         snprintf(s->err, sizeof s->err, "cannot stage \"%s\": %s", e->path, strerror(errno));
@@ -4791,9 +4843,10 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     same = 0;
     others.m = NULL;
     others.n = 0;
+    doing("checking", m->name);
     for (i = 0; i < m->nfiles; i++) {
         const struct pkg_file *of = old ? find_file(old, m->files[i].path) : NULL;
-        progress("checking", i, m->nfiles);
+        counting(i, m->nfiles);
         if (m->files[i].config) {
             /* A configuration file: a person's version stays where it is. */
             if (of != NULL && file_state(root, of->path, of->digest, of->size) == 1)
@@ -4892,7 +4945,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         }
 
     installed_free(&others);
-    progress("checking", m->nfiles, m->nfiles);
+    did();
     tr("%s %s: every file checked against the container, nothing in the way", m->name, m->version);
     if (dryrun) {
         /* Every check above has passed; say what would move, move nothing. */
@@ -4919,20 +4972,22 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     sc.done = 0;
     for (i = 0, sc.todo = 0; i < m->nfiles; i++)
         if (keep[i] < 2) sc.todo++;
+    doing("writing", m->name);
     if (pkg_read(f->pkg, f->pkg_len, stage_entry, &sc, &stopped) != PKG_OK) {
-        progress("writing", sc.todo, sc.todo);
+        did();
         refuse_c(PKGRC_IO, "%s; nothing was changed", sc.err);
         pkg_fs_rmtree(staging);
         free(staging);
         free(keep);
         return 1;
     }
-    progress("writing", sc.todo, sc.todo);
+    did();
 
+    doing("placing", m->name);
     for (i = 0; i < m->nfiles; i++) {
         char *from, *to;
         int good;
-        progress("placing", i, m->nfiles);
+        counting(i, m->nfiles);
         from = pkg_join(staging, m->files[i].path);
         to = pkg_join(root, m->files[i].path);
         if (keep[i] == 2 || keep[i] == 3) {
@@ -4959,7 +5014,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
         }
         if (!keep[i]) (*placed)++;
     }
-    progress("placing", m->nfiles, m->nfiles);
+    did();
     free(keep);
 
     if (old != NULL) {
@@ -5621,12 +5676,15 @@ static int cmd_show(const struct pkg_options *a)
     /* 1. Each entry: manifest against the index, signature, withdrawal, and
      *    the payload of a .pkg package. */
     show_defers_archives = 1;
+    doing("checking", chan_label(a->channel));
     for (i = 0; i < ix.n; i++) {
         struct show_row *r = &row[i];
         if (a->target != NULL && strcmp(ix.e[i].name, a->target) != 0)
             continue;
+        counting(i, ix.n);
         if (cancelled("while checking the channel, which was not changed")) {
             show_defers_archives = 0;
+            did();
             for (i = 0; i < ix.n; i++) if (row[i].selected) fetched_free(&row[i].f);
             free(row); free(ix.e);
             return 1;
@@ -5651,6 +5709,7 @@ static int cmd_show(const struct pkg_options *a)
             }
         }
     }
+    did();
     show_defers_archives = 0;
 
     /* 2. Each archive once: every file of every entry that names it. */
@@ -5661,6 +5720,7 @@ static int cmd_show(const struct pkg_options *a)
             struct arch_check ac;
             size_t n = 0, cap = 0, r1, fl;
             char err[300];
+            int rc;
             if (!row[r0].selected || row[r0].rc != 0 || row[r0].f.m.source == NULL
                 || row[r0].archive_checked)
                 continue;
@@ -5716,7 +5776,9 @@ static int cmd_show(const struct pkg_options *a)
                 tr("%s is published upstream and not downloaded here: not read", an);
             } else if (path == NULL || !pkg_fs_exists(path)) {
                 for (fl = 0; fl < n; fl++) ac.ex[fl].seen = 3;
-            } else if (pkg_archive_walk(path, ac_want, ac_data, &ac, err, sizeof err) != 0) {
+            } else if (doing("reading", "the archive"),
+                       rc = pkg_archive_walk(path, ac_want, ac_data, &ac, err, sizeof err),
+                       did(), rc != 0) {
                 for (fl = 0; fl < n; fl++) if (ac.ex[fl].seen == 0) ac.ex[fl].seen = 4;
             }
             for (fl = 0; fl < n; fl++) {
@@ -9350,8 +9412,20 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
     chans_clear();
     opt_unpacked = o != NULL ? o->unpacked : NULL;
     pkg_fs_on_trace = s != NULL && s->trace != NULL ? net_trace_line : NULL;
+    /* The activity line, for as long as this operation runs and no longer. */
+    if (!machine && s != NULL && s->progress) {
+        pkg_activity_to(activity_show, NULL);
+        pkg_fs_on_transfer = on_transfer;
+        pkg_fs_on_wait = on_wait;
+        pkg_archive_on_read = on_archive_read;
+    }
     rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
+    did();
+    pkg_activity_to(NULL, NULL);
+    pkg_fs_on_transfer = NULL;
+    pkg_fs_on_wait = NULL;
+    pkg_archive_on_read = NULL;
     pkg_net_idle_close();               /* nothing the network holds open outlives the operation */
     pkg_fs_on_trace = NULL;
     chans_clear();
@@ -9465,14 +9539,23 @@ static int file_digest(const char *path, char hex[PKG_SHA256_HEXLEN + 1], unsign
     FILE *f = fopen(path, "rb");
     unsigned char buf[65536], dg[PKG_SHA256_LEN];
     struct pkg_sha256 c;
+    long long whole = 0;
     size_t n, k;
     if (f == NULL) return -1;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        long t = ftell(f);
+        if (t > 0) whole = t;
+    }
+    rewind(f);
     pkg_sha256_init(&c);
     *size = 0;
+    doing("hashing", base_name(path));
     while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
         pkg_sha256_update(&c, buf, n);
         *size += n;
+        pkg_activity_percent((long long)*size, whole);
     }
+    did();
     fclose(f);
     pkg_sha256_final(&c, dg);
     for (k = 0; k < PKG_SHA256_LEN; k++) snprintf(hex + 2 * k, 3, "%02x", dg[k]);
@@ -9746,6 +9829,8 @@ static int cmd_push(const struct pkg_options *a)
                 continue;
             }
             snprintf(url, sizeof url, "%s/_push/files/%s", base, need[i]);
+            doing("uploading", base_name(need[i]));
+            counting(i, nneed);
             if (size <= partsz) {
                 if (push_send(&pa, "PUT", url, full, NULL, out, &code, err, sizeof err) == 0 && code == 200
                     && answer_field(out, "result", result, sizeof result)
@@ -9754,8 +9839,10 @@ static int cmd_push(const struct pkg_options *a)
             } else {
                 /* in parts, each resuming where the portal says it got to */
                 FILE *src = fopen(full, "rb");
+                unsigned long long parts = (size + partsz - 1) / partsz;
                 while (src != NULL && off < size) {
                     unsigned long long end2 = off + partsz < size ? off + partsz : size;
+                    pkg_activity_count(off / partsz + 1, parts, "parts");
                     FILE *pf = fopen(part, "wb");
                     char buf[65536], ph[2600];
                     unsigned long long left = end2 - off;
@@ -9779,6 +9866,7 @@ static int cmd_push(const struct pkg_options *a)
                 }
                 if (src) fclose(src);
             }
+            did();
             if (!ok_file) {
                 char why[600];
                 refuse_c(17, "the portal did not take %s: %s", need[i],

@@ -353,6 +353,34 @@ SDL2.library resolves to Game/libs/SDL2.library 2.0
 [Libraries](libraries.md) explains the order AROS searches in, and what
 each verdict means.
 
+## What pkg shows while it works
+
+A command that is over at once prints only its answer. When a step takes
+longer than about half a second, pkg draws one line above the answer,
+rewrites it in place while the step runs, and erases it when the step ends:
+
+```
+(O) downloading AROS-20260919-contrib.tar.bz2  212 of 637 MB  6 MB/s  1:10 left
+ O  reading the archive  38%
+ o  checking contrib-nightly  57 of 208
+ .  waiting for aros-pkg.azurewebsites.net
+```
+
+It always reads the same way: the mark, what pkg is doing, what it is doing
+it to, and how far it has got. The mark is the project's logo and it pulses
+as the work advances, so a mark that has stopped moving tells you pkg is
+stuck and not merely slow. A share, a rate and a time left appear only where
+pkg knows how much there is in all; where it does not, the verb stands
+alone. Opening a connection is a wait with nothing to report, so pkg names
+the machine it is waiting for instead of pretending to advance.
+
+The line is for a person watching. It is never drawn when the output goes to
+a pipe or a file, never in `MACHINE` output and never into `LOG <file>`, so
+nothing a script or a log reads ever carries it. To switch it off at a
+terminal as well, set `PKG_PROGRESS=0`; to see it where it would not appear,
+set `PKG_PROGRESS=1`. `PKG_COLOR=never` keeps it and draws it in plain
+ASCII, with no colour and no escape sequence.
+
 ## When pkg refuses
 
 A refusal says what happened, and the line after it what to do. The exit

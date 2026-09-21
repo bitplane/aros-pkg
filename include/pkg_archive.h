@@ -51,6 +51,14 @@ int pkg_archive_walk_map(const char *file, pkg_archive_want_fn want, pkg_archive
 int pkg_archive_read_mapped(const char *file, const char *map, pkg_archive_want_fn want,
                             pkg_archive_data_fn data, void *ctx, char *err, size_t errlen);
 
+/* Called while an archive is read, so that a person watching a big one is
+ * told how far it has got: bytes of the file consumed, and the file's size,
+ * -1 when a read of a few members out of the middle makes the whole
+ * meaningless. A bzip2 archive is decompressed front to back, so those
+ * bytes, and not the tar inside them, are what advances evenly. NULL, the
+ * default, asks for nothing. */
+extern void (*pkg_archive_on_read)(long long done, long long total);
+
 /* "archive!/inner/path": split at the first "!/". 1 when s has that form,
  * with the two parts copied out; 0 otherwise. */
 int pkg_archive_split(const char *s, char *archive, size_t al, char *inner, size_t il);

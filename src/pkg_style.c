@@ -29,6 +29,10 @@
 static struct pkg_style_caps caps[2];   /* [0] stdout, [1] stderr */
 static const char *verb = "pkg";
 static int aros;
+static int colour256;                   /* the terminal has the 256-colour palette */
+static int activity_len;                /* the activity line standing on the screen, in
+                                           characters; 0 when none is */
+static int activity_err;                /* the stream it was drawn on */
 
 /* ---- what the terminal has ------------------------------------------- */
 
@@ -85,6 +89,10 @@ static int columns(void)
 void pkg_style_init(int out_interactive, int err_interactive, int on_aros)
 {
     int i;
+    /* The project's purple is a 256-colour number; where the terminal has
+     * only the eight, plain magenta stands for it. */
+    colour256 = env_has("TERM", "256color") || env_has("TERM", "direct")
+                || getenv("COLORTERM") != NULL;
     int force_on = env_is("PKG_COLOR", "always") || env_is("PKG_COLOR", "1");
     int force_off = env_is("PKG_COLOR", "never") || env_is("PKG_COLOR", "0")
                     || getenv("NO_COLOR") != NULL || env_is("TERM", "dumb");
@@ -129,13 +137,16 @@ static const char *sgr(int is_error, const char *code)
          * do. Checked on hosted AROS, 2026-09-19. So: light blue for what is
          * secondary, bold light blue for marks and good news, inverse video
          * for bad news, italic for what asks a look. */
-        if (strcmp(code, "2") == 0) code = "33";
+        if (strcmp(code, "38;5;135") == 0) code = "1;33";   /* no purple: the highlight pen */
+        else if (strcmp(code, "2") == 0) code = "33";
         else if (strcmp(code, "32") == 0 || strcmp(code, "36") == 0) code = "1;33";
         else if (strcmp(code, "31") == 0) code = "7";
         else if (strcmp(code, "33") == 0) code = "3";
     } else if (!c->colour && code[0] == '3' && code[1] != '\0') {
         /* Colours only where they mean what they say. */
         return "";
+    } else if (!colour256 && strcmp(code, "38;5;135") == 0) {
+        code = "35";
     }
     snprintf(b, sizeof ring[0], ESC "%sm", code);
     return b;
@@ -151,6 +162,7 @@ const char *pkg_style_sgr(int is_error, const char *code)
 #define ITALIC "3"
 #define RESET  "0"
 #define RED    "31"
+#define PURPLE "38;5;135"   /* the project's logo, where the palette has it */
 #define GREEN  "32"
 #define YELLOW "33"
 #define CYAN   "36"
@@ -329,6 +341,29 @@ static void pad(struct buf *b, int n)
 }
 
 static void draw_line(pkg_style_writer write, int kind, int is_error, const char *text);
+
+/* The activity line's mark is three character cells wide; in bytes that is
+ * three, or four where the middle dot arrives as UTF-8 (0xC2 0xB7). */
+static size_t mark_bytes(const char *text)
+{
+    return text[0] != '\0' && (unsigned char)text[1] == 0xC2u ? 4u : 3u;
+}
+
+/* Take the activity line off the screen, leaving the cursor at the left of
+ * the line it stood on, so that whatever comes next starts there. */
+static void erase_activity(struct buf *b, int e)
+{
+    if (activity_len <= 0)
+        return;
+    badd(b, "\r");
+    if (caps[e].bold) {
+        badd(b, ESC "K");
+    } else {
+        pad(b, activity_len);
+        badd(b, "\r");
+    }
+    activity_len = 0;
+}
 
 static void table_draw(pkg_style_writer write)
 {
@@ -526,20 +561,33 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
         break;
     }
     case PKG_LINE_PROGRESS: {
-        /* Drawn in place, cleared when the step ends; never logged. */
-        static int shown;
-        if (!caps[e].bold) {                  /* a plain stream: nothing to redraw */
-            if (*text) { badd(&styled, "  "); badd(&styled, text); badd(&styled, "\n"); }
+        /* The activity line: the mark, a verb, the object, a measure, drawn
+         * in place and erased when the step ends. Only `styled` is filled,
+         * so a LOG file holds none of it. The mark is the project's logo,
+         * purple where the palette has it; the rest is dim. A stream with no
+         * styling still rewrites in place, with spaces and a carriage return
+         * instead of the erase sequence, so that PKG_COLOR=never leaves no
+         * escape sequence anywhere. */
+        size_t m;
+        if (*text == '\0') {
+            erase_activity(&styled, e);
             break;
         }
-        if (*text) {
-            badd(&styled, "\r  "); badd(&styled, sgr(e, DIM)); badd(&styled, text);
-            badd(&styled, sgr(e, RESET)); badd(&styled, ESC "K");
-            shown = 1;
-        } else if (shown) {
-            badd(&styled, "\r" ESC "K");
-            shown = 0;
+        m = mark_bytes(text);
+        badd(&styled, "\r  ");
+        if (caps[e].bold) {
+            char head[8];
+            snprintf(head, sizeof head, "%.*s", (int)m, text);
+            badd(&styled, sgr(e, PURPLE)); badd(&styled, head); badd(&styled, sgr(e, RESET));
+            badd(&styled, sgr(e, DIM)); badd(&styled, text + m); badd(&styled, sgr(e, RESET));
+            badd(&styled, ESC "K");
+        } else {
+            int was = activity_len, now = (int)strlen(text);
+            badd(&styled, text);
+            pad(&styled, was > now ? was - now : 0);
         }
+        activity_len = (int)strlen(text) + 2;
+        activity_err = e;
         break;
     }
     default:
@@ -556,6 +604,16 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
 
 void pkg_style_line(pkg_style_writer write, int kind, int is_error, const char *text)
 {
+    /* Nothing is ever written over the activity line: it goes first, so a
+     * result, a refusal or a table starts on a line of its own with no
+     * frame or carriage return left behind it. */
+    if (kind != PKG_LINE_PROGRESS && activity_len > 0) {
+        struct buf clear = { NULL, 0, 0 };
+        int e = activity_err;
+        erase_activity(&clear, e);
+        write(e, clear.p != NULL ? clear.p : "", "");
+        bfree(&clear);
+    }
     if (kind == PKG_LINE_HEAD) {
         if (in_table) table_draw(write);
         in_table = 1;

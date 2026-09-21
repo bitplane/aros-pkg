@@ -36,6 +36,8 @@ void bz_internal_error(int errcode)
     abort();
 }
 
+void (*pkg_archive_on_read)(long long done, long long total);
+
 #define INBUF  (1u << 16)
 #define MAXCAND 64                      /* block starts noticed in one input buffer */
 #define BZ_BLOCK_MAGIC 0x314159265359ull
@@ -266,6 +268,19 @@ static size_t refill_mid(struct src *r)
     return k;
 }
 
+/* How far through the file the read has got. A walk from the front counts
+ * the bytes it has taken in against the file's size; a read of a few members
+ * out of the middle has no whole to be a share of, and says so. */
+static void report(const struct src *r)
+{
+    if (pkg_archive_on_read == NULL)
+        return;
+    if (r->mid)
+        pkg_archive_on_read((long long)r->raw_pos, -1);
+    else
+        pkg_archive_on_read((long long)(r->in_base + r->in_len), (long long)r->fsize);
+}
+
 static void refill(struct src *r)
 {
     size_t k;
@@ -275,6 +290,7 @@ static void refill(struct src *r)
     r->in_len = k;
     r->in_pos = 0;
     if (k == 0) { r->eof = 1; r->s.avail_in = 0; return; }
+    report(r);
     if (r->mb != NULL) { scan(r, r->in, k); hand(r); return; }
     r->s.next_in = (char *)r->in;
     r->s.avail_in = (unsigned)k;
@@ -410,6 +426,11 @@ int pkg_archive_walk_map(const char *file, pkg_archive_want_fn want, pkg_archive
     r->errlen = errlen;
     r->f = fopen(file, "rb");
     if (r->f == NULL) { fail(r, "cannot open the archive"); free(r); return -1; }
+    if (fseek(r->f, 0, SEEK_END) == 0) {              /* the whole a share is of */
+        long t = ftell(r->f);
+        if (t > 0) r->fsize = (unsigned long long)t;
+    }
+    rewind(r->f);
     if (fread(magic, 1, 3, r->f) == 3 && magic[0] == 'B' && magic[1] == 'Z' && magic[2] == 'h')
         r->bz = 1;
     rewind(r->f);

@@ -126,7 +126,7 @@ missing one.
 `TRACE <file>` writes every step pkg takes, every file it reads, writes or
 removes, and every check and choice, to find out why something happened.
 `LOG <file>` appends everything printed to a file as well, without the
-progress counter; AROS has no `tee`.
+activity line; AROS has no `tee`.
 
 ## Environment
 
@@ -136,13 +136,37 @@ progress counter; AROS has no `tee`.
 | `PKG_PUSHKEY` | the portal key `PUSH` sends; never put it on the command line |
 | `PKG_OUTPUT` | `machine`: the same as `MACHINE` on every command |
 | `PKG_TRACE` | the same as `TRACE <file>` on every command |
-| `PKG_PROGRESS` | `1`: show progress even when the output is not a terminal. At a terminal or an AROS Shell window it shows by itself: files checked and written for a large package, and megabytes for a download (`downloading 12.4 of 640.0 MB`) |
+| `PKG_PROGRESS` | `1`: draw the activity line wherever the output goes; anything else switches it off. Unset, it appears at a terminal or an AROS Shell window and nowhere else |
+| `PKG_PROGRESS_AFTER` | how long a step must last, in milliseconds, before the activity line appears; 500 when unset, `0` to draw it at once |
 | `PKG_COLOR` | `always` or `never`: colour and marks whatever the output is. Without it, a terminal gets them and a pipe, a file or the ARexx port gets plain text. `NO_COLOR` and `TERM=dumb` turn them off too |
 | `COLUMNS` | the width long lines are wrapped at on a terminal, 80 when unset |
 | `PKG_LIBS_PATH` | `RESOLVE` on a host: the directories of `LIBS:`, separated by `:`; else `ROOT/Libs` and `ROOT/Classes` |
 | `PKG_CACHE` | where downloaded channel files are kept; else `$XDG_CACHE_HOME/pkg`, `~/.cache/pkg`, `%LOCALAPPDATA%\pkg-cache` on Windows, `T:pkg-cache` on AROS |
 
 On AROS, set them with `SetEnv`.
+
+## While pkg works
+
+A step that takes longer than half a second draws one line, rewritten in
+place, and erased when the step ends:
+
+```
+(O) downloading AROS-20260919-contrib.tar.bz2  212 of 637 MB  6 MB/s  1:10 left
+ O  reading the archive  38%
+ o  checking contrib-nightly  57 of 208
+ .  waiting for aros-pkg.azurewebsites.net
+```
+
+The mark is the project's logo, pulsing: it advances when the work does, so
+a mark that has stopped moving means pkg is stuck and not merely slow. A
+percentage, a rate and a time left are stated only where pkg knows the
+whole. A wait with nothing to report, such as opening a connection, says so
+once and does not pretend to advance.
+
+The line is never drawn in `MACHINE` output, never written to a `LOG` file
+and never shown when the output is not a terminal. `PKG_PROGRESS=1` draws it
+anyway, `PKG_PROGRESS_AFTER` sets the wait before it appears, and
+`PKG_COLOR=never` leaves it in plain ASCII with no escape sequence.
 
 ## What the output looks like
 

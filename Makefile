@@ -14,7 +14,7 @@ BUILDDAY ?= $(shell date -u +%d.%m.%Y)
 VERFLAGS  = -DPKG_VERSION_PATCH='"$(PATCH)"' -DPKG_BUILD='"$(BUILD)"' -DPKG_BUILD_DAY='"$(BUILDDAY)"' 
 
 # Portable C99: everything except the host filesystem layer.
-LIB  = src/pkg_lib.c
+LIB  = src/pkg_lib.c src/pkg_activity.c
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
        src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c \
        src/pkg_pkginfo.c

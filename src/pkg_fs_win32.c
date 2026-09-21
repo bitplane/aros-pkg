@@ -539,7 +539,14 @@ int pkg_fs_list(const char *dir, char ***names, size_t *count)
 }
 
 void (*pkg_fs_on_transfer)(long long done, long long total);
+void (*pkg_fs_on_wait)(const char *host);
 void (*pkg_fs_on_trace)(const char *line);
+
+/* Milliseconds since the machine started: only differences are used. */
+long long pkg_fs_now_ms(void)
+{
+    return (long long)GetTickCount64();
+}
 
 /* Windows hands every request to curl.exe, which holds nothing open of its
  * own between two of them: there is nothing here to close. */
@@ -710,11 +717,26 @@ int pkg_net_get(const char *url, const char *dest, char *err, size_t errlen)
     if (tmp == NULL) { snprintf(err, errlen, "out of memory"); return -1; }
     snprintf(tmp, dl + 8, "%s.part", dest);
     if (mkparents(tmp) != 0) { free(tmp); snprintf(err, errlen, "cannot create the cache directory"); return -1; }
+    /* curl.exe is waited for, so nothing here can watch the file grow: what
+     * a person is told is the machine being waited for, once. */
+    if (pkg_fs_on_wait != NULL) {
+        const char *p = strstr(url, "://");
+        char host[300];
+        size_t n = 0;
+        if (p != NULL) {
+            p += 3;
+            while (p[n] && p[n] != '/' && p[n] != ':' && n + 1 < sizeof host) n++;
+            memcpy(host, p, n);
+        }
+        host[n] = '\0';
+        if (host[0]) pkg_fs_on_wait(host);
+    }
     {
         const char *argv[] = { "curl.exe", "-s", "-f", "-L", "--max-redirs", "5",
                                "-A", PKG_USER_AGENT, "-o", tmp, url, NULL };
         rc = run_curl(argv);
     }
+    if (pkg_fs_on_wait != NULL) pkg_fs_on_wait(NULL);
     if (rc == -1) { free(tmp); snprintf(err, errlen, "fetching a channel needs curl.exe, part of Windows 10 and later"); return -1; }
     if (rc == 22) { pkg_fs_unlink(tmp); free(tmp); return 1; }
     if (rc != 0) { pkg_fs_unlink(tmp); free(tmp); snprintf(err, errlen, "curl failed with exit code %d fetching %s", (int)rc, url); return -1; }

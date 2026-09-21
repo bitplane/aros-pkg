@@ -68,6 +68,17 @@ int pkg_host_args(int *argc, char ***argv);
  * the default, asks for nothing. */
 extern void (*pkg_fs_on_transfer)(long long done, long long total);
 
+/* Called before a step of the network that blocks with nothing to report
+ * while it runs: finding a host, opening the connection, the TLS handshake,
+ * a curl that has not written a byte yet. `host` is the machine being waited
+ * for, NULL when that step is over. NULL, the default, asks for nothing. */
+extern void (*pkg_fs_on_wait)(const char *host);
+
+/* Milliseconds counted from some moment of this run: gettimeofday under
+ * POSIX and on AROS, GetTickCount64 on Windows. Only differences are used,
+ * so which moment it counts from does not matter. */
+long long pkg_fs_now_ms(void);
+
 /* The network's own account of itself, for a TRACE: one line at a time,
  * with no line break of its own. NULL, the default, says nothing. */
 extern void (*pkg_fs_on_trace)(const char *line);

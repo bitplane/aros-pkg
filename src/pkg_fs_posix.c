@@ -316,6 +316,24 @@ int pkg_fs_random_typed(void *buf, size_t len)
 #endif
 
 void (*pkg_fs_on_transfer)(long long done, long long total);
+void (*pkg_fs_on_wait)(const char *host);
+
+/* Milliseconds, for the activity line's pace and for the trace's own account
+ * of where a request's time went. Only differences are used. */
+long long pkg_fs_now_ms(void)
+{
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0)
+        return 0;
+    return (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+/* What pkg is waiting for, where it can say so and nothing else can. */
+static void waiting(const char *host)
+{
+    if (pkg_fs_on_wait != NULL)
+        pkg_fs_on_wait(host);
+}
 
 int pkg_fs_random(void *buf, size_t len)
 {
@@ -773,16 +791,6 @@ static void nettr(const char *fmt, ...)
     pkg_fs_on_trace(line);
 }
 
-/* Milliseconds, for the trace's own account of where a request's time went.
- * Only differences are used. */
-static long long now_ms(void)
-{
-    struct timeval tv;
-    if (gettimeofday(&tv, NULL) != 0)
-        return 0;
-    return (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
-}
-
 #if defined(__AROS__)
 /* The network on AROS is bsdsocket.library, which a TCP/IP stack provides
  * once it is started (AROSTCP; on a hosted AROS, the host's own sockets).
@@ -820,7 +828,10 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
     *tlsh = NULL;
     if (net_start(err, errlen) != 0)
         return -1;
-    t0 = now_ms();
+    /* Finding the host, the connection and the handshake all block with
+     * nothing to report: say what is being waited for, once. */
+    waiting(host);
+    t0 = pkg_fs_now_ms();
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
     sa.sin_port = htons((unsigned short)atoi(port));
@@ -839,7 +850,7 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
         snprintf(err, errlen, "cannot connect to %s:%s", host, port);
         return -1;
     }
-    t1 = now_ms();
+    t1 = pkg_fs_now_ms();
     nettr("net: connect %s:%s in %lld ms", host, port, t1 - t0);
     if (tls) {
         long long t2;
@@ -847,7 +858,7 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
             CloseSocket(s);
             return -1;
         }
-        t2 = now_ms();
+        t2 = pkg_fs_now_ms();
         if (prepared++ == 0)            /* the once-per-process work, and what it cost */
             nettr("net: the certificate authorities, read once: %lld ms", t2 - t1);
         *tlsh = pkg_tls_open(s, host, err, errlen);
@@ -855,8 +866,9 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
             CloseSocket(s);
             return -1;
         }
-        nettr("net: TLS handshake with %s in %lld ms", host, now_ms() - t2);
+        nettr("net: TLS handshake with %s in %lld ms", host, pkg_fs_now_ms() - t2);
     }
+    waiting(NULL);
     return s;
 }
 static ssize_t net_read(int s, void *t, void *buf, size_t n)
@@ -959,17 +971,67 @@ static int send_https(const char *method, const char *url, const char *body_file
     return 0;
 }
 
+/* The host a URL names, for the line that says what pkg is waiting for. */
+static void url_host(const char *url, char *out, size_t ol)
+{
+    const char *p = strstr(url, "://"), *e;
+    size_t n;
+    out[0] = '\0';
+    if (p == NULL)
+        return;
+    p += 3;
+    for (e = p; *e && *e != '/' && *e != ':'; e++)
+        ;
+    n = (size_t)(e - p);
+    if (n >= ol) n = ol - 1;
+    memcpy(out, p, n);
+    out[n] = '\0';
+}
+
+/* The Content-Length of the answer curl is writing, from the headers it
+ * dumps as they arrive: the last one in the file, because a redirect's
+ * headers come before the answer's. -1 while it is not known, which is what
+ * a chunked answer stays. The file is read while curl writes it, so a value
+ * counts only once its line has ended. */
+static long long dumped_length(const char *path)
+{
+    unsigned char *b;
+    size_t len, i;
+    long long clen = -1;
+    if (pkg_fs_read(path, &b, &len) != 0)
+        return -1;
+    for (i = 0; i + 16 < len; i++) {
+        if ((b[i] != 'C' && b[i] != 'c') || strncasecmp((const char *)b + i, "content-length:", 15) != 0)
+            continue;
+        if (i > 0 && b[i - 1] != '\n')
+            continue;
+        if (memchr(b + i, '\n', len - i) == NULL)
+            break;                      /* the line is still being written */
+        clen = strtoll((const char *)b + i + 15, NULL, 10);
+    }
+    free(b);
+    return clen > 0 ? clen : -1;
+}
+
 /* https: the system's curl, with no shell in between. */
 static int get_with_curl(const char *url, const char *tmp, char *err, size_t errlen)
 {
     /* -s alone: a 404 for a file that may not exist (a withdrawal) is no
-     * error, and the exit code says the rest */
+     * error, and the exit code says the rest. -D: the answer's headers, so
+     * that a person is told how much of the file is still to come. */
+    char hdrs[2200], host[300];
     char *argv[] = { "curl", "-s", "-f", "-L", "--max-redirs", "5", "-A", PKG_USER_AGENT,
-                     "-o", (char *)tmp, (char *)url, NULL };
+                     "-D", hdrs, "-o", (char *)tmp, (char *)url, NULL };
     pid_t pid;
-    int st;
+    int st, said_waiting = 0;
+    long long clen = -1;
+    snprintf(hdrs, sizeof hdrs, "%.2190s.head", tmp);
+    unlink(hdrs);
+    url_host(url, host, sizeof host);
+    if (pkg_fs_on_wait != NULL && host[0]) { waiting(host); said_waiting = 1; }
     if (posix_spawnp(&pid, "curl", NULL, NULL, argv, environ) != 0) {
         snprintf(err, errlen, "https needs curl, which is not on this machine's PATH");
+        waiting(NULL);
         return -1;
     }
     /* curl says nothing (-s): the growing file is what a watching person is shown */
@@ -977,10 +1039,16 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
         pid_t w = waitpid(pid, &st, pkg_fs_on_transfer ? WNOHANG : 0);
         struct stat sb;
         if (w == pid) break;
-        if (w < 0) { snprintf(err, errlen, "curl did not finish"); return -1; }
-        if (stat(tmp, &sb) == 0 && sb.st_size > 0) pkg_fs_on_transfer((long long)sb.st_size, -1);
-        usleep(250000);
+        if (w < 0) { snprintf(err, errlen, "curl did not finish"); unlink(hdrs); return -1; }
+        if (stat(tmp, &sb) == 0 && sb.st_size > 0) {
+            if (said_waiting) { waiting(NULL); said_waiting = 0; }
+            if (clen < 0) clen = dumped_length(hdrs);
+            pkg_fs_on_transfer((long long)sb.st_size, clen);
+        }
+        usleep(100000);
     }
+    waiting(NULL);
+    unlink(hdrs);
     if (!WIFEXITED(st)) {
         snprintf(err, errlen, "curl did not finish");
         return -1;
@@ -1014,10 +1082,11 @@ static int get_with_curl(const char *url, const char *tmp, char *err, size_t err
 static int net_open(const char *host, const char *port, int tls, void **tlsh, char *err, size_t errlen)
 {
     struct addrinfo hints, *ai = NULL, *a;
-    long long t0 = now_ms();
+    long long t0 = pkg_fs_now_ms();
     int s = -1;
     (void)tls;                                  /* https here is curl's, never this socket's */
     *tlsh = NULL;
+    waiting(host);                              /* a name lookup and a connect both block */
     memset(&hints, 0, sizeof hints);
     hints.ai_socktype = SOCK_STREAM;
     if (getaddrinfo(host, port, &hints, &ai) != 0) {
@@ -1030,7 +1099,8 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
     }
     freeaddrinfo(ai);
     if (s < 0) snprintf(err, errlen, "cannot connect to %s:%s", host, port);
-    else nettr("net: connect %s:%s in %lld ms", host, port, now_ms() - t0);
+    else nettr("net: connect %s:%s in %lld ms", host, port, pkg_fs_now_ms() - t0);
+    waiting(NULL);
     return s;
 }
 static ssize_t net_read(int s, void *t, void *buf, size_t n) { (void)t; return read(s, buf, n); }
@@ -1424,7 +1494,7 @@ static int http_get_once(const char *url, int tls, int fd, char *location, size_
     snprintf(host, sizeof host, "%.*s", (int)hl, p);
     c = conn_take(host, port, tls, allow_reuse, &reused, err, errlen);
     if (c == NULL) return -1;
-    t0 = now_ms();
+    t0 = pkg_fs_now_ms();
     rl = (size_t)snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " PKG_USER_AGENT
                           "\r\nConnection: keep-alive\r\n\r\n", path, host);
     if (net_write(c->sock, c->tls, req, rl) != (ssize_t)rl) {
@@ -1506,7 +1576,7 @@ static int http_get_once(const char *url, int tls, int fd, char *location, size_
     if (n < 0) { conn_drop(c); return -1; }
     keep = n == 0 && !close_wanted && !old_http && !keepalive_off();
     nettr("net: %s %s answered %d, %lld bytes in %lld ms, on a %s connection%s", host, path, code,
-          body.total, now_ms() - t0, reused ? "kept" : "new", keep ? "" : ", which ends here");
+          body.total, pkg_fs_now_ms() - t0, reused ? "kept" : "new", keep ? "" : ", which ends here");
     if (!keep)
         conn_drop(c);
     if (code == 426) {
