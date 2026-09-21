@@ -3064,6 +3064,7 @@ static char *chan_file(const char *channel, const char *rel)
     free(dir);
     if (local == NULL) return NULL;
     mutable_file = strcmp(rel, "index") == 0
+                   || strcmp(rel, "withdrawals") == 0
                    || (rl > 10 && strcmp(rel + rl - 10, ".withdrawn") == 0)
                    || (rl > 14 && strcmp(rel + rl - 14, ".withdrawn.sig") == 0);
     if (mutable_file) {

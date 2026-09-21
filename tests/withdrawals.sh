@@ -100,6 +100,17 @@ withList=$(probes "$site/tools")
 [ "$withList" -lt "$noList" ];                          ok $? "with a list, fewer files are asked for ($withList against $noList)"
 withdrawn_seen "$site/tools";                           ok $? "and the withdrawal the list names is still read from its signed file"
 
+# A list is read again on the next run, as the index is: it changes whenever
+# a publisher withdraws something, and a copy kept from an earlier run would
+# answer "nothing withdrawn" for a version that has since been withdrawn.
+printf 'Format: pkg-withdrawals 1\n' > "$T/copy/withdrawals"
+rm -rf "$T/cache"
+"$P" SHOW CHANNEL "$copy" > /dev/null 2>&1                     # reads the empty list and keeps it
+wd=$(awk '$1=="tool" && $2=="1.0"{print $4}' "$T/copy/index")
+printf 'Format: pkg-withdrawals 1\n%s\n' "$wd" > "$T/copy/withdrawals"
+"$P" SHOW tool CHANNEL "$copy" MACHINE 2>&1 | grep -q '^entry: tool 1.0 data generic withdrawn'
+ok $? "a list read in an earlier run is read again, so a new withdrawal is seen"
+
 printf 'Format: pkg-withdrawals 2\n' > "$T/copy/withdrawals"
 withdrawn_seen "$copy";                                 ok $? "a list in a format this pkg does not read is ignored, not believed"
 [ "$(probes "$copy")" -eq "$noList" ];                  ok $? "and the versions are asked about one by one, as before"
