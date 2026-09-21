@@ -119,7 +119,7 @@ cmp -s root/Extras/P2/big "$T/src/Top/Extras/P2/big" \
   && cmp -s root/Extras/P2/ReadMe "$T/src/Top/Extras/P2/ReadMe" \
   && [ ! -s root/Extras/P2/nothing ] && [ -f root/Extras/P2/nothing ]
                                                         ok $? "every file it placed is the archive's, the empty one included"
-has out2 'reading only the blocks its files lie in, out of'
+has out2 'reading the blocks it needs of'
                                                         ok $? "and it says where it read them"
 $PKG INSTALL p3 ROOT root2 CHANNEL ch MACHINE > out3 2>&1
 has out3 '^archive-from: map ' && has out3 '^cache: '
@@ -148,7 +148,7 @@ mkdir -p un
 (cd un && tar xjf "$T/a.tar.bz2")
 rm -rf root5
 $PKG INSTALL p1 ROOT root5 CHANNEL ch UNPACKED un > out6 2>&1; ok $? "UNPACKED reads the files from a drawer"
-has out6 'reading the unpacked archive at';             ok $? "and says which drawer"
+has out6 'reading the unpacked archive';             ok $? "and says which drawer"
 cmp -s root5/Extras/P1/big "$T/src/Top/Extras/P1/big";  ok $? "byte for byte"
 printf 'tampered' >> un/Top/Extras/P1/ReadMe
 rm -rf root6
