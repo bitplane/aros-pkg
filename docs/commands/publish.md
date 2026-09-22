@@ -34,7 +34,9 @@ version of this package was signed by another key refuses this one (exit
 `FILES` picking the paths of this package: the files stay in the archive,
 which the channel serves from `archives/`, or, with `UPSTREAM <url>`,
 downloads from where its makers publish it. `BUILD <date>` appends the date
-to the version for nightlies.
+to the version for nightlies. A changed source archive, upstream URL or archive
+digest produces a new build even when the package files are unchanged.
+The signed metadata must identify an archive that remains downloadable.
 
 `INFO <file>` reads a `.pkginfo` the port carries: its `Name`, `Version`,
 `Kind`, catalogue fields, `Depends`, `Files` and `Config` are used for what

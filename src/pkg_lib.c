@@ -3921,6 +3921,7 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
                             const char *what)
 {
     char *ap, *cache, *dir, *dest, hex[PKG_SHA256_HEXLEN + 1], rel[1100];
+    char upstream_error[sizeof net_err];
     unsigned long long size = 0;
     int rc;
 
@@ -3972,15 +3973,28 @@ static char *locate_archive(const char *channel, const struct pkg_manifest *m, c
         return NULL;
     }
     pkg_fs_unlink(dest);
-    tr("%s: %s: %s", what, m->archive_url, rc == 1 ? "not there" : net_err);
+    snprintf(upstream_error, sizeof upstream_error, "%s",
+             rc == 1 ? "not found or unavailable" : net_err[0] ? net_err : "download failed");
+    tr("%s: %s: %s", what, m->archive_url, upstream_error);
     if (is_url(channel)) {
         /* the channel may carry a copy of its own */
+        int missing;
+        net_err[0] = '\0';
         ap = archive_path(channel, an);
         if (ap != NULL && pkg_fs_exists(ap)) { free(dest); from_kind = "channel"; return ap; }
+        missing = ap != NULL; /* A missing download also returns its cache path. */
         free(ap);
+        refuse_c(rc == 1 && missing ? 11 : 17,
+                 "%s comes from the archive %s. Upstream %s: %s; channel fallback "
+                 "%s%sarchives/%s: %s. Retry when either location is available, or "
+                 "use UNPACKED <dir> with the extracted archive",
+                 what, an, m->archive_url, upstream_error, channel,
+                 channel[strlen(channel) - 1] == '/' ? "" : "/", an,
+                 missing ? "not found or unavailable" : net_err[0] ? net_err : "download failed");
+    } else {
+        refuse_c(rc == 1 ? 11 : 17, "%s comes from the archive %s, which could not be downloaded from %s: %s",
+                 what, an, m->archive_url, upstream_error);
     }
-    refuse_c(rc == 1 ? 11 : 17, "%s comes from the archive %s, which could not be downloaded from %s: %s",
-             what, an, m->archive_url, rc == 1 ? "it is not there any more" : net_err);
     free(dest);
     return NULL;
 }
@@ -6231,6 +6245,21 @@ static int same_description(const struct pkg_manifest *x, const struct pkg_manif
     return same;
 }
 
+/* A build may move identical program files into a new upstream archive.
+ * Its signed retrieval information must advance with that archive. */
+static int same_optional_text(const char *x, const char *y)
+{
+    return x == NULL || y == NULL ? x == y : strcmp(x, y) == 0;
+}
+
+static int same_source(const struct pkg_manifest *x, const struct pkg_manifest *y)
+{
+    return same_optional_text(x->source, y->source)
+        && same_optional_text(x->archive_url, y->archive_url)
+        && same_optional_text(x->archive_sha, y->archive_sha)
+        && x->archive_size == y->archive_size;
+}
+
 static long compare_last(const struct pkg_manifest *em, const struct built *b)
 {
     const struct pkg_file *nv = b->m.ncontent ? b->m.content : b->m.files;
@@ -6438,8 +6467,8 @@ static int cmd_publish(const struct pkg_options *a)
                     }
                     if (compare_last(&em, &b) == 0 && a->build != NULL
                         && strcmp(em.kind, b.m.kind) == 0 && strcmp(em.architecture, b.m.architecture) == 0
-                        && same_description(&em, &b.m)) {
-                        /* A new build of the same files is no new version. */
+                        && same_description(&em, &b.m) && same_source(&em, &b.m)) {
+                        /* Identical files and retrieval information need no new build. */
                         snprintf(same_as, sizeof same_as, "%s %s", em.name, em.version);
                     }
                     if (strcmp(em.kind, b.m.kind) != 0)

@@ -7,8 +7,8 @@
 # claims are left out of the rest; everything else comes from a line of a
 # split table (`<name> <kind> <path>[,<path>...]`, # for comments), taking
 # its version from its own $VER plus the nightly's date. The archive is read
-# once, for its index; a package whose files equal its last version's is not
-# published again. Ends with what was done, what was avoided, and how long
+# once, for its index; a package whose files and source archive match its last
+# version is not published again. Ends with what was done, what was avoided, and how long
 # it took.
 #
 #   PKG_SIGNKEY=<key> sh tools/contrib/publish-nightly.sh <channel> <archive> <top dir> <table> <build> [<url>]

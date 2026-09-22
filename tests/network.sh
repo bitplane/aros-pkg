@@ -32,6 +32,9 @@ class H(http.server.SimpleHTTPRequestHandler):
         pass
     def do_GET(self):
         log.write(self.path + "\n"); log.flush()
+        failure = "upstream-error" if self.path == "/sf/up.tar.bz2" else "fallback-error" if self.path == "/upch/archives/up.tar.bz2" else None
+        if failure and os.path.isfile(os.path.join(root, failure)):
+            self.send_error(int(open(os.path.join(root, failure)).read())); return
         if self.path.startswith("/moved/"):
             self.send_response(302); self.send_header("Location", "/ch/" + self.path[7:]); self.end_headers(); return
         if self.path.startswith("/chunked/"):
@@ -133,6 +136,52 @@ PKG_CACHE="$T/cache4" $PKG INSTALL upone ROOT r8 CHANNEL lc MACHINE > o26 2>&1
                                                       ok $? "the publisher's own channel reads its local copy, downloading nothing"
 $PKG PUBLISH d1 CHANNEL lc2 NAME x KIND application UPSTREAM "$U/sf/up.tar.bz2" MACHINE > o27 2>&1
 [ $? -eq 20 ] && has o27 'a drawer has no archive';   ok $? "UPSTREAM on a drawer is refused, saying why"
+
+echo "archive build provenance"
+mkdir -p provenance/archives
+cp lc/archives/up.tar.bz2 provenance/archives/first.tar.bz2
+$PKG PUBLISH "provenance/archives/first.tar.bz2!/Top" FILES Extras/Up1 CHANNEL provenance NAME upone BUILD 20260919 KIND application UPSTREAM "$U/oldnightly.tar.bz2" MACHINE > op1 2>&1
+old_manifest=$(ls provenance/objects/*.manifest)
+old_digest=$(shasum -a 256 "$old_manifest" | cut -d' ' -f1)
+$PKG PUBLISH "provenance/archives/first.tar.bz2!/Top" FILES Extras/Up1 CHANNEL provenance NAME upone BUILD 20260920 KIND application UPSTREAM "$U/oldnightly.tar.bz2" MACHINE > op2 2>&1
+[ $? -eq 0 ] && has op2 '^result: unchanged$'
+ok $? "identical program files and archive provenance suppress a redundant build"
+$PKG PUBLISH "provenance/archives/first.tar.bz2!/Top" FILES Extras/Up1 CHANNEL provenance NAME upone BUILD 20260921 KIND application UPSTREAM "$U/newnightly.tar.bz2" MACHINE > op3 2>&1
+[ $? -eq 0 ] && has op3 '^result: published$' && has provenance/index '1.0+20260921'
+ok $? "an upstream URL change publishes a new signed build of unchanged files"
+cp provenance/archives/first.tar.bz2 provenance/archives/second.tar.bz2
+$PKG PUBLISH "provenance/archives/second.tar.bz2!/Top" FILES Extras/Up1 CHANNEL provenance NAME upone BUILD 20260922 KIND application UPSTREAM "$U/newnightly.tar.bz2" MACHINE > op4 2>&1
+[ $? -eq 0 ] && has op4 '^result: published$' && has provenance/index '1.0+20260922'
+ok $? "a Source archive name change publishes unchanged program files"
+printf 'another component changed in this archive\n' > up/Top/Other
+(cd up && tar -cjf ../provenance/archives/second.tar.bz2 Top)
+$PKG PUBLISH "provenance/archives/second.tar.bz2!/Top" FILES Extras/Up1 CHANNEL provenance NAME upone BUILD 20260923 KIND application UPSTREAM "$U/newnightly.tar.bz2" MACHINE > op5 2>&1
+[ $? -eq 0 ] && has op5 '^result: published$' && has provenance/index '1.0+20260923'
+ok $? "changed archive bytes publish unchanged selected program files"
+$PKG PUBLISH "provenance/archives/second.tar.bz2!/Top" FILES Extras/Up1 CHANNEL provenance NAME upone BUILD 20260924 KIND application UPSTREAM "$U/newnightly.tar.bz2" MACHINE > op6 2>&1
+[ $? -eq 0 ] && has op6 '^result: unchanged$' && [ "$(shasum -a 256 "$old_manifest" | cut -d' ' -f1)" = "$old_digest" ]
+ok $? "identical replacement provenance is unchanged and old signed metadata stays intact"
+
+echo "archive failure locations"
+printf '503' > srv/upstream-error
+printf '502' > srv/fallback-error
+PKG_CACHE="$T/cache-upstream-error" $PKG INSTALL upone ROOT r-upstream-error CHANNEL "$U/upch" MACHINE > o-upstream-error 2>&1
+[ $? -eq 17 ] && has o-upstream-error "Upstream $U/sf/up.tar.bz2: .*HTTP 503" \
+    && has o-upstream-error "channel fallback $U/upch/archives/up.tar.bz2: .*HTTP 502" \
+    && ! [ -e r-upstream-error/Extras/Up1/Up1 ]
+ok $? "upstream and channel transport errors retain their own URL and HTTP status"
+printf '404' > srv/upstream-error
+printf '503' > srv/fallback-error
+PKG_CACHE="$T/cache-fallback-error" $PKG INSTALL upone ROOT r-fallback-error CHANNEL "$U/upch" MACHINE > o-fallback-error 2>&1
+[ $? -eq 17 ] && has o-fallback-error "Upstream $U/sf/up.tar.bz2: not found or unavailable" \
+    && has o-fallback-error "channel fallback $U/upch/archives/up.tar.bz2: .*HTTP 503"
+ok $? "missing upstream with failed fallback reports transport failure and both reasons"
+printf '404' > srv/fallback-error
+PKG_CACHE="$T/cache-both-missing" $PKG INSTALL upone ROOT r-both-missing CHANNEL "$U/upch" MACHINE > o-both-missing 2>&1
+[ $? -eq 11 ] && has o-both-missing "Upstream $U/sf/up.tar.bz2: not found or unavailable" \
+    && has o-both-missing "channel fallback $U/upch/archives/up.tar.bz2: not found or unavailable"
+ok $? "two missing copies retain not-found classification"
+rm srv/upstream-error srv/fallback-error
 
 echo "refusals"
 $PKG SHOW CHANNEL "http://127.0.0.1:1/ch" MACHINE > o8 2>&1

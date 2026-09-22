@@ -7,3 +7,4 @@ Optional named environments remember installation roots in personal or machine c
 UPGRADE or U updates the running pkg executable with signed downloads. REMOVE without a package name uninstalls pkg while preserving other packages.
 Installers offer explicit environment registration. The portal leads with short installation commands and provides first-time configuration guidance.
 Installers suggest an environment name and platform root, accept Return for defaults, create missing directories and retry invalid input. Existing nonempty roots require confirmation. Administrator questions use normal text contrast.
+Archive download failures report the upstream and channel fallback separately. Nightly publication refreshes signed source references when the archive changes, including programs whose own files are unchanged.
