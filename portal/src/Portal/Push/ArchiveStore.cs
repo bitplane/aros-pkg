@@ -22,8 +22,14 @@ public sealed class R2Options
     /// never writes where a real channel's archives live.
     public string Prefix { get; set; } = "";
 
-    public bool Enabled => AccountId.Length > 0 && AccessKeyId.Length > 0 && SecretAccessKey.Length > 0
-                           && Bucket.Length > 0 && PublicUrl.Length > 0;
+    /// Enough to read the bucket: what the maintainers' page needs to say how
+    /// much is in it.
+    public bool Readable => AccountId.Length > 0 && AccessKeyId.Length > 0 && SecretAccessKey.Length > 0
+                            && Bucket.Length > 0;
+
+    /// Enough to put archives there: a client must be able to fetch them
+    /// without a key, so the public address is required as well.
+    public bool Enabled => Readable && PublicUrl.Length > 0;
 }
 
 /// <summary>

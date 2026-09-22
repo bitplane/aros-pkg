@@ -136,7 +136,7 @@ else
 <h2 class="label">Space</h2>
 <p class="muted small">What the portal takes on the machine it runs on and in R2, read @Site.Ago(space.Taken) and kept for @((int)Portal.Admin.Space.Keep.TotalMinutes) minutes, because counting walks every file. <a href="/admin?space=fresh">Read it again now</a>.</p>
 <table class="list">
-    <thead><tr><th>Where</th><th class="num">Size</th><th class="num hide-s">Files</th><th class="hide-s">Of which</th></tr></thead>
+    <thead><tr><th>Where</th><th class="num">Size</th><th class="num hide-s">Files</th><th class="num hide-s">30 days</th><th class="hide-s">Of which</th></tr></thead>
     <tbody>
     @foreach (var c in space.Channels)
     {
@@ -144,6 +144,7 @@ else
             <td><a href="/channels/@c.Name">@c.Name</a></td>
             <td class="num">@Site.Size(c.All.Bytes)</td>
             <td class="num hide-s">@c.All.Files</td>
+            <td class="num hide-s">@(c.Month.Bytes > 0 ? "+" + Site.Size(c.Month.Bytes) : "-")</td>
             <td class="hide-s muted small">packages @Site.Size(c.Objects.Bytes)@(c.Archives.Bytes > 0 ? $", archives {Site.Size(c.Archives.Bytes)}" : "")@(c.Bootstraps.Bytes > 0 ? $", pkg itself {Site.Size(c.Bootstraps.Bytes)}" : "")@(c.ArchivesElsewhere > 0 ? $", {c.ArchivesElsewhere} archive{(c.ArchivesElsewhere == 1 ? "" : "s")} already in R2" : "")</td>
         </tr>
     }
@@ -151,22 +152,26 @@ else
             <td>What the portal keeps for itself</td>
             <td class="num">@Site.Size(space.State.Bytes + space.Staging.Bytes)</td>
             <td class="num hide-s">@(space.State.Files + space.Staging.Files)</td>
+            <td class="num hide-s">-</td>
             <td class="hide-s muted small">counts, accounts, failures, and a push in flight</td>
         </tr>
         <tr>
             <th>On this machine</th>
             <td class="num"><strong>@Site.Size(space.OnDisk.Bytes)</strong></td>
             <td class="num hide-s">@space.OnDisk.Files</td>
+            <td class="num hide-s">@(space.Grew.Bytes > 0 ? "+" + Site.Size(space.Grew.Bytes) : "-")</td>
             <td class="hide-s muted small">@(space.VolumeTotal > 0 ? $"{Site.Size(space.VolumeFree)} free of {Site.Size(space.VolumeTotal)} on the volume" : "the volume does not say how large it is")</td>
         </tr>
         <tr>
             <th>In R2</th>
             <td class="num"><strong>@(space.R2 is { } two ? Site.Size(two.Bytes) : "-")</strong></td>
             <td class="num hide-s">@(space.R2?.Objects.ToString() ?? "-")</td>
-            <td class="hide-s muted small">@(space.R2 is { } t ? $"bucket {t.Bucket}{(t.Prefix.Length > 0 ? ", prefix " + t.Prefix : "")}" : space.R2Note)</td>
+            <td class="num hide-s">-</td>
+            <td class="hide-s muted small">@(space.R2 is { } t ? $"bucket {t.Bucket}{(t.Prefix.Length > 0 ? ", prefix " + t.Prefix : "")}. {space.R2Note}" : space.R2Note)</td>
         </tr>
     </tbody>
 </table>
+<p class="muted small">The channels grew by @Site.Size(space.Grew.Bytes) in the last thirty days and @Site.Size(space.GrewWeek.Bytes) in the last seven, counted from the dates on the files themselves. A channel republished every night grows for ever, because a nightly build gives each package a version of its own: the index every command downloads first is @Site.Size(space.Channels.Sum(c => c.Index)) across the channels today.</p>
 <p class="muted small">What R2 takes today is source archives: @Site.Size(space.Movable.Bytes) in @space.Movable.Files file@(space.Movable.Files == 1 ? "" : "s"). The signed package files are @Site.Size(space.Payloads.Bytes) in @space.Payloads.Files file@(space.Payloads.Files == 1 ? "" : "s"), and they stay on this machine until R2 holds those too: that is the number to watch before the volume fills.</p>
 @{
     var failures = Portal.Push.Failures.Read(Options.Value.StateDir).ToString().Split('\n')
