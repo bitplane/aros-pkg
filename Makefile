@@ -189,10 +189,16 @@ check-image: build/pkg
 # This refuses the constructs that would quietly reintroduce a host-order
 # dependency. Verified to be able to fail: adding one of these to a source
 # makes it report that file and exit non-zero.
+#
+# A socket address is the one thing outside the package format whose order
+# the host's own network layer fixes, and htons is how it is written there.
+# Such a line carries ALLOWED as a comment, so it says why it is there and
+# every other use still fails.
 FORBIDDEN = (hton[sl]|ntoh[sl]|__bswap|__builtin_bswap|BYTE_ORDER|BIG_END|LITTLE_END)
+ALLOWED   = a socket port, not the package format
 
 check-portability:
-	@if grep -rnE '$(FORBIDDEN)' src include tests; then \
+	@if grep -rnE '$(FORBIDDEN)' src include tests | grep -v '$(ALLOWED)'; then \
 		echo "check-portability: FAIL, host byte order reached the sources"; \
 		exit 1; \
 	else \
@@ -208,8 +214,12 @@ SAN = -O1 -g -fsanitize=undefined,address -fno-omit-frame-pointer
 test-ubsan:
 	@mkdir -p build/san
 	@for t in $(UNITS); do \
+		case $$t in \
+			test_activity) with="src/pkg_activity.c" ;; \
+			*)             with="$(CORE)" ;; \
+		esac; \
 		$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \
-			-o build/san/$$t tests/$$t.c $(CORE) src/pkg_activity.c || exit 1; \
+			-o build/san/$$t tests/$$t.c $$with || exit 1; \
 		./build/san/$$t > /dev/null || { echo "test-ubsan: $$t FAILED"; exit 1; }; \
 	done
 	@$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \

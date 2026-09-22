@@ -941,7 +941,7 @@ static int net_open(const char *host, const char *port, int tls, void **tlsh, ch
     t0 = pkg_fs_now_ms();
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
-    sa.sin_port = htons((unsigned short)atoi(port));
+    sa.sin_port = htons((unsigned short)atoi(port));  /* a socket port, not the package format */
     sa.sin_addr.s_addr = inet_addr((char *)host);
     if (sa.sin_addr.s_addr == INADDR_NONE) {
         if (resolve_host(host, &sa.sin_addr) != 0) {
