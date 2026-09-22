@@ -178,39 +178,93 @@ if [ -z "${PKG_NO_AROS:-}" ] && [ -d "$shared" ] && command -v unzip >/dev/null 
     rm -rf "$zip" "$stage"
 fi
 
-# 7. Optional environment directory. Installers never infer an AROS root from
-#    the host install directory. Automation opts in with both variables.
+# 7. Optional root registration. Empty answers accept the displayed defaults.
 env_name=${PKG_ENV_NAME:-}
 env_root=${PKG_ENV_ROOT:-}
 env_default=${PKG_ENV_DEFAULT:-0}
+env_interactive=0
+suggested_root=$HOME/AROS/System
 case "${XDG_CONFIG_HOME:-}" in
     /*) env_config=$XDG_CONFIG_HOME/aros-pkg/environments.conf ;;
     *) env_config=$HOME/.config/aros-pkg/environments.conf ;;
 esac
+ask_env() {
+    printf '%s ' "$1" > /dev/tty
+    if ! IFS= read -r answer < /dev/tty; then
+        say "Environment setup cancelled. pkg is installed; run pkg ENV ADD later."
+        exit 0
+    fi
+}
+yes_no() {
+    while :; do
+        ask_env "$1"
+        case "$answer" in
+            '') answer=$2; return ;;
+            y|Y|yes|YES) answer=y; return ;;
+            n|N|no|NO) answer=n; return ;;
+            *) say "Please answer y or n, or press Return for the default." ;;
+        esac
+    done
+}
 if [ -n "$env_name" ] || [ -n "$env_root" ]; then
     [ -n "$env_name" ] && [ -n "$env_root" ] || fail "set both PKG_ENV_NAME and PKG_ENV_ROOT to register an environment"
 elif [ -z "${PKG_NO_ENV:-}" ] && [ -t 1 ] && (: < /dev/tty) 2>/dev/null; then
     say "Optional environments let pkg find a package root without ROOT on each command."
     say "Personal configuration: $env_config"
-    printf 'Configure an environment? [y/N] ' > /dev/tty
-    IFS= read -r answer < /dev/tty || answer=
-    case "$answer" in
-        y|Y|yes|YES)
-            printf 'Environment name: ' > /dev/tty
-            IFS= read -r env_name < /dev/tty || env_name=
-            printf 'Absolute path of the package root: ' > /dev/tty
-            IFS= read -r env_root < /dev/tty || env_root=
-            [ -n "$env_name" ] && [ -n "$env_root" ] || fail "environment name and root are required"
-            printf 'Use this environment by default? [y/N] ' > /dev/tty
-            IFS= read -r answer < /dev/tty || answer=
-            case "$answer" in y|Y|yes|YES) env_default=1 ;; esac
-            ;;
-    esac
+    yes_no 'Configure an environment? [y/N]' n
+    [ "$answer" = y ] && env_interactive=1
 fi
-if [ -n "$env_name" ]; then
+while [ "$env_interactive" = 1 ] || [ -n "$env_name" ]; do
+    if [ "$env_interactive" = 1 ]; then
+        say "Press Return to accept a suggestion; type cancel to finish setup later."
+        ask_env "Environment name [${env_name:-aros}]:"
+        [ "$answer" != cancel ] || break
+        env_name=${answer:-${env_name:-aros}}
+        case "$env_name" in
+            *[!a-zA-Z0-9_.-]*|'') say "Use letters, digits, dots, underscores or hyphens."; env_name=; continue ;;
+        esac
+        if [ "${#env_name}" -gt 63 ]; then say "Use at most 63 characters."; env_name=; continue; fi
+        ask_env "Package root [${env_root:-$suggested_root}]:"
+        [ "$answer" != cancel ] || break
+        env_root=${answer:-${env_root:-$suggested_root}}
+    fi
+    case "$env_root" in '~/'*) env_root=$HOME/${env_root#\~/} ;; esac
+    case "$env_root" in
+        /*) ;;
+        *)
+            if [ "$env_interactive" = 1 ]; then say "Enter an absolute path, for example $suggested_root."; env_root=; continue; fi
+            fail "PKG_ENV_ROOT must be an absolute path" ;;
+    esac
+    if ! mkdir -p "$env_root"; then
+        if [ "$env_interactive" = 1 ]; then say "Cannot create that directory. Choose a writable location."; env_root=; continue; fi
+        fail "cannot create package root $env_root"
+    fi
+    nonempty=0
+    for entry in "$env_root"/* "$env_root"/.[!.]* "$env_root"/..?*; do
+        if [ -e "$entry" ] || [ -L "$entry" ]; then nonempty=1; break; fi
+    done
+    if [ "$nonempty" = 1 ]; then
+        say "This directory already contains files: $env_root"
+        say "Registration keeps those files. Future package operations will use this root and its .pkg database."
+        if [ "$env_interactive" = 1 ]; then
+            yes_no 'Use this existing directory? [y/N]' n
+            if [ "$answer" != y ]; then env_root=; continue; fi
+        elif [ "${PKG_ENV_REUSE:-0}" != 1 ]; then
+            fail "confirm this existing root with PKG_ENV_REUSE=1, or choose an empty directory"
+        fi
+    fi
     say "Registering $env_name with root $env_root in $env_config"
-    "$dir/pkg" ENV ADD "$env_name" ROOT "$env_root" || fail "pkg was installed; environment registration failed"
+    if ! "$dir/pkg" ENV ADD "$env_name" ROOT "$env_root"; then
+        if [ "$env_interactive" = 1 ]; then say "Registration failed. Choose another name or root, or type cancel. pkg remains installed."; env_name=; continue; fi
+        fail "pkg was installed; environment registration failed"
+    fi
+    if [ "$env_interactive" = 1 ]; then
+        yes_no 'Use this environment by default? [Y/n]' y
+        env_default=0
+        [ "$answer" != y ] || env_default=1
+    fi
     if [ "$env_default" = 1 ]; then
         "$dir/pkg" ENV DEFAULT "$env_name" || fail "environment registered; setting its default failed"
     fi
-fi
+    break
+done

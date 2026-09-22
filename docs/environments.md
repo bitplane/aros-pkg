@@ -110,15 +110,21 @@ file requires the corresponding filesystem permissions.
 ## Installer setup
 
 The macOS, Linux and Windows installers offer environment registration at an
-interactive terminal. They display the personal configuration path and its
-purpose, then ask for an environment name, an absolute root path and whether
-to select it by default. Declining leaves commands with `ROOT` available.
-The root is supplied by the user; installing the host executable does not
-choose an AROS filesystem on that host.
+interactive terminal. They display the configuration path and its purpose.
+The suggested name is `aros`; Enter accepts each suggestion. The suggested
+root is `~/AROS/System` on macOS and Linux, and `%USERPROFILE%\AROS\System`
+on Windows. The AROS installer uses `SYS:` as its default installation root.
+
+Host installers create a missing root directory. For a directory containing
+files, they explain that registration preserves its contents and ask before
+using it. You can choose another directory or cancel setup while keeping pkg
+installed. Invalid names, paths and failed registrations allow another attempt.
+The installer also offers to select the environment by default.
 
 For unattended installation, set `PKG_ENV_NAME` and `PKG_ENV_ROOT` together to
 request registration. Set `PKG_ENV_DEFAULT=1` to make that environment the
-default. `PKG_NO_ENV=1` disables the interactive offer. Without explicit
+default. A nonempty root requires `PKG_ENV_REUSE=1` to confirm reuse.
+`PKG_NO_ENV=1` disables the interactive offer. Without explicit
 registration variables, unattended installers create no environment entry.
 Installer registration writes personal configuration; use `ENV ... SYSTEM`
 separately for a machine-wide entry.

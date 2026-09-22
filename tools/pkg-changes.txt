@@ -6,3 +6,4 @@ Update checks refresh channel metadata between calls and reject stale results af
 Optional named environments remember installation roots in personal or machine configuration. Commands announce the selected root and its source; explicit ROOT works independently of configuration.
 UPGRADE or U updates the running pkg executable with signed downloads. REMOVE without a package name uninstalls pkg while preserving other packages.
 Installers offer explicit environment registration. The portal leads with short installation commands and provides first-time configuration guidance.
+Installers suggest an environment name and platform root, accept Return for defaults, create missing directories and retry invalid input. Existing nonempty roots require confirmation. Administrator questions use normal text contrast.

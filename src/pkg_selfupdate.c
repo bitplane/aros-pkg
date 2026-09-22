@@ -92,7 +92,7 @@ static void report(const struct pkg_sink *s, const char *key, const char *value,
     char line[PATHCAP+256];
     if(s->structured) { if(s->record) s->record(s->user,key,value); return; }
     snprintf(line,sizeof line,"%s: %s",key,value);
-    if(s->line) s->line(s->user,error?PKG_LINE_REFUSAL:PKG_LINE_DETAIL,error,line);
+    if(s->line) s->line(s->user,error?PKG_LINE_REFUSAL:(!strcmp(key,"permissions")?PKG_LINE_TEXT:PKG_LINE_DETAIL),error,line);
     else if(s->text) { size_t n=strlen(line); line[n]='\n'; line[n+1]=0; s->text(s->user,error,line); }
 }
 static int failure(const struct pkg_sink *s, int code, const char *text)
