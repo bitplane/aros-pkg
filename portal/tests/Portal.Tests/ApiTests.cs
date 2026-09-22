@@ -184,7 +184,8 @@ public class ApiTests : IClassFixture<ApiTests.Factory>
     {
         var html = await f.CreateClient().GetStringAsync("/packages/demo/sdltool");
         Assert.Contains("/badge/demo/sdltool.svg?size=large", html);
-        Assert.Contains("/b/demo/sdltool", html);
+        Assert.Contains("/packages/demo/sdltool#install", html);
+        Assert.Contains("Copy image URL", html);
         Assert.Contains("Copy Markdown", html);
         Assert.Contains("Copy HTML", html);
         Assert.DoesNotContain("comes in a later version", html);

@@ -67,18 +67,19 @@ else if (!isLatest)
 
 @{
     var siteUrl = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
-    var badgeLink = $"{siteUrl}/b/{p.Channel}/{p.Name}";
+    var badgeLink = $"{siteUrl}/packages/{p.Channel}/{p.Name}#install";
 }
 <details class="files badge-block">
     <summary><h2>Share this package <span class="muted"><img src="/badge/@p.Channel/@(p.Name).svg" alt="" /></span></h2></summary>
-    <p>Put a badge in a README, website or forum that supports linked images. A click opens @(p.Name == "pkg" ? "the downloads page" : "this package's installation command").</p>
+    <p>Put a badge in a README, website or forum that supports linked images. Choose an image on its own or a clickable widget. A widget opens this package’s page at its installation command.</p>
     @foreach (var size in new[] { "small", "large" })
     {
         var imageUrl = $"{siteUrl}/badge/{p.Channel}/{p.Name}.svg" + (size == "large" ? "?size=large" : "");
         var markdown = $"[![Get {p.Name}]({imageUrl})]({badgeLink})";
         var html = $"<a href=\"{badgeLink}\"><img src=\"{imageUrl}\" alt=\"Get {p.Name}\" /></a>";
-        <h3>@(size == "large" ? "Large" : "Small") badge</h3>
+        <h3>@(size == "large" ? "Large" : "Small") badge and widget</h3>
         <p><a href="@badgeLink"><img src="@imageUrl" alt="Get @p.Name" style="max-width:100%;height:auto" /></a></p>
+        <div class="cmd wrapcode"><code>@imageUrl</code><button class="copy" data-copy="@imageUrl">Copy image URL</button></div>
         <div class="cmd wrapcode"><code>@markdown</code><button class="copy" data-copy="@markdown">Copy Markdown</button></div>
         <div class="cmd wrapcode"><code>@html</code><button class="copy" data-copy="@html">Copy HTML</button></div>
     }

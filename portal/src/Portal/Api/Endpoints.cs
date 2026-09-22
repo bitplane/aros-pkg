@@ -118,7 +118,7 @@ public static class Endpoints
             http.Response.Headers.Vary = "Accept";
             var wants = http.Request.Headers.Accept.ToString();
             if (wants.Contains("text/html", StringComparison.OrdinalIgnoreCase))
-                return Results.Redirect(p.Name == "pkg" ? "/downloads" : $"/packages/{p.Channel}/{p.Name}#install");
+                return Results.Redirect($"/packages/{p.Channel}/{p.Name}#install");
             http.Response.Headers.CacheControl = "public, max-age=300";
             return Results.Text(Badge(p.Name, p.Latest.Version, http.Request.Query["size"] == "large"), "image/svg+xml; charset=utf-8");
         });
