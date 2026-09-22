@@ -82,7 +82,14 @@ if os.geteuid() != 0:
  import shutil
  with tempfile.TemporaryDirectory(prefix='pkg-prompt-contrast-') as d:
   directory=pathlib.Path(d)/'protected';directory.mkdir()
-  binary=directory/'pkg';shutil.copy2(os.environ.get('PKG',repo/'build/pkg'),binary)
+  # A build older than anything the channel offers: the question is asked
+  # only when there is something to install, never before, so the binary
+  # under test must be behind. Built here rather than taken as is, so the
+  # check does not depend on which version the live channel holds today.
+  binary=directory/'pkg'
+  srcs=['src/pkg_main.c','src/pkg_selfupdate.c','src/pkg_lib.c','src/pkg_activity.c','src/pkg_update.c','src/pkg_environment.c','src/pkg_container.c','src/pkg_sha256.c','src/pkg_sha512.c','src/pkg_ed25519.c','src/pkg_manifest.c','src/pkg_image.c','src/pkg_ameta.c','src/pkg_archive.c','src/pkg_bzip2.c','src/pkg_pkginfo.c','src/pkg_fs_posix.c','src/pkg_out.c','src/pkg_port.c','src/pkg_style.c']
+  subprocess.run(['cc','-std=c99','-O1','-Iinclude','-Ithird_party/bzip2','-DPKG_VERSION_PATCH="0"','-DPKG_BUILD="20260101"','-DPKG_BUILD_DAY="01.01.2026"','-o',str(binary)]+srcs,cwd=repo,check=True)
+  before=binary.read_bytes()
   directory.chmod(0o500)
   pid,fd=pty.fork()
   if pid==0: os.execve(str(binary),[str(binary),'UPGRADE'],{**os.environ,'PKG_COLOR':'always'})
@@ -97,15 +104,18 @@ if os.geteuid() != 0:
     if b'[y/N]' in output and not sent:os.write(fd,b'n\n');sent=True
    else:raise AssertionError(output)
    _,status=os.waitpid(pid,0)
-   assert os.waitstatus_to_exitcode(status)==17,output
+   # Declining is a choice, not a failure: exit 0, and the sentence says
+   # what stays on offer.
+   assert os.waitstatus_to_exitcode(status)==0,output
    # The question is a question now, not a record: it carries the question
    # role, which is the brightest thing on the screen. What this check is
    # for is that it is never the dim ink of a figure, which is how it read
    # when it went out as "permissions: ..." under the detail role.
    question=next(line for line in output.splitlines() if b'[y/N]' in line)
    assert b'\x1b[2m' not in question,question
-   assert b'administrator access is required' in question,question
-   assert sent and binary.exists()
+   assert b'needs administrator access' in question and b'is offered' in question,question
+   assert b'not updated' in output,output
+   assert sent and binary.read_bytes()==before
    print('PASS administrator question has normal contrast and declining preserves pkg')
   finally:
    directory.chmod(0o700);os.close(fd)

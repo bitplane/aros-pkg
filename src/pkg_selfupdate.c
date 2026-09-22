@@ -13,6 +13,7 @@
 #include "pkg_ed25519.h"
 #include "pkg_manifest.h"
 #include "pkg_activity.h"
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,7 +92,8 @@ static void report(const struct pkg_sink *s, const char *key, const char *value,
 {
     char line[PATHCAP+256];
     if(s->structured) { if(s->record) s->record(s->user,key,value); return; }
-    snprintf(line,sizeof line,"%s: %s",key,value);
+    if(error) snprintf(line,sizeof line,"%s",value);
+    else snprintf(line,sizeof line,"%s: %s",key,value);
     if(s->line) s->line(s->user,error?PKG_LINE_REFUSAL:PKG_LINE_DETAIL,error,line);
     else if(s->text) { size_t n=strlen(line); line[n]='\n'; line[n+1]=0; s->text(s->user,error,line); }
 }
@@ -105,6 +107,21 @@ static void ask(const struct pkg_sink *s, const char *text)
     if(s->structured) { if(s->record) s->record(s->user,"question",text); return; }
     if(s->line) s->line(s->user,PKG_LINE_QUESTION,0,text);
     else if(s->text) { char line[PATHCAP+256]; snprintf(line,sizeof line,"%s ",text); s->text(s->user,0,line); }
+}
+#endif
+/* The outcome, said as a result: the line a person reads to know what
+ * happened. MACHINE gets `result: <word>` and the sentence as `summary`.
+ * AROS updates pkg as a package, through pkg_upgrade, and never gets here. */
+#ifndef __AROS__
+static void done_line(const struct pkg_sink *s, const char *word, const char *fmt, ...)
+{
+    /* Declining is neither a success nor a failure: plain ink, no mark. */
+    int kind=strcmp(word,"declined")?PKG_LINE_RESULT:PKG_LINE_TEXT;
+    char line[PATHCAP+256]; va_list ap;
+    va_start(ap,fmt); vsnprintf(line,sizeof line,fmt,ap); va_end(ap);
+    if(s->structured) { if(s->record) { s->record(s->user,"result",word); s->record(s->user,"summary",line); } return; }
+    if(s->line) s->line(s->user,kind,0,line);
+    else if(s->text) { size_t n=strlen(line); line[n]='\n'; line[n+1]=0; s->text(s->user,0,line); }
 }
 #endif
 static int failure(const struct pkg_sink *s, int code, const char *text)
@@ -272,9 +289,9 @@ int pkg_selfupdate(const struct pkg_sink *sink,int dryrun)
         const char *plat=platform(); char dir[PATHCAP],stage[PATHCAP],sumsfile[PATHCAP],sigfile[PATHCAP],newfile[PATHCAP];
         char rel[128],want[65],got[65],offered[100],*slash;
         unsigned char *sums=NULL,*sig=NULL,*binary=NULL,pk[32]; size_t sl=0,sg=0,bl=0,i;
-        int rc=17; int stage_created=0;
+        int rc=17; int stage_created=0; int said=0;
 #ifndef _WIN32
-        struct stat st;
+        struct stat st; int need_admin=0;
 #endif
         if(!plat) return failure(sink,17,"no official bootstrap exists for this platform");
         #ifndef _WIN32
@@ -290,20 +307,14 @@ int pkg_selfupdate(const struct pkg_sink *sink,int dryrun)
         if(!slash) return failure(sink,17,"the executable path has no parent directory");
         *slash=0;
 #ifndef _WIN32
-        if(geteuid()!=0&&(st.st_uid!=geteuid()||access(dir,W_OK))) {
-            if(!dryrun&&!sink->structured&&isatty(STDIN_FILENO)&&isatty(STDOUT_FILENO)) {
-                char answer[16]; pid_t child; int status;
-                ask(sink,"administrator access is required. Run this same executable with sudo? [y/N]");
-                if(!fgets(answer,sizeof answer,stdin)||tolower((unsigned char)answer[0])!='y') return failure(sink,17,"update cancelled; the executable is unchanged");
-                child=fork();
-                if(child==0) { execl("/usr/bin/sudo","sudo","--",target,"UPGRADE",(char *)NULL); _exit(127); }
-                if(child<0||waitpid(child,&status,0)<0) return failure(sink,17,"could not start administrator update");
-                return WIFEXITED(status)?WEXITSTATUS(status):17;
-            }
-            if(!dryrun) return failure(sink,17,"administrator access required; run sudo with the executable shown above and UPGRADE");
-        }
+        /* Whether replacing the executable will need administrator access is
+         * known now, but asked only once there is something to replace: a
+         * person who already has the newest pkg is never asked for a
+         * password, and one who is asked knows what for. Until then the
+         * check is staged in /tmp, as DRYRUN's is. */
+        need_admin=geteuid()!=0&&(st.st_uid!=geteuid()||access(dir,W_OK));
         if(st.st_mode&(S_ISUID|S_ISGID)) return failure(sink,17,"self-update refuses set-user-ID or set-group-ID executables");
-        if(dryrun) snprintf(stage,sizeof stage,"/tmp/pkg-selfupdate.XXXXXX");
+        if(dryrun||need_admin) snprintf(stage,sizeof stage,"/tmp/pkg-selfupdate.XXXXXX");
         else if(snprintf(stage,sizeof stage,"%s/.pkg-selfupdate.XXXXXX",dir)>=(int)sizeof stage) return failure(sink,17,"executable path is too long");
         if(!mkdtemp(stage)) return failure(sink,17,"cannot create a private staging directory beside the executable");
 #else
@@ -338,8 +349,30 @@ int pkg_selfupdate(const struct pkg_sink *sink,int dryrun)
         if(strcmp(want,got)) { rc=13; failure(sink,rc,"download does not match its signed checksum; executable unchanged"); goto done; }
         if(version(binary,bl,offered)) { rc=13; failure(sink,rc,"signed executable has no readable pkg version"); goto done; }
         report(sink,"installed",PKG_VERSION_STRING,0); report(sink,"offered",offered,0);
-        if(pkg_version_cmp(offered,PKG_VERSION_STRING)<=0) { report(sink,"result","already at this version or newer",0); rc=0; goto done; }
+        if(pkg_version_cmp(offered,PKG_VERSION_STRING)<=0) { done_line(sink,"up-to-date","pkg is up to date: %s is the newest the channel offers",PKG_VERSION_STRING); rc=0; goto done; }
         if(dryrun) { report(sink,"result","verified update available; DRYRUN leaves the executable unchanged",0); rc=0; goto done; }
+#ifndef _WIN32
+        if(need_admin) {
+            if(!sink->structured&&isatty(STDIN_FILENO)&&isatty(STDOUT_FILENO)) {
+                char answer[16],q[PATHCAP+200]; pid_t child; int status;
+                snprintf(q,sizeof q,"pkg %s is offered; this is %s. Replacing %s needs administrator access: run this same executable with sudo? [y/N]",offered,PKG_VERSION_STRING,target);
+                ask(sink,q);
+                if(!fgets(answer,sizeof answer,stdin)||tolower((unsigned char)answer[0])!='y') {
+                    /* A choice, not a failure: nothing was wrong, and the
+                     * sentence says what stays on offer. */
+                    done_line(sink,"declined","not updated: %s stays offered, and pkg U installs it when you want it",offered);
+                    rc=0; goto done;
+                }
+                child=fork();
+                if(child==0) { execl("/usr/bin/sudo","sudo","--",target,"UPGRADE",(char *)NULL); _exit(127); }
+                if(child<0||waitpid(child,&status,0)<0) { failure(sink,17,"could not start the update as administrator"); rc=17; said=1; goto done; }
+                /* sudo's own pkg said what happened, success or not */
+                rc=WIFEXITED(status)?WEXITSTATUS(status):17; said=1; goto done;
+            }
+            failure(sink,17,"a newer pkg is offered, and replacing this one needs administrator access: run the executable shown above with sudo and UPGRADE");
+            rc=17; said=1; goto done;
+        }
+#endif
         if(sink->cancel&&sink->cancel(sink->user)) { rc=10; goto done; }
 #ifndef _WIN32
         {
@@ -369,7 +402,7 @@ int pkg_selfupdate(const struct pkg_sink *sink,int dryrun)
     done:
         free(sums); free(sig); free(binary);
         if(stage_created) pkg_fs_rmtree(stage);
-        if(rc==17) failure(sink,rc,"self-update could not complete");
+        if(rc==17&&!said) failure(sink,rc,"self-update could not complete");
         return rc;
     }
 #endif

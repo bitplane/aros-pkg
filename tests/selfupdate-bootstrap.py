@@ -79,9 +79,9 @@ return pkg_selfupdate(&s,argc>1&&!strcmp(argv[1],"DRYRUN"));}
         check(0,unchanged=False)
         # Exact running path through a symlink, with a space, was replaced.
         offer(baseline)
-        assert 'already at' in check(0)
+        assert 'up to date' in check(0)
         offer(older.read_bytes())
-        assert 'already at' in check(0)
+        assert 'up to date' in check(0)
         offer(newer)
         binary.write_bytes(newer+b'bad')
         check(13)
