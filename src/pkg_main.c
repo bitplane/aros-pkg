@@ -19,6 +19,7 @@
 #include "pkg_selfupdate.h"
 #include "pkg_activity.h"
 #include "pkg_fs.h"
+#include "pkg_manifest.h"
 #include "pkg_out.h"
 #include "pkg_port.h"
 #include "pkg_style.h"
@@ -751,12 +752,61 @@ static int run_verb(int argc, char **argv)
             return rc;
         }
     }
-    if (machine) {
-        char why[160];
-        snprintf(why, sizeof why, "unknown verb \"%.100s\"", argv[1]);
+    /* Not a verb. Name the word that was not understood and the verb it is
+     * nearest to, instead of printing the whole usage and leaving the person
+     * to find the difference. The version is part of the answer because a
+     * verb this build does not have is usually a verb a later build does,
+     * and a page of usage never says which case it is. */
+    {
+        static const char *const apart[] = { "ENV", "HELP", "PORT" };
+        /* The words another tool would have taken, answered with the verb
+         * pkg has for them and not with whatever they look like: UNINSTALL
+         * is two edits from INSTALL, and installing is the opposite of what
+         * the person came to do. */
+        static const struct { const char *typed, *verb; } habit[] = {
+            { "UPDATE",    "UPGRADE" }, { "UNINSTALL", "REMOVE"  },
+            { "DELETE",    "REMOVE"  }, { "ERASE",     "REMOVE"  },
+            { "ADD",       "INSTALL" }, { "GET",       "INSTALL" },
+            { "FETCH",     "INSTALL" }, { "INFO",      "SHOW"    },
+            { "FIND",      "SEARCH"  }, { "QUERY",     "SEARCH"  },
+            { "LS",        "LIST"    }, { "SYNC",      "STATUS"  }
+        };
+        const char *near = NULL, *instead = NULL;
+        size_t best = 99, j, typed_len;
+        char typed[64], why[256];
+
+        for (j = 0; j + 1 < sizeof typed && argv[1][j] != '\0'; j++)
+            typed[j] = (char)toupper((unsigned char)argv[1][j]);
+        typed[j] = '\0';
+        typed_len = j;
+        for (j = 0; j < sizeof habit / sizeof habit[0]; j++)
+            if (strcmp(typed, habit[j].typed) == 0)
+                instead = habit[j].verb;
+        for (j = 0; instead == NULL && j < sizeof verbs / sizeof verbs[0] + sizeof apart / sizeof apart[0]; j++) {
+            const char *cand = j < sizeof verbs / sizeof verbs[0]
+                               ? verbs[j].verb : apart[j - sizeof verbs / sizeof verbs[0]];
+            size_t len = strlen(cand), shorter = typed_len < len ? typed_len : len;
+            size_t d = pkg_name_edits(typed, cand);
+            /* The rule SHOW uses for a package name: in a short word two
+             * edits make another word, not a slip. */
+            if (d <= (shorter <= 4 ? 1u : 2u) && d < best) {
+                best = d;
+                near = cand;
+            }
+        }
+        if (instead != NULL)
+            snprintf(why, sizeof why, "\"%.60s\" is not a verb of pkg %s; pkg says %s",
+                     argv[1], PKG_VERSION_STRING, instead);
+        else if (near != NULL)
+            snprintf(why, sizeof why, "\"%.60s\" is not a verb of pkg %s; did you mean %s?",
+                     argv[1], PKG_VERSION_STRING, near);
+        else
+            /* Nothing near it: either the word is nonsense, or it is a verb
+             * a later build has and this one does not. The second is what
+             * brings people here, so the way out is part of the answer. */
+            snprintf(why, sizeof why, "\"%.60s\" is not a verb of pkg %s; a later build may "
+                     "have it, and pkg U updates pkg itself", argv[1], PKG_VERSION_STRING);
         pkg_usage_error(&out_sink, "pkg", why);
-    } else {
-        usage();
     }
     machine = saved_machine;
     return PKG_RC_USAGE;

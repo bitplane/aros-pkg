@@ -540,7 +540,12 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
         char first[80], plain_first[80];
         const char *m = mark(e, "\xE2\x9C\x97 ", "x ");    /* ✗ */
         snprintf(first, sizeof first, "%s%s%s:%s ", sgr(e, RED), m, verb, sgr(e, RESET));
-        snprintf(plain_first, sizeof plain_first, "pkg %s: ", verb);
+        /* The verb is the tool itself when no verb was understood: the
+         * refusal reads "pkg: ", never "pkg pkg: ". */
+        if (strcmp(verb, "pkg") == 0)
+            snprintf(plain_first, sizeof plain_first, "pkg: ");
+        else
+            snprintf(plain_first, sizeof plain_first, "pkg %s: ", verb);
         if (!caps[e].bold) {
             wrapped(&styled, &plain, e, plain_first, "  ", "", text);
         } else {

@@ -529,6 +529,33 @@ int pkg_version_cmp(const char *a, const char *b)
     return cmp_dotted(&a, &b);
 }
 
+/* Insertions, deletions and substitutions between two short names: what is
+ * behind every "did you mean", for a package name in a channel and for a
+ * verb on the command line. Names longer than 64 characters are not
+ * compared: a slip of the fingers is short, and the answer would be worth
+ * nothing anyway. */
+size_t pkg_name_edits(const char *a, const char *b)
+{
+    size_t la = strlen(a), lb = strlen(b), i, j, row[66], diag, up;
+    if (la > 64 || lb > 64)
+        return 99;
+    for (j = 0; j <= lb; j++) row[j] = j;
+    for (i = 1; i <= la; i++) {
+        diag = row[0];
+        row[0] = i;
+        for (j = 1; j <= lb; j++) {
+            size_t best;
+            up = row[j];
+            best = diag + (a[i - 1] != b[j - 1]);
+            if (up + 1 < best) best = up + 1;
+            if (row[j - 1] + 1 < best) best = row[j - 1] + 1;
+            diag = up;
+            row[j] = best;
+        }
+    }
+    return row[lb];
+}
+
 /* ---- emit ------------------------------------------------------------- */
 
 struct sb { char *p; size_t len, cap; int bad; };

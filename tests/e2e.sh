@@ -16,6 +16,11 @@ set -u
 PKG=${PKG:-./build/pkg}
 T=$(mktemp -d "${TMPDIR:-/tmp}/pkg-e2e.XXXXXX")
 trap 'rm -rf "$T"' EXIT
+# The suite runs as if this machine had no environment registered: what a
+# command does without ROOT is part of what is checked here, and a default
+# environment in the person's own configuration would answer for it. Without
+# this the run reports what that one machine is set up to do.
+export XDG_CONFIG_HOME="$T/config"
 
 checks=0
 fails=0
@@ -416,6 +421,27 @@ mrun x3 UPGRADE hello ROOT "$M" CHANNEL "$CH" MACHINE;          refusal x3 14 $?
 has "$T/x3.o" "^reason: .*$EVILPUB";                  ok $? "the one-line reason still names the new signer"
 mrun x4 FROB MACHINE;                                           refusal x4 20 $? usage "an unknown verb"
 mrun x6 INSTALL a b MACHINE;                                    refusal x6 20 $? usage "a usage error found before MACHINE"
+# A word that is not a verb is named, with the nearest verb when it is a slip
+# of the fingers and the way to a newer build when it is not. The whole usage
+# printed instead told nobody which of the two had happened: a tester read
+# "ENV is not recognised" on an older build as the keywords being case
+# sensitive, which they have never been.
+has "$T/x4.o" '^reason: "FROB" is not a verb of pkg '
+                                                      ok $? "the word that is not a verb is named, with the version that does not know it"
+has "$T/x4.o" 'pkg U updates pkg itself';             ok $? "and a word near no verb points at a newer build"
+mrun x7 INSTAL MACHINE;                                         refusal x7 20 $? usage "a mistyped verb"
+has "$T/x7.o" 'did you mean INSTALL?';                ok $? "and the verb it was nearest to is offered"
+mrun x8 instal MACHINE
+has "$T/x8.o" 'did you mean INSTALL?';                ok $? "whatever case it was typed in"
+mrun x9 ENVS MACHINE
+has "$T/x9.o" 'did you mean ENV?';                    ok $? "including the verbs that are answered apart from the table"
+mrun xb UNINSTALL MACHINE
+has "$T/xb.o" 'pkg says REMOVE';                      ok $? "a word another tool uses is answered with the verb pkg has for it"
+! has "$T/xb.o" 'INSTALL?';                           ok $? "and never with the verb it merely resembles: UNINSTALL is two edits from INSTALL"
+$PKG FROB > "$T/xa.o" 2>&1
+has "$T/xa.o" 'is not a verb' && ! has "$T/xa.o" '^Installing and keeping software$'
+                                                      ok $? "a person is told the same, instead of a page of usage"
+has "$T/xa.o" '^pkg: ';                               ok $? "and the tool names itself once, not twice"
 $PKG LIST ROOT "$M" NAME machine > "$T/nm.o" 2>&1
 has "$T/nm.o" 'hello';                                ok $? "NAME machine is a value, and leaves the human output alone"
 printf 'edited\n' > "$M/C/Hello"

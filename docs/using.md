@@ -24,7 +24,9 @@ packages. A channel can also be a web address, such as
 for a server you run yourself.
 
 Words in capitals are keywords; you can type them in any case, as in any
-AmigaDOS command.
+AmigaDOS command. The verb is one of them: `pkg install` and `pkg INSTALL`
+are the same command. Names are not keywords, so a package is spelled the way
+its channel spells it, and `SDL` does not find `sdl`.
 
 ## Say where packages come from, once
 

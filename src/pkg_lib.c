@@ -3723,29 +3723,6 @@ static const struct entry *pick(const struct index *ix, const char *name, const 
 
 /* Names in the channel close to `name`: one contains the other, or they
  * agree up to the first '.', '-' or '_' ("identify" and "identify.library"). */
-/* Edits (insertions, deletions, substitutions) between two short names. */
-static size_t edits(const char *a, const char *b)
-{
-    size_t la = strlen(a), lb = strlen(b), i, j, row[66], diag, up;
-    if (la > 64 || lb > 64)
-        return 99;
-    for (j = 0; j <= lb; j++) row[j] = j;
-    for (i = 1; i <= la; i++) {
-        diag = row[0];
-        row[0] = i;
-        for (j = 1; j <= lb; j++) {
-            size_t best;
-            up = row[j];
-            best = diag + (a[i - 1] != b[j - 1]);
-            if (up + 1 < best) best = up + 1;
-            if (row[j - 1] + 1 < best) best = row[j - 1] + 1;
-            diag = up;
-            row[j] = best;
-        }
-    }
-    return row[lb];
-}
-
 static int close_name(const char *a, const char *b)
 {
     size_t la = strcspn(a, ".-_"), lb = strcspn(b, ".-_");
@@ -3754,7 +3731,7 @@ static int close_name(const char *a, const char *b)
         return 1;
     /* Two edits in a short name is another name, not a typo: "hap" is two
      * edits from "hcat" and one from "happ". */
-    if (edits(a, b) <= (shorter <= 4 ? 1 : 2))
+    if (pkg_name_edits(a, b) <= (shorter <= 4 ? 1 : 2))
         return 1;
     return la == lb && la >= 3 && strncmp(a, b, la) == 0;
 }
