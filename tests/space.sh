@@ -55,6 +55,8 @@ grep -q "^channel: tools .* objects $want_objects, archives $want_archives," "$T
                                                         ok $? "the channel's files are counted as they are on disk"
 grep -q "^movable: $want_archives bytes in 2 files would go to R2" "$T/s1"
                                                         ok $? "and the archives are named as what R2 would take"
+grep -q "^payloads: $want_objects bytes in 1 files are signed package files" "$T/s1"
+                                                        ok $? "and the package files as what stays until R2 holds those too"
 grep -q '^r2: R2 is not configured' "$T/s1";            ok $? "with no R2 configured, it says so instead of guessing"
 disk=$(awk '/^disk:/{print $2}' "$T/s1")
 [ "$disk" -ge $((4096 + 65536)) ];                      ok $? "the total covers at least the files we wrote ($disk bytes)"

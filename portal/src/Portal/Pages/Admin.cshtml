@@ -167,7 +167,7 @@ else
         </tr>
     </tbody>
 </table>
-<p class="muted small">Archives are what R2 is for: the portal holds @Site.Size(space.Movable.Bytes) of them in @space.Movable.Files file@(space.Movable.Files == 1 ? "" : "s"), which is what turning R2 on would take off this machine. A package's own signed files stay here.</p>
+<p class="muted small">What R2 takes today is source archives: @Site.Size(space.Movable.Bytes) in @space.Movable.Files file@(space.Movable.Files == 1 ? "" : "s"). The signed package files are @Site.Size(space.Payloads.Bytes) in @space.Payloads.Files file@(space.Payloads.Files == 1 ? "" : "s"), and they stay on this machine until R2 holds those too: that is the number to watch before the volume fills.</p>
 @{
     var failures = Portal.Push.Failures.Read(Options.Value.StateDir).ToString().Split('\n')
         .Where(l => l.StartsWith("failure: ")).Select(l => l[9..]).Take(20).ToList();

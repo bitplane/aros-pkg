@@ -37,8 +37,10 @@ public sealed record SpaceReport(
 {
     public Held Channelled => Channels.Aggregate(Held.None, (a, c) => a + c.All);
     public Held OnDisk => Channelled + State + Staging;
-    /// What moving every archive to R2 would take off the disk.
+    /// What moving every archive to R2 would take off the disk today.
     public Held Movable => Channels.Aggregate(Held.None, (a, c) => a + c.Archives);
+    /// The signed package files, which stay here until R2 holds those too.
+    public Held Payloads => Channels.Aggregate(Held.None, (a, c) => a + c.Objects);
 }
 
 /// <summary>
@@ -176,6 +178,7 @@ public sealed class Space(IOptions<PortalOptions> options, ILogger<Space> log)
         rec.Add("disk", $"{r.OnDisk.Bytes} bytes in {r.OnDisk.Files} files");
         if (r.VolumeTotal > 0) rec.Add("volume", $"{r.VolumeFree} bytes free of {r.VolumeTotal}");
         rec.Add("movable", $"{r.Movable.Bytes} bytes in {r.Movable.Files} files would go to R2");
+        rec.Add("payloads", $"{r.Payloads.Bytes} bytes in {r.Payloads.Files} files are signed package files, which stay here until R2 holds those too");
         if (r.R2 is { } two) rec.Add("r2", $"{two.Bytes} bytes in {two.Objects} objects, bucket {two.Bucket}, prefix {(two.Prefix.Length == 0 ? "-" : two.Prefix)}");
         else if (r.R2Note is { } why) rec.Add("r2", why);
         return rec.Add("summary", $"{r.OnDisk.Bytes} bytes on this machine, {(r.R2 is { } t ? t.Bytes + " in R2" : "nothing in R2")}");
