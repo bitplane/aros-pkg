@@ -13,24 +13,51 @@ BUILD    ?= $(shell date -u +%Y%m%d)
 BUILDDAY ?= $(shell date -u +%d.%m.%Y)
 VERFLAGS  = -DPKG_VERSION_PATCH='"$(PATCH)"' -DPKG_BUILD='"$(BUILD)"' -DPKG_BUILD_DAY='"$(BUILDDAY)"' 
 
-# Portable C99: everything except the host filesystem layer.
-LIB  = src/pkg_lib.c src/pkg_activity.c src/pkg_update.c src/pkg_environment.c
-CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
-       src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c \
-       src/pkg_pkginfo.c
-# The host layer. POSIX covers macOS and Linux; AROS gets its own.
-CLI = src/pkg_selfupdate.c
-HOST = src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c src/pkg_style.c
-HDR  = $(wildcard include/*.h)
+# The sources, listed once for every build: see sources.mk.
+include sources.mk
+HDR  = $(wildcard include/*.h) $(wildcard src/*.h)
 
 UNITS = test_activity test_container test_sha256 test_manifest test_ed25519 test_image test_ameta
 
-.PHONY: all test test-run test-ubsan check-portability check-m68k check-image check check-aros clean install aros-channel
+.PHONY: all print-sources check-symbols check-cross test test-run test-ubsan check-portability check-m68k check-image check check-aros clean install aros-channel
 
 all: build/pkg
 
+# The list, for a build that is not this Makefile (the AROS scripts, the
+# tests that compile pkg themselves): `make -s print-sources`.
+print-sources:
+	@echo src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST)
+
 # Every check this tree knows how to run.
-check: check-portability test test-ubsan check-m68k check-image
+check: check-portability check-symbols check-cross test test-ubsan check-m68k check-image
+
+# A program links libpkg.a next to its own code and libc, so a global of the
+# library named warn or hint would take the program's calls: libc has warn.
+# Every global the library defines is named pkg_, pkgi_ (shared between its
+# own modules, see src/pkg_internal.h), PKG_ or BZ2_, and bz_internal_error,
+# which bzip2 asks the program to define. Verified to be able to fail: a
+# function made global without its prefix is named here and exits 1.
+check-symbols: build/libpkg.a
+	@bad=$$(nm -g build/lib-obj/*.o | awk 'NF==3 && $$2 != "U" {print $$3}' | sed 's/^_//' \
+		| grep -vE '^(pkg_|pkgi_|PKG_|BZ2_|bz_internal_error$$)' | sort -u); \
+	n=$$(nm -g build/lib-obj/*.o | awk 'NF==3 && $$2 != "U"' | wc -l); \
+	if [ "$$n" -eq 0 ]; then echo "check-symbols: FAIL, nm listed no symbol at all"; exit 1; fi; \
+	if [ -n "$$bad" ]; then echo "check-symbols: FAIL, globals without the library's prefix:"; echo "$$bad"; exit 1; fi; \
+	echo "check-symbols: PASS, $$n globals, every one prefixed"
+
+# The builds the host compiler cannot see: each has failed on a function only
+# its own #ifdef leaves unused, and -Werror makes that an error. Windows and
+# both AROS CPUs, compiled every time, not at release. A missing toolchain
+# fails here, naming it: a check that skips is a check that passes.
+check-cross:
+	@command -v $(WINCC) > /dev/null || { echo "check-cross: FAIL, $(WINCC) is not installed (brew install mingw-w64)"; exit 1; }
+	@rm -f build/pkg.exe && $(MAKE) --no-print-directory build/pkg.exe > build/cross-windows.log 2>&1 \
+		|| { cat build/cross-windows.log; echo "check-cross: FAIL, Windows"; exit 1; }
+	@sh tools/build-aros.sh > build/cross-aros-aarch64.log 2>&1 \
+		|| { tail -20 build/cross-aros-aarch64.log; echo "check-cross: FAIL, AROS aarch64 (see tools/build-aros.sh)"; exit 1; }
+	@sh tools/build-aros-x86_64.sh > build/cross-aros-x86_64.log 2>&1 \
+		|| { tail -20 build/cross-aros-x86_64.log; echo "check-cross: FAIL, AROS x86_64 (see tools/build-aros-x86_64.sh)"; exit 1; }
+	@echo "check-cross: PASS, Windows x86_64, AROS aarch64 and AROS x86_64 build with -Werror"
 
 build/pkg: src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build

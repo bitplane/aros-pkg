@@ -59,7 +59,11 @@ for c in "$mbedtls"/library/*.c; do
         "$c" -o "$o"
 done
 
-# shellcheck disable=SC2086 -- the platform profile supplies separate flags.
+# The sources the Makefile keeps (sources.mk), relative to the repository.
+cd "$repo_root"
+sources=$(make -s print-sources)
+# shellcheck disable=SC2086 -- the platform profile supplies separate flags,
+# and $sources is a list of paths without spaces.
 COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
     "$aros_clang" --target="$aros_target" $aros_arch_flags $verflags \
     -O2 -std=gnu11 \
@@ -73,8 +77,7 @@ COMPILER_PATH="$build_tools:$aros_crosstools/bin" \
     -L "$developer/lib" -L "$aros_cross_lib" \
     -I include -I third_party/bzip2 -isystem "$mbedtls" -isystem "$mbedtls/include" \
     "$developer/lib/startup.o" \
-    src/pkg_main.c src/pkg_lib.c src/pkg_activity.c src/pkg_update.c src/pkg_environment.c src/pkg_selfupdate.c src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c \
-    src/pkg_ed25519.c src/pkg_manifest.c src/pkg_pkginfo.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c src/pkg_style.c \
+    $sources \
     src/pkg_tls_aros.c "$out/pkg_cabundle.c" "$out"/mbedtls/*.o \
     -o "$out/Pkg" \
     -Wl,--allow-multiple-definition -Wl,--start-group \

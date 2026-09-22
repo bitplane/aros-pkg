@@ -270,9 +270,13 @@ build is in [Distributing builds for several platforms](distributing.md);
 
 ## As a library
 
-`include/pkg.h` is the interface; `src/pkg_lib.c` holds every operation;
-`src/pkg_main.c`, the `pkg` command, only turns words into `pkg_options` and
-prints what comes back. A graphical front end, an installer or an agent's tool
+`include/pkg.h` is the interface; the operations live in `src/pkg_lib_*.c`,
+one file per part of the work (output and refusals, keys, building a package,
+channels, the root, the verbs, RESOLVE, STATUS, SEARCH, the interface, PUSH),
+and what those files share with each other, and with nothing else, is declared
+in `src/pkg_internal.h`; `src/pkg_main.c`, the `pkg` command, only turns words
+into `pkg_options` and prints what comes back. The sources are listed once, in
+`sources.mk`, for every build. A graphical front end, an installer or an agent's tool
 adapter links the library (`make build/libpkg.a`) and calls `pkg_install`,
 `pkg_show` and the rest with a sink: structured, it receives the same fields
 the command line prints with `MACHINE`; otherwise sentences for a person; and,
