@@ -1,10 +1,3 @@
-Long operations announce their work before starting. Downloads display transferred and total bytes from zero; operations without a measurable total display an animated wait indicator. Nested steps restore their parent's progress line.
-Network waits keep the activity display responsive, including AROS DNS, HTTP and TLS operations.
-Applications can embed libpkg to check for a newer compatible package and read signed release notes. Configuration comes from code or a .pkgupdate file. The check preserves the installation and reports withdrawals, unreachable channels and publisher-key changes.
-Update checks refresh channel metadata between calls and reject stale results after a failed refresh. The examples include a signed two-build demonstration served over local HTTP.
-
-Optional named environments remember installation roots in personal or machine configuration. Commands announce the selected root and its source; explicit ROOT works independently of configuration.
-UPGRADE or U updates the running pkg executable with signed downloads. REMOVE without a package name uninstalls pkg while preserving other packages.
-Installers offer explicit environment registration. The portal leads with short installation commands and provides first-time configuration guidance.
-Installers suggest an environment name and platform root, accept Return for defaults, create missing directories and retry invalid input. Existing nonempty roots require confirmation. Administrator questions use normal text contrast.
-Archive download failures report the upstream and channel fallback separately. Nightly publication refreshes signed source references when the archive changes, including programs whose own files are unchanged.
+INSTALL accepts AT with an existing absolute destination directory outside the selected root for one application drawer. The selected root remembers the placement; shared dependencies use their own normal locations.
+UPGRADE, VERIFY, REPAIR, ROLLBACK and REMOVE follow the recorded placement. Commands report the destination, and unavailable volumes or incompatible application layouts produce explicit refusals.
+Relocated applications retain their signed manifests. File placement uses staging on the destination volume, and conflicting destinations and redirected paths are refused.

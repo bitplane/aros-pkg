@@ -4349,6 +4349,262 @@ static char *root_path(const char *root, const char *dir, const char *name)
     return pkg_join(root, rel);
 }
 
+/* Placement records keep signed logical paths separate from physical paths.
+ * A root reserves each relocated drawer prefix for its recorded package. */
+struct placement {
+    char *name, *prefix, *parent;
+    int fresh;
+    struct placement *next;
+};
+static struct placement *placements;
+static const char *placement_root;
+static const char *requested_at;
+
+static void placements_clear(void)
+{
+    while (placements) {
+        struct placement *p = placements;
+        placements = p->next;
+        free(p->name); free(p->prefix); free(p->parent); free(p);
+    }
+    placement_root = NULL;
+    requested_at = NULL;
+}
+
+static int placement_matches(const char *prefix, const char *path)
+{
+    size_t n = strlen(prefix);
+    return ascii_casecmp_n(prefix, path, n) == 0
+        && (path[n] == '/' || path[n] == '\0' || ascii_casecmp(path + n, ".info") == 0);
+}
+
+static struct placement *placement_named(const char *name)
+{
+    struct placement *p;
+    for (p = placements; p; p = p->next)
+        if (strcmp(p->name, name) == 0) return p;
+    return NULL;
+}
+
+static struct placement *placement_for(const char *root, const char *path)
+{
+    struct placement *p;
+    if (!placement_root || strcmp(root, placement_root)) return NULL;
+    for (p = placements; p; p = p->next)
+        if (placement_matches(p->prefix, path)) return p;
+    return NULL;
+}
+
+static const char *placement_relative(const struct placement *p, const char *path)
+{
+    const char *base = strrchr(p->prefix, '/');
+    return path + (base ? (size_t)(base + 1 - p->prefix) : 0);
+}
+
+static char *installed_path(const char *root, const char *path)
+{
+    struct placement *p = placement_for(root, path);
+    return p ? pkg_join(p->parent, placement_relative(p, path)) : pkg_join(root, path);
+}
+
+static void installed_prune(const char *root, const char *path)
+{
+    struct placement *p = placement_for(root, path);
+    if (p) {
+        size_t n = strlen(p->prefix);
+        if (path[n] == '/') {
+            char *drawer = pkg_join(p->parent, placement_relative(p, p->prefix));
+            if (drawer) pkg_fs_prune_empty_parents(drawer, path + n + 1);
+            free(drawer);
+        }
+    } else pkg_fs_prune_empty_parents(root, path);
+}
+
+static int placement_absolute(const char *path)
+{
+    const char *c;
+    if (!path || !*path || strchr(path, '\n') || strchr(path, '\r')) return 0;
+    if (path[0] == '/' || (path[0] == '\\' && path[1] == '\\')) return 1;
+#if defined(_WIN32)
+    if (isalpha((unsigned char)path[0]) && path[1] == ':')
+        return path[2] == '/' || path[2] == '\\';
+#endif
+    c = strchr(path, ':');
+    return c && c > path && !memchr(path, '/', (size_t)(c - path));
+}
+
+static int placement_available(const struct placement *p)
+{
+    char *drawer = installed_path(placement_root, p->prefix);
+    char canonical[4096];
+    int ok = pkg_fs_canonical_dir(p->parent, canonical, sizeof canonical) == 0
+        && strcmp(canonical, p->parent) == 0
+        && pkg_fs_path_is_link(p->parent) == 0
+        && drawer && pkg_fs_path_is_link(drawer) == 0
+        && (p->fresh || pkg_fs_is_dir(drawer));
+    if (!ok) refuse_c(17, "the recorded destination for %s at %s is unavailable; mount or restore "
+                       "that directory before continuing", p->name, drawer ? drawer : p->parent);
+    free(drawer);
+    return ok ? 0 : 1;
+}
+
+static int placements_load(const char *root)
+{
+    char *dir;
+    char **names = NULL;
+    size_t n = 0, i;
+    int rc = 0;
+    placement_root = root;
+    if (!root) return 0;
+    dir = pkg_join(root, ".pkg/placements");
+    if (!dir) return refuse("out of memory");
+    if (!pkg_fs_exists(dir)) { free(dir); return 0; }
+    if (pkg_fs_list(dir, &names, &n)) { free(dir); return refuse_c(17, "cannot read placements in %s", root); }
+    for (i = 0; i < n && !rc; i++) {
+        char *path = pkg_join(dir, names[i]), *text = NULL, *nl, *end;
+        unsigned char *data = NULL;
+        size_t len = 0;
+        struct placement *p = NULL, *other;
+        if (pkg_check_name(names[i]) || !path || pkg_fs_read(path, &data, &len)
+            || !len || memchr(data, 0, len)) {
+            rc = refuse_c(17, "cannot read placement for %s", names[i]);
+        } else {
+            text = malloc(len + 1);
+            if (text) { memcpy(text, data, len); text[len] = 0; }
+            nl = text ? strchr(text, '\n') : NULL;
+            if (nl) *nl++ = 0;
+            end = nl ? strchr(nl, '\n') : NULL;
+            if (end) *end++ = 0;
+            if (!nl || !end || *end || pkg_check_path(text) || !placement_absolute(nl))
+                rc = refuse_c(17, "invalid placement record for %s", names[i]);
+            else if (!(p = calloc(1, sizeof *p)) || !(p->name = pkg_strdup(names[i]))
+                     || !(p->prefix = pkg_strdup(text)) || !(p->parent = pkg_strdup(nl)))
+                rc = refuse("out of memory");
+            if (!rc) {
+                for (other = placements; other; other = other->next)
+                    if (placement_matches(other->prefix, p->prefix)
+                        || placement_matches(p->prefix, other->prefix)) {
+                        rc = refuse_c(15, "overlapping placement records for %s and %s", p->name, other->name);
+                        break;
+                    }
+            }
+            if (!rc) {
+                char *db = root_path(root, "db", p->name);
+                p->fresh = db && !pkg_fs_exists(db);
+                free(db);
+                p->next = placements; placements = p; p = NULL;
+            }
+            if (p) { free(p->name); free(p->prefix); free(p->parent); free(p); }
+        }
+        free(path); free(data); free(text);
+    }
+    for (i = 0; i < n; i++) free(names[i]);
+    free(names); free(dir);
+    return rc;
+}
+
+static int placement_layout(const struct placement *p, const struct pkg_manifest *m)
+{
+    size_t i;
+    if (!m->kind || strcmp(m->kind, "application") || !m->nfiles)
+        return refuse_c(20, "AT requires an application package with one self-contained drawer: %s", m->name);
+    for (i = 0; i < m->nfiles; i++)
+        if (!placement_matches(p->prefix, m->files[i].path)
+            || strcmp(p->prefix, m->files[i].path) == 0)
+            return refuse_c(15, "%s ships %s outside its recorded application drawer %s; "
+                            "its placement cannot be preserved", m->name, m->files[i].path, p->prefix);
+    return 0;
+}
+
+/* Check every existing component, including the final file, before any
+ * physical operation. A substituted link must never redirect ownership. */
+static int placement_safe_file(const struct placement *p, const char *logical)
+{
+    const char *relative = placement_relative(p, logical);
+    char *path = pkg_join(p->parent, relative);
+    size_t i, start = strlen(p->parent);
+    if (!path) return refuse("out of memory");
+    for (i = start; ; i++) {
+        int end = path[i] == 0;
+        if (end || path[i] == '/') {
+            char saved = path[i];
+            int linked;
+            path[i] = 0;
+            linked = pkg_fs_path_is_link(path);
+            path[i] = saved;
+            if (linked != 0) {
+                refuse_c(17, "unsafe or unreadable destination path %s for %s; restore the original directory layout",
+                         path, p->name);
+                free(path); return 1;
+            }
+        }
+        if (end) break;
+    }
+    free(path);
+    return 0;
+}
+
+/* Resolve the existing parent of a prospective file, including aliases.
+ * Missing tail directories are appended after the canonical ancestor. */
+static char *placement_physical(const char *root, const char *logical)
+{
+    char *path = installed_path(root, logical), *probe, canonical[4096];
+    size_t cut;
+    if (!path) return NULL;
+    probe = pkg_strdup(path);
+    if (!probe) { free(path); return NULL; }
+    cut = strlen(probe);
+    while (cut) {
+        char *slash = strrchr(probe, '/'), *colon = strrchr(probe, ':');
+        if (slash && (!colon || slash > colon)) {
+            cut = (size_t)(slash - probe);
+            if (cut == 0) { probe[1] = 0; cut = 1; }
+            else probe[cut] = 0;
+        } else if (colon) { cut = (size_t)(colon + 1 - probe); probe[cut] = 0; }
+        else { cut = 0; strcpy(probe, "."); }
+        if (!pkg_fs_canonical_dir(probe, canonical, sizeof canonical)) {
+            const char *tail = path + cut;
+            char *out;
+            while (*tail == '/') tail++;
+            out = pkg_join(canonical, tail);
+            free(path); free(probe); return out;
+        }
+        if (cut == 1 && probe[0] == '/') break;
+        if (colon && cut == (size_t)(colon + 1 - probe)) break;
+    }
+    free(probe);
+    return path;
+}
+
+static int placement_check(const struct pkg_manifest *m)
+{
+    struct placement *p;
+    size_t i;
+    for (p = placements; p; p = p->next) {
+        if (strcmp(m->name, p->name) == 0) {
+            if (placement_available(p) || placement_layout(p, m)) return 1;
+            for (i = 0; i < m->nfiles; i++)
+                if (placement_safe_file(p, m->files[i].path)) return 1;
+        } else {
+            char *drawer = pkg_join(p->parent, placement_relative(p, p->prefix));
+            if (!drawer) return refuse("out of memory");
+            for (i = 0; i < m->nfiles; i++) {
+                char *physical = placement_physical(placement_root, m->files[i].path);
+                int overlap = placement_matches(p->prefix, m->files[i].path)
+                    || (physical && (placement_matches(drawer, physical) || placement_matches(physical, drawer)));
+                free(physical);
+                if (overlap) {
+                    free(drawer);
+                    return refuse_c(15, "%s's path %s overlaps the drawer reserved for %s",
+                                    m->name, m->files[i].path, p->name);
+                }
+            }
+            free(drawer);
+        }
+    }
+    return 0;
+}
+
 static int load_installed(const char *root, const char *name, struct pkg_manifest *m,
                           int quiet)
 {
@@ -4663,7 +4919,7 @@ static int write_pin(const char *root, const char *name, const char *signer)
 static int file_state(const char *root, const char *path, const char *digest,
                       unsigned long long size)
 {
-    char *p = pkg_join(root, path), hex[PKG_SHA256_HEXLEN + 1];
+    char *p = installed_path(root, path), hex[PKG_SHA256_HEXLEN + 1];
     unsigned char *buf;
     size_t len;
     int rc;
@@ -4764,11 +5020,16 @@ static int ameta_set(const char *root, const char *rel, unsigned long long prot,
 {
     const char *slash = strrchr(rel, '/');
     const char *base = slash ? slash + 1 : rel;
-    char dirrel[1024], *dir, *path;
+    char *dir, *path;
     int attempt, rc = -1;
     void *lock;
-    snprintf(dirrel, sizeof dirrel, "%.*s", slash ? (int)(slash - rel) : 0, rel);
-    dir = dirrel[0] ? pkg_join(root, dirrel) : pkg_join(root, "");
+    dir = installed_path(root, rel);
+    if (dir) {
+        char *ds = strrchr(dir, '/'), *dc = strrchr(dir, ':');
+        if (ds && (!dc || ds > dc)) *ds = 0;
+        else if (dc) dc[1] = 0;
+        else { free(dir); dir = pkg_strdup(root); }
+    }
     path = dir ? pkg_join(dir, ".ameta") : NULL;
     if (path == NULL) { free(dir); return -1; }
     if ((prot & ~PKG_AMETA_RECORD_MASK) == 0 && (comment == NULL || !comment[0]) && !pkg_fs_exists(path)) {
@@ -4828,7 +5089,7 @@ static int ameta_set(const char *root, const char *rel, unsigned long long prot,
  * directory's .ameta the rest. */
 static void attrs_one(const char *root, const struct pkg_file *f)
 {
-    char latin[PKG_COMMENT_MAX + 1], *full = pkg_join(root, f->path);
+    char latin[PKG_COMMENT_MAX + 1], *full = installed_path(root, f->path);
     int r;
     if (full == NULL) return;
     latin[0] = '\0';
@@ -4900,6 +5161,154 @@ static int load_all(const char *root, struct installed *in)
     return 0;
 }
 
+static int placement_prepare(const char *root, const struct pkg_manifest *m)
+{
+    struct placement *p;
+    struct installed in;
+    char canonical[4096], *prefix = NULL, *to = NULL, *icon = NULL;
+    size_t i;
+    int rc = 1;
+    if (!requested_at) return placement_check(m);
+    if (!placement_absolute(requested_at) || pkg_fs_canonical_dir(requested_at, canonical, sizeof canonical))
+        return refuse_c(20, "AT must name an existing absolute destination directory: %s", requested_at);
+    if ((p = placement_named(m->name)) != NULL) {
+        if (p->fresh && !strcmp(p->parent, canonical)) return placement_check(m);
+        return refuse_c(15, "%s already has a recorded destination at %s; retry INSTALL without AT", m->name, p->parent);
+    }
+    {
+        char cr[4096];
+        if (!pkg_fs_canonical_dir(root, cr, sizeof cr)) {
+            size_t n = strlen(cr);
+            int reserved = !ascii_casecmp_n(cr, canonical, n)
+                && (!canonical[n] || canonical[n] == '/' || cr[n - 1] == ':' || cr[n - 1] == '/');
+            if (reserved) return refuse_c(20, "AT must name a destination outside the package root");
+        }
+    }
+    if (!m->kind || strcmp(m->kind, "application") || !m->nfiles)
+        return refuse_c(20, "AT requires an application package with one self-contained drawer: %s", m->name);
+    for (i = 0; i < m->nfiles; i++) {
+        char *candidate = pkg_strdup(m->files[i].path), *slash;
+        size_t n;
+        if (!candidate) { free(prefix); return refuse("out of memory"); }
+        n = strlen(candidate);
+        if (n > 5 && !ascii_casecmp(candidate + n - 5, ".info")) candidate[n - 5] = 0;
+        else if ((slash = strrchr(candidate, '/')) != NULL) *slash = 0;
+        else candidate[0] = 0;
+        if (!prefix) prefix = pkg_strdup(candidate);
+        else {
+            while (*prefix && !(strncmp(candidate, prefix, strlen(prefix)) == 0
+                   && (candidate[strlen(prefix)] == 0 || candidate[strlen(prefix)] == '/'))) {
+                slash = strrchr(prefix, '/');
+                if (slash) *slash = 0; else *prefix = 0;
+            }
+        }
+        free(candidate);
+        if (!prefix || !*prefix) break;
+    }
+    if (!prefix || !*prefix) {
+        free(prefix);
+        return refuse_c(20, "%s does not contain one relocatable application drawer", m->name);
+    }
+    {
+        const char *slash = strchr(prefix, '/'), *base = strrchr(prefix, '/');
+        size_t n = slash ? (size_t)(slash - prefix) : strlen(prefix);
+        static const char *system[] = {"C", "S", "L", "Libs", "Devs", "Classes", "Fonts", "Locale", "Prefs", "WBStartup", NULL};
+        static const char *group[] = {"Extras", "Games", "Applications", "Utilities", "Tools", "Demos", NULL};
+        int j;
+        for (j = 0; system[j]; j++)
+            if (strlen(system[j]) == n && !ascii_casecmp_n(prefix, system[j], n)) break;
+        if (system[j]) { free(prefix); return refuse_c(20, "AT cannot relocate system files from %s", system[j]); }
+        base = base ? base + 1 : prefix;
+        for (j = 0; group[j]; j++)
+            if (!ascii_casecmp(base, group[j])) break;
+        if (group[j]) { free(prefix); return refuse_c(20, "%s has a shared category drawer; AT needs one application drawer", m->name); }
+    }
+    p = calloc(1, sizeof *p);
+    if (!p) { free(prefix); return refuse("out of memory"); }
+    p->name = pkg_strdup(m->name); p->prefix = prefix; p->parent = pkg_strdup(canonical); p->fresh = 1;
+    if (!p->name || !p->parent) { refuse("out of memory"); goto out; }
+    if (placement_layout(p, m)) goto out;
+    /* Every logical prefix remains exclusive in this root. This also keeps
+     * package ownership unambiguous when two parents alias the same volume. */
+    if (load_all(root, &in)) goto out;
+    for (i = 0; i < in.n; i++) {
+        size_t j;
+        for (j = 0; j < in.m[i].nfiles; j++)
+            if (placement_matches(prefix, in.m[i].files[j].path)) break;
+        if (j < in.m[i].nfiles) {
+            refuse_c(15, "%s's drawer overlaps files belonging to %s", m->name, in.m[i].name);
+            installed_free(&in); goto out;
+        }
+    }
+    installed_free(&in);
+    {
+        struct placement *other;
+        for (other = placements; other; other = other->next)
+            if (placement_matches(other->prefix, prefix) || placement_matches(prefix, other->prefix)) {
+                refuse_c(15, "%s's drawer overlaps the placement of %s", m->name, other->name); goto out;
+            }
+    }
+    to = pkg_join(canonical, placement_relative(p, prefix));
+    if (to) {
+        icon = malloc(strlen(to) + 6);
+        if (icon) { strcpy(icon, to); strcat(icon, ".info"); }
+    }
+    if (!to || !icon) { refuse("out of memory"); goto out; }
+    {
+        struct placement *other;
+        for (other = placements; other; other = other->next) {
+            char *their = pkg_join(other->parent, placement_relative(other, other->prefix));
+            int overlap = their && (placement_matches(their, to) || placement_matches(to, their));
+            free(their);
+            if (overlap) { refuse_c(15, "AT destination is reserved for %s", other->name); goto out; }
+        }
+    }
+    if (pkg_fs_exists(to) || pkg_fs_exists(icon)
+        || pkg_fs_path_is_link(to) != 0 || pkg_fs_path_is_link(icon) != 0) {
+        refuse_c(15, "AT destination %s or its drawer icon already exists; choose an empty destination", to); goto out;
+    }
+    if (load_all(root, &in)) goto out;
+    for (i = 0; i < in.n; i++) {
+        size_t j;
+        for (j = 0; j < in.m[i].nfiles; j++) {
+            char *physical = placement_physical(root, in.m[i].files[j].path);
+            int overlap = physical && (placement_matches(to, physical) || placement_matches(physical, to));
+            free(physical);
+            if (overlap) {
+                refuse_c(15, "AT destination overlaps files owned by %s", in.m[i].name);
+                installed_free(&in); goto out;
+            }
+        }
+    }
+    installed_free(&in);
+    p->next = placements; placements = p;
+    kv("placement", "%s %s", prefix, to);
+    if (!machine) say_item("destination", "%s -> %s", prefix, to);
+    p = NULL;
+    rc = 0;
+out:
+    if (p) { free(p->name); free(p->prefix); free(p->parent); free(p); }
+    free(to); free(icon);
+    return rc;
+}
+
+static int placement_save(const char *root, const struct pkg_manifest *m)
+{
+    struct placement *p = placement_named(m->name);
+    char *path, *text;
+    size_t n;
+    int rc;
+    if (!p || !p->fresh || dryrun) return 0;
+    n = strlen(p->prefix) + strlen(p->parent) + 3;
+    text = malloc(n);
+    path = root_path(root, "placements", m->name);
+    if (!text || !path) { free(text); free(path); return refuse("out of memory"); }
+    snprintf(text, n, "%s\n%s\n", p->prefix, p->parent);
+    rc = pkg_fs_write_atomic(path, text, n - 1);
+    free(path); free(text);
+    return rc ? refuse_c(17, "cannot record destination for %s; nothing was placed", m->name) : 0;
+}
+
 /* The name beside `path` that Pkg sets a file down under: `path` plus
  * `suffix`, the file name shortened when needed to stay within the 30
  * characters an FFS name may have. Allocated. */
@@ -4936,6 +5345,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     enum pkg_status st;
 
     *placed = *dropped = *kept = 0;
+    if (placement_check(m)) return 1;
     wc.m = m; wc.i = 0; wc.err[0] = '\0';
     st = pkg_read(f->pkg, f->pkg_len, check_entry, &wc, &stopped);
     if (st != PKG_OK || wc.i != m->nfiles)
@@ -4970,7 +5380,7 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             continue;
         }
         if (of == NULL) {
-            char *t = pkg_join(root, m->files[i].path);
+            char *t = installed_path(root, m->files[i].path);
             int there = t ? pkg_fs_exists(t) : 1;
             free(t);
             if (there && file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size) == 0) {
@@ -5068,7 +5478,19 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     {
         char rel[128];
         snprintf(rel, sizeof rel, ".pkg/staging/%s", m->name);
-        staging = pkg_join(root, rel);
+        struct placement *p = placement_named(m->name);
+        if (p) {
+            unsigned char nonce[8];
+            if (pkg_fs_random(nonce, sizeof nonce)) {
+                free(keep); return refuse_c(17, "cannot choose a private staging directory");
+            }
+            snprintf(rel, sizeof rel, ".pkg-at-%02x%02x%02x%02x%02x%02x%02x%02x",
+                     nonce[0], nonce[1], nonce[2], nonce[3], nonce[4], nonce[5], nonce[6], nonce[7]);
+            staging = pkg_join(p->parent, rel);
+            if (staging && pkg_fs_exists(staging)) {
+                free(staging); free(keep); return refuse_c(17, "staging directory already exists");
+            }
+        } else staging = pkg_join(root, rel);
     }
     if (staging == NULL || pkg_fs_rmtree(staging) != 0) {
         free(staging);
@@ -5090,13 +5512,16 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
     }
     did();
 
+    if (placement_save(root, m)) {
+        pkg_fs_rmtree(staging); free(staging); free(keep); return 1;
+    }
     doing_things("placing", m->name, (long long)m->nfiles, "file");
     for (i = 0; i < m->nfiles; i++) {
         char *from, *to;
         int good;
         counting(i, m->nfiles);
         from = pkg_join(staging, m->files[i].path);
-        to = pkg_join(root, m->files[i].path);
+        to = installed_path(root, m->files[i].path);
         if (keep[i] == 2 || keep[i] == 3) {
             free(from);
             free(to);
@@ -5106,6 +5531,10 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
             char *nw = beside(to, ".pkgnew");
             free(to);
             to = nw;
+        }
+        if (to != NULL && pkg_fs_path_is_link(to) != 0) {
+            free(from); free(to); free(staging); free(keep);
+            return refuse_c(17, "unsafe destination for %s", m->files[i].path);
         }
         if (to != NULL && pkg_fs_exists(to))
             pkg_fs_unprotect(to);           /* the version it replaces may forbid Delete */
@@ -5132,10 +5561,10 @@ static int apply(const char *root, const struct pkg_manifest *old, const struct 
                 continue;
             s = file_state(root, of->path, of->digest, of->size);
             if (s == 0) {
-                char *p = pkg_join(root, of->path);
+                char *p = installed_path(root, of->path);
                 if (p != NULL && pkg_fs_unlink(p) == 0) {
                     (*dropped)++;
-                    pkg_fs_prune_empty_parents(root, of->path);
+                    installed_prune(root, of->path);
                 }
                 free(p);
             } else if (s == 1) {
@@ -5381,22 +5810,26 @@ static int remove_files(const char *root, const struct pkg_manifest *m,
                         size_t *removed, size_t *kept, size_t *gone, int report)
 {
     size_t i;
+    int failed = 0;
     char *dbp, *pp;
     *removed = *kept = *gone = 0;
+    if (placement_check(m)) return 1;
     for (i = 0; i < m->nfiles; i++) {
         int s = file_state(root, m->files[i].path, m->files[i].digest, m->files[i].size);
         if (s == 0 && dryrun) {
             (*removed)++;
         } else if (s == 0) {
-            char *p = pkg_join(root, m->files[i].path);
+            char *p = installed_path(root, m->files[i].path);
             if (p != NULL)
                 pkg_fs_unprotect(p);            /* a Delete-forbidden file is still Pkg's to remove */
             if (p != NULL && pkg_fs_unlink(p) == 0) {
                 (*removed)++;
                 ameta_set(root, m->files[i].path, 0, NULL);   /* its entry goes too */
-                pkg_fs_prune_empty_parents(root, m->files[i].path);
-            } else if (p != NULL && report) {
-                warn("%s could not be deleted: %s", m->files[i].path, strerror(errno));
+                installed_prune(root, m->files[i].path);
+            } else {
+                failed = 1;
+                if (p != NULL && report)
+                    warn("%s could not be deleted: %s", m->files[i].path, strerror(errno));
             }
             free(p);
         } else if (s == 1) {
@@ -5409,8 +5842,8 @@ static int remove_files(const char *root, const struct pkg_manifest *m,
             (*gone)++;
         }
     }
-    if (dryrun)
-        return 0;
+    if (dryrun) return 0;
+    if (failed) return refuse_c(17, "some files of %s could not be removed; its database and placement records were kept", m->name);
     dbp = root_path(root, "db", m->name);
     if (dbp == NULL || pkg_fs_unlink(dbp) != 0) {
         free(dbp);
@@ -5418,8 +5851,20 @@ static int remove_files(const char *root, const struct pkg_manifest *m,
                         m->name, strerror(errno));
     }
     free(dbp);
+    {
+        struct placement *p = placement_named(m->name);
+        if (p) {
+            char *rel = pkg_join(placement_relative(p, p->prefix), ".pkg-removed");
+            if (rel) pkg_fs_prune_empty_parents(p->parent, rel);
+            free(rel);
+        }
+    }
     pp = root_path(root, "prev", m->name);
     if (pp != NULL && pkg_fs_exists(pp)) pkg_fs_unlink(pp);
+    free(pp);
+    pp = root_path(root, "placements", m->name);
+    if (pp && pkg_fs_exists(pp) && pkg_fs_unlink(pp))
+        warn("the placement record for %s could not be removed", m->name);
     free(pp);
     set_auto(root, m->name, 0);
     /* The pinned key stays: reinstalling the package later is still held to it. */
@@ -5436,6 +5881,8 @@ static int run_plan(struct plan *p, const struct pkg_manifest *cur,
     int *had_pin = calloc(p->n ? p->n : 1, sizeof *had_pin);
     if (had_pin == NULL)
         return refuse("out of memory");
+    for (i = 0; i < p->n; i++)
+        if (placement_check(&p->f[i].m)) { free(had_pin); return 1; }
     for (i = 0; i < p->n; i++) {
         int last = i + 1 == p->n;
         unsigned long pl, dr, ke;
@@ -6697,6 +7144,10 @@ static int install_one(const struct pkg_options *a, const char *target, char *li
         return 1;
     }
     if (load_installed(a->root, e->name, &cur, 1) == 0) {
+        if (requested_at) {
+            pkg_manifest_free(&cur); free(ix.e);
+            return refuse_c(15, "%s is already installed; AT applies to a fresh installation", target);
+        }
         if (is_auto(a->root, cur.name)) {
             /* Asked for by name now: no longer an orphan candidate. */
             set_auto(a->root, cur.name, 0);
@@ -6740,6 +7191,7 @@ static int install_one(const struct pkg_options *a, const char *target, char *li
         return 1;
     }
     if (plan_target(&p, a, &ix, e->name, e->version) == 0
+        && placement_prepare(a->root, &p.f[p.n - 1].m) == 0
         && run_plan(&p, NULL, &placed, &dropped, &kept) == 0) {
         const struct fetched *t = &p.f[p.n - 1];
         struct fetched f = *t;
@@ -7323,7 +7775,7 @@ static int repair_entry(const struct pkg_entry *e, void *ctx)
         snprintf(c->err, sizeof c->err, "the channel's copy of \"%s\" is not the file installed", e->path);
         return 1;
     }
-    to = pkg_join(c->root, pf->path);
+    to = installed_path(c->root, pf->path);
     if (to == NULL) { snprintf(c->err, sizeof c->err, "out of memory"); return 1; }
     if (c->need[k] == 2) {
         char *old = beside(to, ".pkgold"), *oldrel = beside(pf->path, ".pkgold");
@@ -7698,6 +8150,23 @@ static void resolve_one(const struct pkg_options *a, const char *name, const cha
                         snprintf(c->pkg, sizeof c->pkg, "%s %s", in->m[k].name, in->m[k].version);
                         break;
                     }
+            }
+            if (!c->pkg[0] && placements) {
+                char *candidate = placement_physical("", c->path);
+                for (k = 0; candidate && k < in->n && !c->pkg[0]; k++) {
+                    size_t f;
+                    if (!placement_named(in->m[k].name)) continue;
+                    for (f = 0; f < in->m[k].nfiles; f++) {
+                        char *physical = placement_physical(root, in->m[k].files[f].path);
+                        int same = physical && !ascii_casecmp(candidate, physical);
+                        free(physical);
+                        if (same) {
+                            snprintf(c->pkg, sizeof c->pkg, "%s %s", in->m[k].name, in->m[k].version);
+                            break;
+                        }
+                    }
+                }
+                free(candidate);
             }
         }
     }
@@ -9482,7 +9951,7 @@ typedef int (*op_fn)(const struct pkg_options *);
 static int options_clean(const struct pkg_options *o)
 {
     const struct { const char *what, *v; } f[] = {
-        { "the name", o->target }, { "ROOT", o->root }, { "CHANNEL", o->channel },
+        { "the name", o->target }, { "ROOT", o->root }, { "CHANNEL", o->channel }, { "AT", o->at },
         { "NAME", o->name }, { "VERSION", o->version }, { "ARCH", o->arch }, { "KIND", o->kind },
         { "DEPENDS", o->depends }, { "SIGN", o->sign }, { "FILE", o->file }, { "KEY", o->key },
         { "NAMESPACE", o->nspace },
@@ -9545,7 +10014,36 @@ static int call(const struct pkg_sink *s, const char *verb, op_fn fn, const stru
         pkg_fs_on_tick = pkg_activity_tick;
         pkg_archive_on_read = on_archive_read;
     }
-    rc = options_clean(o != NULL ? o : &none) != 0 ? 1 : fn(o != NULL ? o : &none);
+    placements_clear();
+    requested_at = o ? o->at : NULL;
+    if (requested_at && (strcmp(verb, "install") || (o && (o->all || o->nalso))))
+        rc = refuse_c(20, "AT is supported by INSTALL with one named application");
+    else if (options_clean(o != NULL ? o : &none) || placements_load(o ? o->root : NULL))
+        rc = 1;
+    else {
+        struct placement *p;
+        rc = 0;
+        if (!strcmp(verb, "verify") || !strcmp(verb, "repair") || !strcmp(verb, "upgrade")
+            || !strcmp(verb, "rollback") || !strcmp(verb, "remove") || !strcmp(verb, "install")) {
+            for (p = placements; p && !rc; p = p->next)
+                if (!o || !o->target || o->all || !strcmp(o->target, p->name)) {
+                    struct pkg_manifest m;
+                    rc = placement_available(p);
+                    if (!rc && load_installed(o->root, p->name, &m, 1) == 0) {
+                        rc = placement_check(&m);
+                        pkg_manifest_free(&m);
+                    }
+                    if (!rc) {
+                        char *to = installed_path(o->root, p->prefix);
+                        kv("placement", "%s %s", p->prefix, to ? to : p->parent);
+                        if (!machine) say_item("destination", "%s -> %s", p->prefix, to ? to : p->parent);
+                        free(to);
+                    }
+                }
+        }
+        if (!rc) rc = fn(o != NULL ? o : &none);
+    }
+    placements_clear();
     rc = rc == 0 ? PKGRC_OK : refused_class ? refused_class : PKGRC_REFUSED;
     did();
     pkg_activity_to(NULL, NULL, NULL);

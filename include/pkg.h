@@ -70,7 +70,7 @@
  * later day after an earlier one, and a raised PKG_VERSION_PATCH after both. */
 #define PKG_VERSION_RELEASE "1.7"
 #ifndef PKG_VERSION_PATCH
-#define PKG_VERSION_PATCH "5"
+#define PKG_VERSION_PATCH "6"
 #endif
 #ifndef PKG_BUILD
 #define PKG_BUILD "00000000"      /* a build that did not say: never published */
@@ -191,6 +191,7 @@ enum pkg_line {
 struct pkg_options {
     const char *target;     /* the package, drawer, file or image operated on */
     const char *root;       /* the directory packages are installed into */
+    const char *at;         /* INSTALL: absolute parent for the application's drawer */
     const char *channel;    /* the directory packages are published into */
     const char *name, *version, *arch, *kind;  /* publish: identity, else from the drawer;
                                                   publish refuses a NULL kind (20) */

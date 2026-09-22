@@ -201,6 +201,8 @@ Using pkg
 
 - [Environments](docs/environments.md): optional root registration, personal and
   machine configuration, and updating pkg itself.
+- [Application placement](docs/placement.md): installing an application drawer
+  on another volume with `AT` and remembering its location.
 - [Using pkg](docs/using.md): installing, updating, checking, repairing,
   rolling back and removing software; images; what each refusal means.
 - [Libraries](docs/libraries.md): how AROS finds a library, what that means

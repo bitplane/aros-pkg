@@ -146,6 +146,7 @@ static int ieq(const char *a, const char *b)
 
 static const struct { const char *kw; size_t off; } kws[] = {
         { "ROOT",      offsetof(struct pkg_options, root) },
+        { "AT",        offsetof(struct pkg_options, at) },
         { "CHANNEL",   offsetof(struct pkg_options, channel) },
         { "NAME",      offsetof(struct pkg_options, name) },
         { "VERSION",   offsetof(struct pkg_options, version) },
@@ -342,6 +343,10 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
             return usage_errorf("unexpected argument \"%s\"", argv[i]);
         }
     }
+    if (a->at != NULL && strcmp(verb_name, "install") != 0)
+        return usage_errorf("AT belongs to INSTALL; later operations use the recorded destination");
+    if (a->at != NULL && a->nalso)
+        return usage_errorf("AT takes one package; install each application separately");
     if (a->sign == NULL)
         a->sign = getenv("PKG_SIGNKEY");
     if (a->pushkey == NULL)
@@ -355,7 +360,7 @@ static int usage_is_error = 1;
  * and the descriptions dimmed, and a pipe gets plain text. */
 static const struct { const char *group, *verb, *args, *what; } usage_lines[] = {
     { "Installing and keeping software", NULL, NULL, NULL },
-    { NULL, "INSTALL",   "<name>... ROOT <dir> [CHANNEL <dir|url>] [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>] [UNPACKED <dir>]",
+    { NULL, "INSTALL",   "<name>... ROOT <dir> [AT <dir>] [CHANNEL <dir|url>] [VERSION v] [ARCH cpu] [ACCEPTKEY <hex>] [UNPACKED <dir>]",
                          "install packages and what they depend on; several names go as far as they can" },
     { NULL, "STATUS",    "[<name>] ROOT <dir> [CHANNEL <dir|url>]",
                          "what is installed and what has a newer version; exit 0 either way" },

@@ -28,6 +28,12 @@ int  pkg_fs_loaded(const char *name, int device, unsigned *version, unsigned *re
 /* On AROS, the full path a name reaches (an assign such as LIBS: resolved);
  * elsewhere, or when it does not exist, 0. */
 int  pkg_fs_fullpath(const char *path, char *out, size_t ol);
+/* Resolve an existing directory to its absolute physical path.
+ * Symlinks/assigns are resolved. Returns 0, or -1 with errno set. */
+int  pkg_fs_canonical_dir(const char *path, char *out, size_t len);
+/* 1 for a symlink or Windows reparse point, 0 for other/missing paths,
+ * -1 for an inspection error. Inspect each parent separately. */
+int  pkg_fs_path_is_link(const char *path);
 int  pkg_fs_mkdirs(const char *dir);
 int  pkg_fs_exists(const char *path);          /* 1 if anything is there */
 int  pkg_fs_is_dir(const char *path);

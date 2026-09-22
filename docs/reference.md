@@ -23,7 +23,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 
 | Verb | Form | Does |
 |---|---|---|
-| [`INSTALL`](commands/install.md) | `INSTALL <name>... ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. Several names are installed in turn, as far as the command can get. |
+| [`INSTALL`](commands/install.md) | `INSTALL <name>... ROOT <root> [AT <dir>] [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. Several names are installed in turn, as far as the command can get. |
 | [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> [CHANNEL <channel>] [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
 | [`UPGRADE ALL`](commands/upgrade.md) | `UPGRADE ALL ROOT <root> [CHANNEL <channel>] [ARCH cpu]` | Upgrades every package that has a newer version, as far as it can; never downgrades, never accepts a new key. |
 | [`ROLLBACK`](commands/rollback.md) | `ROLLBACK <name> ROOT <root> [CHANNEL <channel>]` | Returns a package to the version installed before its last change. |
@@ -72,6 +72,7 @@ Environment selection is described in [Environments](environments.md). An explic
 | `ENVIRONMENT` | a registered environment name | commands using an installation root |
 | `SYSTEM` | switch selecting machine configuration | `ENV` |
 | `ROOT` | the system installed into: `SYS:`, or a directory | installing verbs, `LIST`, `VERIFY`, `REMOVE`, `SHOW` |
+| `AT` | existing absolute directory outside the selected root for one application drawer; [placement is remembered](placement.md) | `INSTALL` |
 | `CHANNEL` | a directory, or an `http://` or `https://` address (on AROS `http://` only, with the network started). The installing verbs, `SHOW` and `SEARCH` read the root's list ([`CHANNEL ADD`](commands/channel.md)) when it is left out; given, it means that channel alone | installing and publishing verbs, `SEARCH` |
 | `VERSION` | a version: dotted numbers, and an optional `+build` | `INSTALL`, `UPGRADE`, `PUBLISH`, `MANIFEST`, `WITHDRAW` |
 | `ARCH` | a CPU: `x86_64`, `i386`, `aarch64`, `arm`, `ppc`, `m68k`, or `generic` | installing verbs, `PUBLISH`, `MANIFEST`, `WITHDRAW` |

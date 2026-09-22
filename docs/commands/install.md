@@ -5,7 +5,7 @@
 
 Install a package and what it depends on.
 ```
-pkg INSTALL <name>... ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
+pkg INSTALL <name>... ROOT <root> [AT <dir>] [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
 ```
 
 ## What it does
@@ -31,6 +31,13 @@ root and records the package in the root's database (`.pkg/`).
 - A withdrawn version is not installed unless `VERSION` names it (exit 18).
 
 Without `CHANNEL` it reads the channels the root lists ([CHANNEL](channel.md)), in order; `CHANNEL <channel>` means that channel alone.
+
+## Application placement
+
+`AT <absolute-directory>` installs a supported application drawer in that
+existing directory. Dependencies use the selected root. The root records
+the destination for upgrades, verification, repair, rollback and removal.
+See [Application placement](../placement.md) for layout rules and examples.
 
 ## Several names at once
 
@@ -72,6 +79,7 @@ MACHINE` prints as `archive:`.
 | Keyword | Meaning |
 |---|---|
 | `ROOT <dir>` | the system installed into: `SYS:` on AROS, a directory elsewhere |
+| `AT <dir>` | existing absolute parent directory for one application drawer |
 | `CHANNEL <dir\|url>` | where the package is published |
 | `VERSION v` | this version instead of the newest |
 | `ARCH cpu` | the root's CPU, when the root has never been told and pkg cannot know it |

@@ -145,6 +145,21 @@ int pkg_fs_exists(const char *path)
     return a != INVALID_FILE_ATTRIBUTES;
 }
 
+int pkg_fs_path_is_link(const char *path)
+{
+    wchar_t *w = wide(path);
+    DWORD attrs, error;
+    if (!w) return -1;
+    attrs = GetFileAttributesW(w);
+    error = GetLastError();
+    free(w);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return 0;
+        SetLastError(error); set_errno(); return -1;
+    }
+    return (attrs & FILE_ATTRIBUTE_REPARSE_POINT) ? 1 : 0;
+}
+
 int pkg_fs_is_dir(const char *path)
 {
     wchar_t *w = wide(path);
@@ -281,6 +296,59 @@ int pkg_fs_loaded(const char *name, int device, unsigned *version, unsigned *rev
 int pkg_fs_fullpath(const char *path, char *out, size_t ol)
 {
     (void)path; (void)out; (void)ol;
+    return 0;
+}
+
+int pkg_fs_canonical_dir(const char *path, char *out, size_t len)
+{
+    wchar_t *input, *resolved;
+    const wchar_t *start;
+    char *utf8;
+    HANDLE handle;
+    BY_HANDLE_FILE_INFORMATION info;
+    DWORD needed, got;
+    size_t n, i;
+    int unc;
+    if (!path || !out || !len) { errno = EINVAL; return -1; }
+    out[0] = 0;
+    input = wide(path);
+    if (!input) return -1;
+    handle = CreateFileW(input, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                         NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    free(input);
+    if (handle == INVALID_HANDLE_VALUE) { set_errno(); return -1; }
+    if (!GetFileInformationByHandle(handle, &info)) {
+        set_errno(); CloseHandle(handle); return -1;
+    }
+    if (!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        CloseHandle(handle); errno = ENOTDIR; return -1;
+    }
+    needed = GetFinalPathNameByHandleW(handle, NULL, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (!needed) { set_errno(); CloseHandle(handle); return -1; }
+    resolved = (wchar_t *)malloc(((size_t)needed + 1u) * sizeof *resolved);
+    if (!resolved) { CloseHandle(handle); errno = ENOMEM; return -1; }
+    got = GetFinalPathNameByHandleW(handle, resolved, needed + 1u,
+                                   FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (!got || got > needed) {
+        if (!got) set_errno(); else errno = ENAMETOOLONG;
+        free(resolved); CloseHandle(handle); return -1;
+    }
+    CloseHandle(handle);
+    /* Convert extended DOS drive and UNC prefixes into portable pkg paths. */
+    unc = wcsncmp(resolved, L"\\\\?\\UNC\\", 8) == 0;
+    start = resolved;
+    if (unc) start += 8;
+    else if (wcsncmp(resolved, L"\\\\?\\", 4) == 0 && got >= 7 && resolved[5] == L':') start += 4;
+    else { free(resolved); errno = EINVAL; return -1; }
+    utf8 = narrow(start);
+    free(resolved);
+    if (!utf8) return -1;
+    n = strlen(utf8);
+    if (n + (unc ? 2u : 0u) >= len) { free(utf8); errno = ENAMETOOLONG; return -1; }
+    if (unc) { out[0] = '/'; out[1] = '/'; }
+    memcpy(out + (unc ? 2u : 0u), utf8, n + 1u);
+    free(utf8);
+    for (i = 0; out[i]; i++) if (out[i] == '\\') out[i] = '/';
     return 0;
 }
 

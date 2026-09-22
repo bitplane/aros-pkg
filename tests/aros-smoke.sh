@@ -65,6 +65,9 @@ chmod 644 "$work/drawer/C/Hello"
 printf 'ameta 1\nfile Hello\nprot 0x00000041\ncomment Says%%20hello%%20%%C3%%A9\n' > "$work/drawer/C/.ameta"
 "$host_pkg" KEYGEN FILE "$work/dev.key" > /dev/null
 PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/drawer" CHANNEL "$share/channel" KIND application > /dev/null
+mkdir -p "$work/placed/Games/Placed" "$share/games"
+printf 'placed application\n' > "$work/placed/Games/Placed/Placed"
+PKG_SIGNKEY="$work/dev.key" "$host_pkg" PUBLISH "$work/placed" CHANNEL "$share/placement-channel" KIND application NAME placed VERSION 1 > /dev/null
 digest=$(awk '$1=="hello"{print $4}' "$share/channel/index")
 payload=$(awk '/^Payload:/{print $2}' "$share/channel/objects/$digest.manifest")
 cp -R "$share/channel" "$share/tampered"
@@ -98,6 +101,10 @@ Else
 EndIf
 C:Pkg REMOVE hello ROOT RAM:root >MacRW:remove.out
 C:List RAM:root ALL >MacRW:after-remove.out
+C:Pkg INSTALL placed ROOT RAM:placement CHANNEL MacRW:placement-channel AT MacRW:games >MacRW:placement-install.out
+C:Pkg VERIFY placed ROOT RAM:placement >MacRW:placement-verify.out
+C:Copy MacRW:games/Placed/Placed MacRW:placed.copy
+C:Pkg REMOVE placed ROOT RAM:placement >MacRW:placement-remove.out
 C:Echo done >MacRW:done' \
     "$control" run > /dev/null
 aros_started=1
@@ -123,6 +130,11 @@ cmp -s "$work/drawer/C/Hello" "$share/hello.copy";    ok $? "the installed bytes
 has "$share/tamper.out" "expected $payload";           ok $? "the refusal names the expected digest"
 has "$share/remove.out" 'removed hello 1.2';          ok $? "remove reports what it did"
 ! has "$share/after-remove.out" 'Hello';              ok $? "nothing of the package is left in RAM:root"
+has "$share/placement-install.out" 'installed placed 1'; ok $? "AT installs through an AROS assign on another volume"
+has "$share/placement-verify.out" 'all intact';       ok $? "AROS verify follows its recorded destination"
+cmp -s "$work/placed/Games/Placed/Placed" "$share/placed.copy"; ok $? "relocated AROS bytes match the signed package"
+has "$share/placement-remove.out" 'removed placed 1'; ok $? "AROS remove follows its recorded destination"
+[ ! -e "$share/games/Placed/Placed" ];               ok $? "AROS removal clears the relocated file"
 
 echo
 echo "aros-smoke: $checks checks, $fails failures"

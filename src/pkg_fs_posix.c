@@ -179,6 +179,43 @@ int pkg_fs_fullpath(const char *path, char *out, size_t ol)
 }
 #endif
 
+int pkg_fs_canonical_dir(const char *path, char *out, size_t len)
+{
+    if (!path || !out || !len) { errno = EINVAL; return -1; }
+    out[0] = 0;
+#ifdef __AROS__
+    {
+        BPTR lock = Lock((CONST_STRPTR)path, SHARED_LOCK);
+        struct FileInfoBlock *fib;
+        int rc = -1;
+        if (lock == BNULL) { errno = ENOENT; return -1; }
+        fib = AllocDosObject(DOS_FIB, NULL);
+        if (!fib) { UnLock(lock); errno = ENOMEM; return -1; }
+        if (!Examine(lock, fib)) errno = EIO;
+        else if (fib->fib_DirEntryType <= 0) errno = ENOTDIR;
+        else if (len > 0x7fffffffUL || !NameFromLock(lock, (STRPTR)out, (LONG)len))
+            errno = ENAMETOOLONG;
+        else rc = 0;
+        FreeDosObject(DOS_FIB, fib);
+        UnLock(lock);
+        if (rc) out[0] = 0;
+        return rc;
+    }
+#else
+    {
+        char *resolved = realpath(path, NULL);
+        struct stat st;
+        if (!resolved) return -1;
+        if (stat(resolved, &st) != 0) { free(resolved); return -1; }
+        if (!S_ISDIR(st.st_mode)) { free(resolved); errno = ENOTDIR; return -1; }
+        if (strlen(resolved) >= len) { free(resolved); errno = ENAMETOOLONG; return -1; }
+        memcpy(out, resolved, strlen(resolved) + 1u);
+        free(resolved);
+        return 0;
+    }
+#endif
+}
+
 int pkg_fs_interactive(void)
 {
     return isatty(1);
@@ -434,6 +471,13 @@ int pkg_fs_exists(const char *path)
  * directory to create files under. On macOS /var is exactly that, a link to
  * /private/var, and every temporary directory lives beneath it. The walk that
  * builds a package keeps its own lstat, since there a link must be refused. */
+int pkg_fs_path_is_link(const char *path)
+{
+    struct stat st;
+    if (lstat(path, &st) != 0) return errno == ENOENT ? 0 : -1;
+    return S_ISLNK(st.st_mode) ? 1 : 0;
+}
+
 int pkg_fs_is_dir(const char *path)
 {
     struct stat st;
