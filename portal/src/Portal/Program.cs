@@ -106,6 +106,7 @@ builder.Services.AddSingleton<Portal.Channels.Publishers>();
 builder.Services.AddSingleton<Portal.Channels.Search>();
 builder.Services.AddSingleton<Portal.Admin.AdminKeys>();
 builder.Services.AddSingleton<Portal.Admin.AdminService>();
+builder.Services.AddSingleton<Portal.Admin.Space>();
 builder.Services.AddSingleton<Portal.Channels.Downloads>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Portal.Channels.Downloads>());
 builder.Services.AddHttpClient("r2", c => c.Timeout = TimeSpan.FromHours(1));
@@ -337,6 +338,11 @@ admin.MapGet("/log", (Portal.Admin.AdminService s) => Results2.Text(s.ReadLog())
 
 // What the portal failed to answer, and why: for whoever has to find out.
 admin.MapGet("/failures", () => Results2.Text(Portal.Push.Failures.Read(opts.StateDir)));
+// How much room the portal takes here and in R2. A fresh reading walks the
+// channels, so "fresh" asks for one and anything else takes the last.
+admin.MapGet("/space", async (HttpContext http, Portal.Admin.Space space) =>
+    Results2.Text(Portal.Admin.Space.AsRecord(
+        await space.Get(http.Request.Query.ContainsKey("fresh"), http.RequestAborted))));
 
 // ---- the push API, under each channel ---------------------------------------
 

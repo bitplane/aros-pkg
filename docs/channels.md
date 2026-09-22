@@ -322,3 +322,14 @@ directory serves it; `portal/tools/deploy-azure.sh` is the script that puts
 the public portal on an Azure Linux web app, to copy or adapt. The push
 protocol, what the portal checks and its tests are in
 [portal/README.md](../portal/README.md).
+
+How much room it takes is on the maintainers' page, per channel and in
+total, with how much is left on the volume, what a bucket holds, and how
+much of the whole would move to a bucket. The same reading in a record:
+
+```sh
+curl -H "Authorization: Bearer $PKG_ADMINKEY" https://<portal>/_admin/space
+```
+
+Counting walks every file, which on a web app's network storage is slow, so
+a reading is kept for fifteen minutes; `?fresh` asks for a new one.
