@@ -166,7 +166,7 @@ main.wrap { padding-top: 40px; padding-bottom: 24px; }
 .getpkg .cmd code { font-size: 0.8rem; }
 .getpkg a.button { background: transparent; color: var(--accent); font-weight: 500; }
 .getpkg a.button:hover { background: var(--selected); filter: none; }
-dl.facts a { white-space: nowrap; }
+dl.facts a { white-space: normal; overflow-wrap: anywhere; }
 section > h2.label:first-child { margin-top: 2.8rem; }
 main ol, main ul { padding-left: 22px; }
 main li { margin: 5px 0; }
