@@ -214,6 +214,9 @@ Using pkg
   leaves behind, and moving to a pkg that cannot read this one's database.
 - [pkg with an AI assistant](docs/agents.md): the skill an agent loads, what
   to ask it, what it will not decide for you.
+- [What pkg says, and how it looks](docs/output.md): the role of every line,
+  the four meanings that carry a colour, and what a program linking libpkg
+  receives in place of ink.
 
 Publishing
 

@@ -98,8 +98,13 @@ if os.geteuid() != 0:
    else:raise AssertionError(output)
    _,status=os.waitpid(pid,0)
    assert os.waitstatus_to_exitcode(status)==17,output
-   question=next(line for line in output.splitlines() if b'permissions:' in line)
-   assert b'\x1b[' not in question,question
+   # The question is a question now, not a record: it carries the question
+   # role, which is the brightest thing on the screen. What this check is
+   # for is that it is never the dim ink of a figure, which is how it read
+   # when it went out as "permissions: ..." under the detail role.
+   question=next(line for line in output.splitlines() if b'[y/N]' in line)
+   assert b'\x1b[2m' not in question,question
+   assert b'administrator access is required' in question,question
    assert sent and binary.exists()
    print('PASS administrator question has normal contrast and declining preserves pkg')
   finally:

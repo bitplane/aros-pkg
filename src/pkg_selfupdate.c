@@ -92,8 +92,17 @@ static void report(const struct pkg_sink *s, const char *key, const char *value,
     char line[PATHCAP+256];
     if(s->structured) { if(s->record) s->record(s->user,key,value); return; }
     snprintf(line,sizeof line,"%s: %s",key,value);
-    if(s->line) s->line(s->user,error?PKG_LINE_REFUSAL:(!strcmp(key,"permissions")?PKG_LINE_TEXT:PKG_LINE_DETAIL),error,line);
+    if(s->line) s->line(s->user,error?PKG_LINE_REFUSAL:PKG_LINE_DETAIL,error,line);
     else if(s->text) { size_t n=strlen(line); line[n]='\n'; line[n+1]=0; s->text(s->user,error,line); }
+}
+/* A question waiting for an answer on the terminal: the one line a person
+ * must read before typing. In MACHINE mode it is a record, and nothing is
+ * asked: the caller never reaches here without a terminal. */
+static void ask(const struct pkg_sink *s, const char *text)
+{
+    if(s->structured) { if(s->record) s->record(s->user,"question",text); return; }
+    if(s->line) s->line(s->user,PKG_LINE_QUESTION,0,text);
+    else if(s->text) { char line[PATHCAP+256]; snprintf(line,sizeof line,"%s ",text); s->text(s->user,0,line); }
 }
 static int failure(const struct pkg_sink *s, int code, const char *text)
 { report(s,"self-update",text,1); return code; }
@@ -281,7 +290,7 @@ int pkg_selfupdate(const struct pkg_sink *sink,int dryrun)
         if(geteuid()!=0&&(st.st_uid!=geteuid()||access(dir,W_OK))) {
             if(!dryrun&&!sink->structured&&isatty(STDIN_FILENO)&&isatty(STDOUT_FILENO)) {
                 char answer[16]; pid_t child; int status;
-                report(sink,"permissions","administrator access is required; run this same executable with sudo? [y/N]",0);
+                ask(sink,"administrator access is required. Run this same executable with sudo? [y/N]");
                 if(!fgets(answer,sizeof answer,stdin)||tolower((unsigned char)answer[0])!='y') return failure(sink,17,"update cancelled; the executable is unchanged");
                 child=fork();
                 if(child==0) { execl("/usr/bin/sudo","sudo","--",target,"UPGRADE",(char *)NULL); _exit(127); }
@@ -421,7 +430,7 @@ int pkg_selfremove(const struct pkg_sink *sink,int dryrun)
         if(!dryrun&&geteuid()!=0&&(before.st_uid!=geteuid()||access(dir,W_OK))) {
             if(!sink->structured&&isatty(STDIN_FILENO)&&isatty(STDOUT_FILENO)) {
                 char answer[16]; pid_t child; int status;
-                report(sink,"permissions","administrator access is required; run this same executable with sudo REMOVE? [y/N]",0);
+                ask(sink,"administrator access is required. Run this same executable with sudo REMOVE? [y/N]");
                 if(!fgets(answer,sizeof answer,stdin)||tolower((unsigned char)answer[0])!='y') return remove_failure(sink,"removal cancelled; executable unchanged");
                 child=fork();
                 if(child==0) { execl("/usr/bin/sudo","sudo","--",target,"REMOVE",(char *)NULL); _exit(127); }

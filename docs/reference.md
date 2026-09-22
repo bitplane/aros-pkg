@@ -35,7 +35,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | [`REMOVE ORPHANS`](commands/remove.md) | `REMOVE ORPHANS ROOT <root>` | Removes the packages installed only as dependencies that nothing needs any more. |
 | [`MOUNTLIST`](commands/mountlist.md) | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
 | [`SEARCH`](commands/search.md) | `SEARCH <word>... [CHANNEL <channel>] [ROOT <root>] [ARCH cpu]` | The packages whose name, `Short`, `Tags`, `Category`, `Description` or `Provides` hold every word. Exits 0 whether or not any match. |
-| [`CHANNEL`](commands/channel.md) | `CHANNEL ADD\|LIST\|REMOVE [<channel>] ROOT <root>` | The channels this root reads when `CHANNEL` is left out, in the order they were added. `ADD` checks the channel can be read and refuses a duplicate. |
+| [`CHANNEL`](commands/channel.md) | `CHANNEL ADD\|LIST\|REMOVE [<channel>] [NAME <name>] ROOT <root>` | The channels this root reads when `CHANNEL` is left out, in the order they were added. `ADD` checks the channel can be read and refuses a duplicate, and the channel takes a short name, its own or `NAME`'s, which `CHANNEL <name>` then stands for. |
 | [`SHOW`](commands/show.md) | `SHOW [<name>] [CHANNEL <channel>] [ROOT <root>] [METADATA] [ARCHIVE <archive>]` | Lists and checks what a channel offers; with `ROOT`, marks what is installed. |
 | [`RESOLVE`](commands/resolve.md) | `RESOLVE <library>\|<program> [VERSION v] [ROOT <root>] [FROM <dir>] [CHANNEL <channel>] [ARCH cpu]` | Shows which copy of a library AROS would give a program, walking the places the loader looks, with a verdict and a next step for each; a program instead of a library checks every library it names. Exits 0, 11 when found nowhere, 18 when the copy taken is too old or unusable. See [Libraries](libraries.md). |
 
@@ -73,10 +73,10 @@ Environment selection is described in [Environments](environments.md). An explic
 | `SYSTEM` | switch selecting machine configuration | `ENV` |
 | `ROOT` | the system installed into: `SYS:`, or a directory | installing verbs, `LIST`, `VERIFY`, `REMOVE`, `SHOW` |
 | `AT` | existing absolute directory outside the selected root for one application drawer; [placement is remembered](placement.md) | `INSTALL` |
-| `CHANNEL` | a directory, or an `http://` or `https://` address (on AROS `http://` only, with the network started). The installing verbs, `SHOW` and `SEARCH` read the root's list ([`CHANNEL ADD`](commands/channel.md)) when it is left out; given, it means that channel alone | installing and publishing verbs, `SEARCH` |
+| `CHANNEL` | a directory, an `http://` or `https://` address (on AROS `http://` only, with the network started), or the short name the root's list knows one by. The installing verbs, `SHOW` and `SEARCH` read the root's list ([`CHANNEL ADD`](commands/channel.md)) when it is left out; given, it means that channel alone | installing and publishing verbs, `SEARCH` |
 | `VERSION` | a version: dotted numbers, and an optional `+build` | `INSTALL`, `UPGRADE`, `PUBLISH`, `MANIFEST`, `WITHDRAW` |
 | `ARCH` | a CPU: `x86_64`, `i386`, `aarch64`, `arm`, `ppc`, `m68k`, or `generic` | installing verbs, `PUBLISH`, `MANIFEST`, `WITHDRAW` |
-| `NAME` | a package name; for `IMAGE`, the volume name | `PUBLISH`, `MANIFEST`, `IMAGE` |
+| `NAME` | a package name; for `IMAGE`, the volume name; for `CHANNEL ADD`, the short name the root will know the channel by | `PUBLISH`, `MANIFEST`, `IMAGE`, `CHANNEL ADD` |
 | `KIND` | `image`, `application`, `library`, `device`, `class`, `font`, `catalog`, `startup`, `boot`, `data`, `sdk` or `slave` | `PUBLISH`, `MANIFEST` |
 | `DEPENDS` | `"name >= version, name"`, or `none` | `PUBLISH`, `MANIFEST` |
 | `CONFIG` | `"path, drawer"`: the files people edit | `PUBLISH`, `MANIFEST` |

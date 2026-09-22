@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='pkg-environments-cli-') as tmp:
         p = subprocess.run([pkg, *map(str, args)], env=env, capture_output=True, text=True)
         assert (p.returncode == 0) == ok, (args, p.returncode, p.stdout, p.stderr)
         return p.stdout + p.stderr
-    assert 'No environments' in run('ENV', 'LIST')
+    assert 'no environment is registered' in run('ENV', 'LIST')
     assert not config.exists()
     assert 'command line (ROOT)' in run('LIST', 'ROOT', first)
     assert not config.exists()
@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='pkg-environments-cli-') as tmp:
     run('ENV', 'ADD', 'other', 'ROOT', second)
     run('LIST', ok=False)
     before = config.read_bytes()
-    assert 'Choose a root' in interactive('2')
+    assert 'Which root is this operation for' in interactive('2')
     assert before == config.read_bytes()
     assert str(second) in run('LIST', 'ENVIRONMENT', 'other')
     run('ENV', 'DEFAULT', 'native')

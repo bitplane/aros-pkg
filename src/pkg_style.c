@@ -3,13 +3,17 @@
  *
  * See pkg_style.h. The layout, for a terminal with colour:
  *
- *   ✓ installed hello 1.2 into SYS:            result: mark, bold up to ':'
+ *   ✓ installed hello 1.2 into SYS:            result: purple mark, bold
  *     3 files, signed by 26ffb2bc                 detail: dim
  *     adopted   2 files already there             item: word coloured by meaning
- *     → to run it, mount the image ...            hint: arrow, wrapped
+ *     → to run it, mount the image ...            hint: arrow, dim, wrapped
  *   ! warning: no executable in the drawer       warning: yellow
+ *   ? run this with sudo? [y/N]                  question: bold, no newline
  *   ✗ install: nothere is not in the channel     refusal: red, verb named
  *     → check the name; pkg SHOW ...              next step
+ *
+ * Four meanings carry a colour and nothing else does: see the palette below.
+ * examples/lines.c draws one line of every kind, to judge a change to it.
  *
  *   Package    Version  Kind         Files        table: header bold, columns
  *   hello      1.2      application  3 files             sized to their content
@@ -163,9 +167,27 @@ const char *pkg_style_sgr(int is_error, const char *code)
 #define RESET  "0"
 #define RED    "31"
 #define PURPLE "38;5;135"   /* the project's logo, where the palette has it */
-#define GREEN  "32"
 #define YELLOW "33"
-#define CYAN   "36"
+
+/* What a line means, not what colour it is. Four meanings carry a colour and
+ * everything else is the terminal's own ink, so that a person reads an answer
+ * rather than decodes a rainbow: a command that went well shows one purple
+ * line, and the figures under it stay out of the way.
+ *
+ *   DONE     the thing asked for happened, in the project's purple
+ *   REFUSED  it did not, and nothing was changed
+ *   WATCH    it happened, and something in it is worth a second look
+ *   QUIET    what supports the answer: figures, notes, hints, next steps
+ *   ASKED    a question waiting for an answer, the one line to look at
+ *
+ * The AROS console has no colours of its own to give, only pens: there
+ * DONE and ASKED come out bold and QUIET italic, which is the same order of
+ * attention in the ink that console has. */
+#define C_DONE    PURPLE
+#define C_REFUSED RED
+#define C_WATCH   YELLOW
+#define C_QUIET   DIM
+#define C_ASKED   BOLD
 
 /* The mark before a line, or "" when the stream is plain. The AROS console
  * is Latin-1, where a thin '+' hardly shows; a guillemet does. */
@@ -256,16 +278,16 @@ static void wrapped(struct buf *styled, struct buf *plain, int is_error,
 static const char *word_colour(const char *w)
 {
     if (strcmp(w, "missing") == 0 || strcmp(w, "changed") == 0 || strcmp(w, "refused") == 0)
-        return RED;
+        return C_REFUSED;
     if (strcmp(w, "kept") == 0 || strcmp(w, "edited") == 0 || strcmp(w, "moved") == 0
         || strcmp(w, "aside") == 0 || strcmp(w, "left out") == 0 || strncmp(w, "skipped", 7) == 0
         || strncmp(w, "not ", 4) == 0)
-        return YELLOW;
+        return C_WATCH;
     if (strncmp(w, "would", 5) == 0)
-        return CYAN;
+        return C_QUIET;
     if (strcmp(w, "adopted") == 0 || strcmp(w, "unchanged") == 0 || strcmp(w, "restored") == 0
         || strcmp(w, "added") == 0 || strcmp(w, "published") == 0 || strncmp(w, "upgraded", 8) == 0)
-        return GREEN;
+        return C_DONE;
     return BOLD;
 }
 
@@ -273,15 +295,15 @@ static const char *word_colour(const char *w)
 static const char *cell_colour(const char *cell)
 {
     if (strcmp(cell, "ok") == 0 || strcmp(cell, "current") == 0 || strncmp(cell, "intact", 6) == 0)
-        return GREEN;
+        return C_DONE;
     if (strstr(cell, "missing") != NULL || strstr(cell, "changed") != NULL)
-        return RED;
+        return C_REFUSED;
     if (strncmp(cell, "upgradable", 10) == 0)
-        return YELLOW;
+        return C_WATCH;
     if (strncmp(cell, "withdrawn", 9) == 0 || strncmp(cell, "no longer", 9) == 0
         || strncmp(cell, "files edited", 12) == 0 || strncmp(cell, "bad", 3) == 0
         || strcmp(cell, "damaged") == 0 || strstr(cell, "fail") != NULL)
-        return RED;
+        return C_REFUSED;
     return NULL;
 }
 
@@ -463,7 +485,7 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
             colon = NULL;
         }
         if (after_table && caps[e].bold) badd(&styled, "\n");
-        badd(&styled, sgr(e, bad ? RED : GREEN)); badd(&styled, m); badd(&styled, sgr(e, RESET));
+        badd(&styled, sgr(e, bad ? C_REFUSED : C_DONE)); badd(&styled, m); badd(&styled, sgr(e, RESET));
         badd(&styled, sgr(e, BOLD)); badd(&styled, head); badd(&styled, sgr(e, RESET));
         badd(&styled, "\n");
         if (colon) {
@@ -508,7 +530,7 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
     case PKG_LINE_HINT: {
         char first[32], rest[32];
         const char *m = mark(e, "\xE2\x86\x92 ", "> ");    /* → */
-        snprintf(first, sizeof first, "  %s%s%s", sgr(e, CYAN), m, sgr(e, RESET));
+        snprintf(first, sizeof first, "  %s%s%s", sgr(e, C_QUIET), m, sgr(e, RESET));
         snprintf(rest, sizeof rest, "    ");
         if (!caps[e].bold) {
             wrapped(&styled, &plain, e, "  hint: ", "        ", "", text);
@@ -521,10 +543,23 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
         }
         break;
     }
+    case PKG_LINE_QUESTION: {
+        /* A question stops the command and waits for a person: it is the one
+         * line that must be read, so it is the brightest thing on the screen
+         * and carries no newline, the answer being typed after it. */
+        const char *m = mark(e, "? ", "? ");
+        badd(&styled, sgr(e, C_ASKED));
+        badd(&styled, m);
+        badd(&styled, text);
+        badd(&styled, sgr(e, RESET));
+        badd(&styled, " ");
+        badd(&plain, text); badd(&plain, " ");
+        break;
+    }
     case PKG_LINE_WARNING: {
         char first[48];
         const char *m = mark(e, "! ", "! ");
-        snprintf(first, sizeof first, "%s%swarning:%s ", sgr(e, YELLOW), m, sgr(e, RESET));
+        snprintf(first, sizeof first, "%s%swarning:%s ", sgr(e, C_WATCH), m, sgr(e, RESET));
         if (!caps[e].bold) {
             wrapped(&styled, &plain, e, "warning: ", "  ", "", text);
         } else {
@@ -539,7 +574,7 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
     case PKG_LINE_REFUSAL: {
         char first[80], plain_first[80];
         const char *m = mark(e, "\xE2\x9C\x97 ", "x ");    /* ✗ */
-        snprintf(first, sizeof first, "%s%s%s:%s ", sgr(e, RED), m, verb, sgr(e, RESET));
+        snprintf(first, sizeof first, "%s%s%s:%s ", sgr(e, C_REFUSED), m, verb, sgr(e, RESET));
         /* The verb is the tool itself when no verb was understood: the
          * refusal reads "pkg: ", never "pkg pkg: ". */
         if (strcmp(verb, "pkg") == 0)
@@ -560,7 +595,7 @@ static void draw_line(pkg_style_writer write, int kind, int is_error, const char
     case PKG_LINE_NEXT: {
         char first[32];
         const char *m = mark(e, "\xE2\x86\x92 ", "> ");
-        snprintf(first, sizeof first, "  %s%s%s", sgr(e, CYAN), m, sgr(e, RESET));
+        snprintf(first, sizeof first, "  %s%s%s", sgr(e, C_QUIET), m, sgr(e, RESET));
         if (!caps[e].bold) {
             wrapped(&styled, &plain, e, "  next: ", "        ", "", text);
         } else {

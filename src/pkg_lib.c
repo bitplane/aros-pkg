@@ -3251,25 +3251,37 @@ static int write_index(const char *channel, struct index *ix)
  * line still means that channel and no other. */
 
 struct chanlist {
-    char  *v[PKG_MAX_CHANNELS];
+    char  *v[PKG_MAX_CHANNELS];       /* the channel: a directory or a URL */
+    char  *name[PKG_MAX_CHANNELS];    /* the short name it answers to, or NULL */
     size_t n;
 };
 
+/* A list starts empty, names included: a slot whose name was never set is
+ * freed like any other, and an uninitialised one aborts the program. */
+static void chanlist_init(struct chanlist *c)
+{
+    memset(c, 0, sizeof *c);
+}
+
 static void chanlist_free(struct chanlist *c)
 {
-    while (c->n > 0)
-        free(c->v[--c->n]);
+    while (c->n > 0) {
+        c->n--;
+        free(c->v[c->n]);
+        free(c->name[c->n]);
+        c->name[c->n] = NULL;
+    }
 }
 
 /* Read the list; a root without one has an empty list, which is not a
  * refusal. */
 static int chanlist_read(const char *root, struct chanlist *c)
 {
-    char *p = pkg_join(root, ".pkg/channels");
+    char *p = pkg_join(root, ".pkg/channels"), *tab;
     unsigned char *buf;
     size_t len, at = 0;
 
-    c->n = 0;
+    chanlist_init(c);
     if (p == NULL)
         return refuse("out of memory");
     if (!pkg_fs_exists(p)) { free(p); return 0; }
@@ -3298,7 +3310,18 @@ static int chanlist_read(const char *root, struct chanlist *c)
         }
         memcpy(line, ls, ll);
         line[ll] = '\0';
-        c->v[c->n] = pkg_strdup(line);
+        /* "<name>\t<channel>", or the whole line when the channel has no
+         * name: a list written before names existed reads unchanged, and a
+         * tab cannot be in either part, so the two never run together. */
+        tab = strchr(line, '\t');
+        if (tab != NULL) {
+            *tab = '\0';
+            c->name[c->n] = pkg_strdup(line);
+            if (c->name[c->n] == NULL) { free(buf); chanlist_free(c); return refuse("out of memory"); }
+        } else {
+            c->name[c->n] = NULL;
+        }
+        c->v[c->n] = pkg_strdup(tab ? tab + 1 : line);
         if (c->v[c->n] == NULL) { free(buf); chanlist_free(c); return refuse("out of memory"); }
         c->n++;
     }
@@ -3306,15 +3329,55 @@ static int chanlist_read(const char *root, struct chanlist *c)
     return 0;
 }
 
-/* The channels of a list, for a sentence. */
+/* The channels of a list, for a sentence: by name where they have one,
+ * since that is what a person types. */
 static const char *chanlist_text(const struct chanlist *c)
 {
     static char text[900];
     size_t i, at = 0;
     text[0] = '\0';
     for (i = 0; i < c->n && at + 80 < sizeof text; i++)
-        at += (size_t)snprintf(text + at, sizeof text - at, "%s%s", at ? ", " : "", c->v[i]);
+        at += (size_t)snprintf(text + at, sizeof text - at, "%s%s",
+                               at ? ", " : "", c->name[i] ? c->name[i] : c->v[i]);
     return text;
+}
+
+/* A name a channel may be called by on a command line: letters, digits, a
+ * dash, an underscore or a dot, and never something that could be a path or
+ * a URL instead. */
+static int chan_name_ok(const char *s)
+{
+    size_t n = 0;
+    if (s == NULL || *s == '\0')
+        return 0;
+    for (; *s; s++, n++)
+        if (!((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z')
+              || (*s >= '0' && *s <= '9') || *s == '-' || *s == '_' || *s == '.'))
+            return 0;
+    return n <= 63u;
+}
+
+/* The name a channel gives itself: the last part of its address, which is
+ * what a channel is called anyway ("https://.../contrib-nightly" is the
+ * contrib-nightly channel, "work:channels/mine" is mine). Empty when
+ * nothing usable comes out, and the caller then asks for a name. */
+static void chan_name_of(const char *channel, char *out, size_t len)
+{
+    const char *end = channel + strlen(channel), *start;
+    size_t n;
+    out[0] = '\0';
+    while (end > channel && (end[-1] == '/' || end[-1] == '\\'))
+        end--;
+    start = end;
+    while (start > channel && start[-1] != '/' && start[-1] != '\\' && start[-1] != ':')
+        start--;
+    n = (size_t)(end - start);
+    if (n == 0 || n >= len)
+        return;
+    memcpy(out, start, n);
+    out[n] = '\0';
+    if (!chan_name_ok(out))
+        out[0] = '\0';
 }
 
 static int chanlist_write(const char *root, const struct chanlist *c)
@@ -3325,13 +3388,14 @@ static int chanlist_write(const char *root, const struct chanlist *c)
     int rc;
 
     for (i = 0; i < c->n; i++)
-        cap += strlen(c->v[i]) + 1u;
+        cap += strlen(c->v[i]) + (c->name[i] ? strlen(c->name[i]) + 1u : 0u) + 1u;
     buf = (char *)malloc(cap);
     if (dir == NULL || p == NULL || buf == NULL) { free(dir); free(p); free(buf); return -1; }
     pkg_fs_mkdirs(dir);
     free(dir);
     for (i = 0; i < c->n; i++)
-        len += (size_t)snprintf(buf + len, cap - len, "%s\n", c->v[i]);
+        len += (size_t)snprintf(buf + len, cap - len, "%s%s%s\n",
+                                c->name[i] ? c->name[i] : "", c->name[i] ? "\t" : "", c->v[i]);
     rc = pkg_fs_write_atomic(p, buf, len);
     free(p);
     free(buf);
@@ -8863,6 +8927,7 @@ static int cmd_channel(const struct pkg_options *a)
 {
     struct chanlist cl;
     const char *what = a->target, *ch = a->nalso > 0 ? a->also[0] : NULL;
+    char named[64];
     size_t i;
     int add, remove, list;
 
@@ -8877,24 +8942,64 @@ static int cmd_channel(const struct pkg_options *a)
     if (a->root == NULL)
         return refuse_c(20, "name the root whose channels these are with ROOT <dir>");
     if ((add || remove) && ch == NULL)
-        return refuse_c(20, "CHANNEL %s takes the channel: a directory, or an http(s) URL",
-                        add ? "ADD" : "REMOVE");
+        return refuse_c(20, "CHANNEL %s takes the channel: a directory, an http(s) URL, or the "
+                        "name this root knows one by", add ? "ADD" : "REMOVE");
     if (a->nalso > 1)
         return refuse_c(20, "CHANNEL takes one channel at a time");
+    if (a->name != NULL && !add)
+        return refuse_c(20, "NAME belongs to CHANNEL ADD: it is the short name this root will "
+                        "know the channel by");
+    if (a->name != NULL && !chan_name_ok(a->name))
+        return refuse_c(20, "\"%s\" cannot be a channel's name here: letters, digits, a dash, an "
+                        "underscore or a dot, up to 63 of them, and nothing that reads as a path",
+                        a->name);
     if (chanlist_read(a->root, &cl) != 0)
         return 1;
+
+    /* The name the channel will answer to: the one asked for, or the last
+     * part of its address, which is what the channel is called anyway. A
+     * name already taken here is refused rather than made unique behind the
+     * person's back: two channels answering to one word is the confusion
+     * this feature exists to remove. */
+    named[0] = '\0';
+    if (add) {
+        if (a->name != NULL)
+            snprintf(named, sizeof named, "%s", a->name);
+        else
+            chan_name_of(ch, named, sizeof named);
+        for (i = 0; named[0] && i < cl.n; i++)
+            if (cl.name[i] != NULL && ascii_casecmp(cl.name[i], named) == 0) {
+                if (a->name != NULL) {
+                    char taken[1100];
+                    snprintf(taken, sizeof taken, "%s", cl.v[i]);
+                    chanlist_free(&cl);
+                    return refuse_n(15, "fix-command", "%s already knows a channel as %s: %s. "
+                                    "Give this one another name with NAME <name>, or remove "
+                                    "that one first", a->root, named, taken);
+                }
+                named[0] = '\0';   /* it named itself, and the name is taken: leave it unnamed */
+            }
+    }
 
     if (list) {
         kv("result", "shown");
         if (!machine && cl.n > 0) {
-            static const int widths[] = { 4, 0 };
-            tbl_head(widths, "In\tChannel");
+            static const int widths[] = { 4, 12, 0 };
+            tbl_head(widths, "In\tName\tChannel");
         }
         for (i = 0; i < cl.n; i++) {
-            if (machine)
-                rec_item("channel", cl.v[i], "channel", cl.v[i], NULL);
+            if (machine) {
+                /* The address keeps the record it has always had, so what
+                 * reads these is untouched; the name follows it on its own
+                 * line, for a script that would rather use it. */
+                rec_item("channel", cl.v[i], "channel", cl.v[i],
+                         cl.name[i] ? "name" : NULL, cl.name[i], NULL);
+                if (cl.name[i] != NULL)
+                    kv("channel-name", "%s", cl.name[i]);
+            }
             else
-                tbl_row("%lu\t%s", (unsigned long)i + 1, cl.v[i]);
+                tbl_row("%lu\t%s\t%s", (unsigned long)i + 1,
+                        cl.name[i] ? cl.name[i] : "-", cl.v[i]);
         }
         if (!machine && cl.n > 0)
             tbl_end();
@@ -8917,8 +9022,11 @@ static int cmd_channel(const struct pkg_options *a)
         return 0;
     }
 
+    /* REMOVE takes either what was added or the name it answers to, since
+     * the name is what the person has been typing since. */
     for (i = 0; i < cl.n; i++)
-        if (strcmp(cl.v[i], ch) == 0)
+        if (strcmp(cl.v[i], ch) == 0
+            || (remove && cl.name[i] != NULL && ascii_casecmp(cl.name[i], ch) == 0))
             break;
     if (add) {
         size_t offers = 0;
@@ -8947,7 +9055,11 @@ static int cmd_channel(const struct pkg_options *a)
             free(ix.e);
         }
         cl.v[cl.n] = pkg_strdup(ch);
-        if (cl.v[cl.n] == NULL) { chanlist_free(&cl); return refuse("out of memory"); }
+        cl.name[cl.n] = named[0] ? pkg_strdup(named) : NULL;
+        if (cl.v[cl.n] == NULL || (named[0] && cl.name[cl.n] == NULL)) {
+            chanlist_free(&cl);
+            return refuse("out of memory");
+        }
         cl.n++;
         if (!dryrun && chanlist_write(a->root, &cl) != 0) {
             chanlist_free(&cl);
@@ -8956,6 +9068,7 @@ static int cmd_channel(const struct pkg_options *a)
         }
         kv("result", "%s", res("added", "would-add"));
         kv("channel", "%s", ch);
+        if (named[0]) kv("name", "%s", named);
         kv("root", "%s", a->root);
         kv("position", "%lu", (unsigned long)cl.n);
         if (!dryrun)
@@ -8967,6 +9080,12 @@ static int cmd_channel(const struct pkg_options *a)
                 say_result("added %s to %s, in place %lu: it offers %lu package%s", ch, a->root,
                            (unsigned long)cl.n, (unsigned long)offers, offers == 1 ? "" : "s");
         }
+        /* Worth saying only when the name is shorter than what it stands
+         * for: "CHANNEL channel says the same as CHANNEL channel" helps
+         * nobody. */
+        if (named[0] && strcmp(named, ch) != 0)
+            hint("this root now knows it as %s: CHANNEL %s says the same as CHANNEL %s", named,
+                 named, ch);
         if (cl.n == 1)
             hint("INSTALL, UPGRADE, STATUS, SHOW, REPAIR, ROLLBACK and SEARCH now read this "
                  "channel when CHANNEL is left out; CHANNEL <dir|url> on the line still means "
@@ -8981,9 +9100,19 @@ static int cmd_channel(const struct pkg_options *a)
         return refuse_c(11, "%s does not list the channel %s; nothing was changed. CHANNEL LIST "
                         "ROOT %s shows the ones it lists", a->root, ch, a->root);
     }
+    {
+        /* What is said afterwards names the channel itself, whether the
+         * person typed it or the name it answers to. */
+        static char gone[1100];
+        snprintf(gone, sizeof gone, "%s", cl.v[i]);
+        ch = gone;
+    }
     free(cl.v[i]);
-    for (; i + 1 < cl.n; i++)
+    free(cl.name[i]);
+    for (; i + 1 < cl.n; i++) {
         cl.v[i] = cl.v[i + 1];
+        cl.name[i] = cl.name[i + 1];
+    }
     cl.n--;
     if (!dryrun && chanlist_write(a->root, &cl) != 0) {
         chanlist_free(&cl);
@@ -9394,7 +9523,7 @@ static int cmd_search(const struct pkg_options *a)
     } else {
         target_arch = NULL;
     }
-    cl.n = 0;
+    chanlist_init(&cl);
     if (a->channel != NULL) {
         cl.v[cl.n] = pkg_strdup(a->channel);
         if (cl.v[cl.n] == NULL) return refuse("out of memory");
@@ -10237,6 +10366,34 @@ int pkg_mountlist(const struct pkg_sink *s, const struct pkg_options *o) { retur
 int pkg_show     (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "show", cmd_show, o); }
 int pkg_status   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "status", cmd_status, o); }
 int pkg_channel  (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "channel", cmd_channel, o); }
+
+char *pkg_channel_named(const char *root, const char *name, char *names, unsigned long names_len)
+{
+    struct chanlist cl;
+    char *found = NULL;
+    size_t i, at = 0;
+    int q = quiet;
+
+    if (names != NULL && names_len > 0)
+        names[0] = '\0';
+    if (root == NULL || !chan_name_ok(name))
+        return NULL;
+    /* A root with no list, or one that cannot be read, simply knows no
+     * names: this answers a question, it does not refuse anything. */
+    quiet = 1;
+    if (chanlist_read(root, &cl) != 0) { quiet = q; return NULL; }
+    quiet = q;
+    for (i = 0; i < cl.n; i++) {
+        if (cl.name[i] == NULL)
+            continue;
+        if (found == NULL && ascii_casecmp(cl.name[i], name) == 0)
+            found = pkg_strdup(cl.v[i]);
+        if (names != NULL && at + 2u < (size_t)names_len)
+            at += (size_t)snprintf(names + at, (size_t)names_len - at, "%s%s", at ? ", " : "", cl.name[i]);
+    }
+    chanlist_free(&cl);
+    return found;
+}
 int pkg_search   (const struct pkg_sink *s, const struct pkg_options *o) { return call(s, "search", cmd_search, o); }
 
 static const char *usage_reason;

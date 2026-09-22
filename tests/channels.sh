@@ -64,9 +64,46 @@ $PKG CHANNEL ADD "$T/two" ROOT "$R" > /dev/null 2>&1
 ok $? "CHANNEL ADD, second"
 
 cat "$R/.pkg/channels" > "$T/file"
-printf '%s\n%s\n' "$T/one" "$T/two" > "$T/want"
+printf 'one\t%s\ntwo\t%s\n' "$T/one" "$T/two" > "$T/want"
 cmp -s "$T/file" "$T/want"
-ok $? ".pkg/channels holds one channel per line, in the order added"
+ok $? ".pkg/channels holds one channel per line, in the order added, each with the name it answers to"
+
+# ---- the name a channel answers to -------------------------------------
+# Typing an address twice is what a name is for. A channel names itself
+# after the last part of its address, which is what it is called anyway,
+# and CHANNEL <name> then says exactly what CHANNEL <address> says.
+has "$T/add1" "knows it as one" || ok 1 "ADD says the name the channel took"
+ok $? "ADD says the name the channel took"
+
+$PKG SHOW hello ROOT "$R" CHANNEL one > "$T/byname" 2>&1
+ok $? "a channel can be read by the name it answers to"
+$PKG SHOW hello ROOT "$R" CHANNEL "$T/one" > "$T/byaddr" 2>&1
+# The one line the name adds is the address it stands for; the answer
+# itself has to be the same text.
+grep -v "^  channel: " "$T/byname" > "$T/n2"; cat "$T/byaddr" > "$T/a2"
+cmp -s "$T/n2" "$T/a2"
+ok $? "and says exactly what the address says, but for the line naming it"
+
+$PKG CHANNEL ADD "$T/one" NAME two ROOT "$R" > "$T/taken" 2>&1
+[ $? = 15 ]
+ok $? "a name another channel here answers to is refused with 15"
+has "$T/taken" "already knows a channel as two" || ok 1 "the refusal names the channel that has it"
+ok $? "the refusal names the channel that has it"
+
+$PKG SHOW hello ROOT "$R" CHANNEL nosuchname > "$T/unknown" 2>&1
+has "$T/unknown" "knows no channel named nosuchname" || ok 1 "an unknown name is said, with the names the root does know"
+ok $? "an unknown name is said, with the names the root does know"
+has "$T/unknown" "it knows one, two" || ok 1 "the known names are listed"
+ok $? "the known names are listed"
+
+# A list written before names existed is read unchanged: the whole line is
+# the channel, and nothing in it is mistaken for a name.
+printf '%s\n%s\n' "$T/one" "$T/two" > "$R/.pkg/channels"
+$PKG CHANNEL LIST ROOT "$R" > "$T/old" 2>&1
+ok $? "a channel list from an older pkg still reads"
+has "$T/old" "$T/one" || ok 1 "with its channels intact"
+ok $? "with its channels intact"
+printf 'one\t%s\ntwo\t%s\n' "$T/one" "$T/two" > "$R/.pkg/channels"
 
 $PKG CHANNEL ADD "$T/one" ROOT "$R" > "$T/dup" 2>&1
 [ $? = 15 ]
@@ -75,6 +112,13 @@ has "$T/dup" "already lists" || ok 1 "the duplicate refusal says so"
 ok $? "the duplicate refusal says so"
 cmp -s "$R/.pkg/channels" "$T/want"
 ok $? "the refused duplicate changed nothing"
+
+$PKG CHANNEL REMOVE two ROOT "$R" > "$T/rmname" 2>&1
+ok $? "CHANNEL REMOVE takes the name as well as the address"
+has "$T/rmname" "removed $T/two" || ok 1 "and says which channel went"
+ok $? "and says which channel went"
+$PKG CHANNEL ADD "$T/two" ROOT "$R" > /dev/null 2>&1
+ok $? "the channel goes back for the rest of this test"
 
 $PKG CHANNEL ADD "$T/nowhere" ROOT "$R" > "$T/bad" 2>&1
 [ $? = 11 ]
@@ -188,7 +232,7 @@ ok $? "the file put back came from the channel that holds it"
 # ---- REMOVE ------------------------------------------------------------
 $PKG CHANNEL REMOVE "$T/libs" ROOT "$R5" > "$T/rm" 2>&1
 ok $? "CHANNEL REMOVE"
-printf '%s\n' "$T/apps" > "$T/want5"
+printf 'apps\t%s\n' "$T/apps" > "$T/want5"
 cmp -s "$R5/.pkg/channels" "$T/want5"
 ok $? "the removed channel is gone and the order of the rest is kept"
 $PKG CHANNEL REMOVE "$T/libs" ROOT "$R5" > "$T/rm2" 2>&1

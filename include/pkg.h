@@ -183,7 +183,10 @@ enum pkg_line {
     PKG_LINE_HEAD,      /* a table's header, cells separated by tabs */
     PKG_LINE_ROW,       /* a table's row, cells separated by tabs */
     PKG_LINE_END,       /* the table ends; the text is empty */
-    PKG_LINE_PROGRESS   /* a counter to draw in place, empty when the step ends */
+    PKG_LINE_PROGRESS,  /* a counter to draw in place, empty when the step ends */
+    PKG_LINE_QUESTION   /* a question waiting for an answer on the terminal, the
+                           one line a person must read before typing: it carries
+                           its own choices, as in "... ? [y/N]" */
 };
 
 /* Every option any operation takes; each operation reads the ones it needs
@@ -405,6 +408,15 @@ int pkg_push     (const struct pkg_sink *s, const struct pkg_options *o);
 int pkg_status   (const struct pkg_sink *s, const struct pkg_options *o);  /* root, channel, [target] */
 int pkg_channel  (const struct pkg_sink *s, const struct pkg_options *o);  /* root, target ADD|LIST|REMOVE, also[0] the channel */
 int pkg_search   (const struct pkg_sink *s, const struct pkg_options *o);  /* target and also: the words; [channel] [root] [arch] */
+
+/* The channel a root knows by that short name, for a front end that lets a
+ * person type the name instead of the address. Returns a string the caller
+ * frees, or NULL when the root lists no channel by that name, which is not
+ * an error: the word is then whatever else it was going to be. Reads the
+ * root's list and nothing more; it prints nothing and refuses nothing.
+ * `names`, when given, is filled with the names the root does know, comma
+ * separated, for a refusal that can say them. */
+char *pkg_channel_named(const char *root, const char *name, char *names, unsigned long names_len);
 
 /* A refusal of the request itself, answered in the same form as the
  * operations' own: for a front end that validates its input first. Returns

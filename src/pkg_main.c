@@ -93,6 +93,42 @@ static void write_styled(int is_error, const char *styled, const char *plain)
     to_log(plain);
 }
 
+/* What the command line says on its own account, outside the library's
+ * lines: one method per kind of thing being said, so that the look of a
+ * question or of a note is decided in pkg_style.c and nowhere else. Before
+ * these, the prompts went out through pkg_out and came out unstyled, which
+ * is how a question ended up looking like a figure. In MACHINE mode a
+ * question is a record like any other: nothing is asked there.
+ *
+ *   say_asked     a question, waiting for an answer on the same line
+ *   say_quiet     a figure or a path that supports an answer
+ *   say_noted     a remark worth reading, in passing
+ *   say_done      the thing asked for happened */
+static void say_kind_v(int kind, const char *key, const char *fmt, va_list ap)
+{
+    char buf[2048];
+    vsnprintf(buf, sizeof buf, fmt, ap);
+    if (machine) {
+        if (key != NULL) print_record(NULL, key, buf);
+        return;
+    }
+    pkg_style_line(write_styled, kind, 0, buf);
+}
+
+#define SAY_METHOD(name, kind, key)                       \
+    static void name(const char *fmt, ...)                \
+    {                                                     \
+        va_list ap;                                       \
+        va_start(ap, fmt);                                \
+        say_kind_v((kind), (key), fmt, ap);               \
+        va_end(ap);                                       \
+    }
+
+SAY_METHOD(say_asked, PKG_LINE_QUESTION, "question")
+SAY_METHOD(say_quiet, PKG_LINE_DETAIL,   NULL)
+SAY_METHOD(say_noted, PKG_LINE_NOTE,     "note")
+SAY_METHOD(say_done,  PKG_LINE_RESULT,   "result")
+
 static void print_line(void *user, int kind, int is_error, const char *text)
 {
     (void)user;
@@ -378,8 +414,9 @@ static const struct { const char *group, *verb, *args, *what; } usage_lines[] = 
                          "what a channel offers, each entry checked" },
     { NULL, "SEARCH",    "<word>... [CHANNEL <dir|url>] [ROOT <dir>] [ARCH cpu]",
                          "the packages every word matches; exit 0 whether or not any do" },
-    { NULL, "CHANNEL",   "ADD|LIST|REMOVE [<dir|url>] ROOT <dir>",
-                         "the channels this root reads when CHANNEL is left out, in order" },
+    { NULL, "CHANNEL",   "ADD|LIST|REMOVE [<dir|url|name>] [NAME <name>] ROOT <dir>",
+                         "the channels this root reads when CHANNEL is left out, in order; "
+                         "each takes a short name that CHANNEL <name> then stands for" },
     { NULL, "MOUNTLIST", "<image> ROOT <dir> [OUT <file>] [UNIT n] [HANDLER <path>]",
                          "the Mount entry for an installed image" },
     { "Publishing", NULL, NULL, NULL },
@@ -536,8 +573,8 @@ static int environment_command(const struct pkg_options *a)
             if (e.system_path) print_record(NULL, "system-config", e.system_path);
             if (e.user_path) print_record(NULL, "user-config", e.user_path);
         } else {
-            pkg_out("System configuration: %s\nPersonal configuration: %s\n",
-                    e.system_path ? e.system_path : "unavailable", e.user_path ? e.user_path : "unavailable");
+            say_quiet("system configuration: %s", e.system_path ? e.system_path : "unavailable");
+            say_quiet("personal configuration: %s", e.user_path ? e.user_path : "unavailable");
         }
         for (i = 0; i < e.count; i++) {
             if (environment_system && !e.items[i].system) continue;
@@ -545,9 +582,10 @@ static int environment_command(const struct pkg_options *a)
         }
         if (e.default_name) {
             if (machine) print_record(NULL, "default-environment", e.default_name);
-            else pkg_out("Default environment: %s\n", e.default_name);
+            else say_quiet("default environment: %s", e.default_name);
         }
-        if (!e.count && !machine) pkg_out("No environments registered. ROOT <directory> works without this configuration.\n");
+        if (!e.count && !machine)
+            say_noted("no environment is registered; ROOT <directory> works without this configuration");
         rc = 0; goto end;
     }
     if (!name) { usage_errorf("ENV %s needs one environment name", action); goto end; }
@@ -560,13 +598,16 @@ static int environment_command(const struct pkg_options *a)
     path = environment_system || on_aros ? e.system_path : e.user_path;
     if (!path) { usage_errorf("the configuration path for this scope is unavailable"); goto end; }
     if (machine) print_record(NULL, "configuration", path);
-    else pkg_out("Environment configuration: %s\nThis file references roots; package records stay in each root's .pkg directory.\n", path);
+    else {
+        say_quiet("environment configuration: %s", path);
+        say_noted("this file names roots; a package's records stay in that root's .pkg drawer");
+    }
     if (ieq(action, "ADD")) rc = pkg_environments_add(&e, name, root, environment_system || on_aros, err, sizeof err);
     else if (ieq(action, "REMOVE")) rc = pkg_environments_remove(&e, name, environment_system || on_aros, err, sizeof err);
     else rc = pkg_environments_default(&e, name, environment_system || on_aros, err, sizeof err);
     if (rc != 0) { usage_errorf("%s", err); rc = PKG_RC_USAGE; }
     else if (machine) print_record(NULL, "result", "configured");
-    else pkg_out("Environment configuration saved.\n");
+    else say_done("environment configuration saved: %s", path);
 end:
     pkg_environments_free(&e);
     return rc;
@@ -580,24 +621,60 @@ static int root_verb(const char *verb)
         || ieq(verb,"channel");
 }
 
+/* CHANNEL <word> where the word is neither a URL nor a directory that is
+ * there: the root may know a channel by that name, and typing the name is
+ * the whole point of having one. Resolved once, here, so that every verb
+ * receives a channel and the library keeps taking addresses only. */
+static char *channel_name_used;          /* freed at the end of the command */
+
+static int a_name_not_a_place(const char *s)
+{
+    if (s == NULL || strncmp(s, "http://", 7) == 0 || strncmp(s, "https://", 8) == 0)
+        return 0;
+    return !pkg_fs_is_dir(s);
+}
+
+static int resolve_channel_name(struct pkg_options *a)
+{
+    char names[600], *real;
+    if (a->root == NULL || !a_name_not_a_place(a->channel))
+        return 0;
+    real = pkg_channel_named(a->root, a->channel, names, (unsigned long)sizeof names);
+    if (real == NULL) {
+        /* Not a name this root knows. The word is left as it was: the verb
+         * refuses it as it always did, and says the names there are. */
+        if (names[0] != '\0' && !pkg_fs_exists(a->channel))
+            say_quiet("%s knows no channel named %s; it knows %s", a->root, a->channel, names);
+        return 0;
+    }
+    say_quiet("channel: %s (%s)", real, a->channel);
+    free(channel_name_used);
+    channel_name_used = real;
+    a->channel = real;
+    return 0;
+}
+
 static int prepare_root(struct pkg_options *a, struct pkg_environments *e, char *buf, size_t len)
 {
     const struct pkg_environment *selected = NULL;
     char err[1024];
     int rc, required = root_verb(verb_name);
     size_t i;
-    if (a->root) { tell_root(a->root, "command line (ROOT)", NULL); return 0; }
+    if (a->root) { tell_root(a->root, "command line (ROOT)", NULL); return resolve_channel_name(a); }
     if (!required && !chosen_environment
-        && !(ieq(verb_name,"show") || ieq(verb_name,"search"))) return 0;
-    /* An explicit channel alone keeps the established catalogue-only use. */
-    if (!required && a->channel && !chosen_environment) return 0;
+        && !(ieq(verb_name,"show") || ieq(verb_name,"search")) && !a_name_not_a_place(a->channel))
+        return 0;
+    /* An explicit channel alone keeps the established catalogue-only use,
+     * unless it is a word that may be a name, which needs a root to look in. */
+    if (!required && a->channel && !chosen_environment && !a_name_not_a_place(a->channel))
+        return 0;
     if (pkg_environments_load(e, err, sizeof err) != 0) return usage_errorf("%s; specify ROOT explicitly to choose a root", err);
     rc = pkg_environments_select(e, chosen_environment, &selected, err, sizeof err);
     if (rc == 0) {
         if (!pkg_fs_is_dir(selected->root)) return usage_errorf("root %s from %s is unavailable; mount it or specify ROOT", selected->root, selected->source);
         a->root = selected->root;
         tell_root(a->root, selected->source, selected->name);
-        return 0;
+        return resolve_channel_name(a);
     }
     if (rc < 0) return usage_errorf("%s", err);
     if (rc == 1 && !required && !chosen_environment) return 0;
@@ -606,21 +683,24 @@ static int prepare_root(struct pkg_options *a, struct pkg_environments *e, char 
         return usage_errorf("%s; specify ROOT <directory> or ENVIRONMENT <name>", err);
     }
     if (!e->count) {
-        pkg_out("No environment is registered. Root directory for this operation: ");
+        say_noted("no environment is registered");
+        say_asked("Which root directory is this operation for?");
         if (answer(buf, len) != 0 || !*buf) return usage_errorf("no root chosen; specify ROOT <directory>");
         if (!pkg_fs_is_dir(buf)) return usage_errorf("root %s is unavailable", buf);
-        a->root = buf; tell_root(buf, "interactive choice (not saved)", NULL); return 0;
+        a->root = buf; tell_root(buf, "interactive choice (not saved)", NULL);
+        return resolve_channel_name(a);
     }
-    pkg_out("Choose a root for this operation:\n");
-    for (i = 0; i < e->count; i++) pkg_out("  %lu. %s: %s (%s)\n", (unsigned long)i+1, e->items[i].name, e->items[i].root, e->items[i].source);
-    pkg_out("Number: ");
+    for (i = 0; i < e->count; i++)
+        say_quiet("%lu. %s: %s (%s)", (unsigned long)i + 1, e->items[i].name,
+                  e->items[i].root, e->items[i].source);
+    say_asked("Which root is this operation for? Its number:");
     if (answer(buf, len) != 0) return usage_errorf("no environment chosen");
     { char *end; unsigned long number = strtoul(buf, &end, 10);
       if (!*buf || *end || number == 0 || number > e->count) return usage_errorf("choose a listed number or specify ROOT explicitly");
       selected = &e->items[number - 1]; }
     if (!pkg_fs_is_dir(selected->root)) return usage_errorf("root %s is unavailable", selected->root);
     a->root = selected->root; tell_root(a->root, selected->source, selected->name);
-    return 0;
+    return resolve_channel_name(a);
 }
 
 /* Standalone maintenance accepts only its documented switches. */
