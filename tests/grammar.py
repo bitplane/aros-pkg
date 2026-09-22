@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 John Knipper
-"""docs/reference.md held to the templates pkg reads its words with.
+"""docs/reference.md held to what pkg says it takes.
 
-`pkg HELP MACHINE` lists every verb's template, which is what the command
-actually takes. Each verb's row in the reference must name exactly the
-keywords and switches of that template: a keyword the reference promises and
+`pkg HELP MACHINE` is pkg's own account of its grammar: one `verb:` record
+per verb, followed by its `keyword:` and `switch:` records, drawn from the
+templates it reads its words with. This test keeps no copy of that grammar.
+Each verb's row in the reference must name exactly those keywords and
+switches: a keyword the reference promises and
 the verb refuses is a lie, and one the verb takes and the reference omits is
 a secret. The global words (MACHINE, TRACE, LOG, ENVIRONMENT) are described
 once, in their own table, and are not repeated per verb."""
@@ -14,28 +16,23 @@ import os, re, subprocess, sys
 pkg = os.environ.get("PKG", "./build/pkg")
 repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 out = subprocess.run([pkg, "HELP", "MACHINE"], capture_output=True, text=True).stdout
-verbs = re.findall(r"^verb: (.+)\n(?:syntax: .*\n)template: (.+)$", out, flags=re.M)
-if not verbs:
-    print("grammar: pkg HELP MACHINE listed no verb"); sys.exit(1)
-
-def words(tmpl):
-    """the keywords and switches of a template, globals left out"""
-    out = set()
-    for item in re.split(r',(?=(?:[^"]*"[^"]*")*[^"]*$)', tmpl):
-        name, *mods = item.split("=")[0].split("/")
-        mods = set(mods)
-        if "G" in mods or not ({"K", "S"} & mods): continue
-        out.add(name)
-    return out
-
-# one row of the reference may stand for several templates: CHANNEL for
-# CHANNEL ADD, LIST and REMOVE, PUBLISH for PACKAGE too
+# the records pkg prints about itself: verb:, then its keyword: and switch:
 taken = {}
-for verb, tmpl in verbs:
-    key = verb.split()[0]
-    taken.setdefault(key, set()).update(words(tmpl))
-    if len(verb.split()) == 2:
-        taken[key].add(verb.split()[1])            # ADD, LIST: the row names them
+cur = None
+for line in out.splitlines():
+    k, _, v = line.partition(": ")
+    if k == "verb":
+        cur = v
+        key = v.split()[0]
+        taken.setdefault(key, set())
+        if len(v.split()) == 2:
+            taken[key].add(v.split()[1])          # ADD, LIST: the row names them
+    elif k in ("keyword", "switch") and cur is not None:
+        taken[cur.split()[0]].add(v.split()[0])
+for apart in ("HELP", "VERSION", "PORT"):
+    taken.pop(apart, None)                        # rows of their own, not templates
+if not taken:
+    print("grammar: pkg HELP MACHINE listed no verb"); sys.exit(1)
 rows = {}
 for line in open(os.path.join(repo, "docs/reference.md")):
     m = re.match(r"\| (\[`[A-Z]+[^|]*)\| `([^`]*)`", line)

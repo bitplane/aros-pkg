@@ -67,7 +67,10 @@ return pkg_selfupdate(&s,argc>1&&!strcmp(argv[1],"DRYRUN"));}
         checks=0
         def check(expected, args=(), unchanged=True):
             global checks
-            shutil.copy2(old,target)
+            # a new file each time, renamed over the target, as an update
+            # does: writing into the same inode makes macOS kill the next
+            # exec (SIGKILL, exit -9), its code signature being cached
+            staged=root/'staged pkg'; shutil.copy2(old,staged); os.replace(staged,target)
             result=run(alias,*args)
             assert result.returncode==expected,(result.returncode,result.stdout,result.stderr)
             assert target.read_bytes()==(baseline if unchanged else newer),result.stdout
@@ -120,7 +123,7 @@ return pkg_selfupdate(&s,argc>1&&!strcmp(argv[1],"DRYRUN"));}
         checks+=1
         # Standalone removal resolves the running symlink, preserving its link,
         # unrelated files and configuration.
-        shutil.copy2(old,target)
+        staged=root/'staged pkg'; shutil.copy2(old,staged); os.replace(staged,target)
         unrelated=root/'unrelated';unrelated.write_text('keep me')
         config=root/'environments.conf';config.write_text('keep configuration')
         result=run(alias,'REMOVE','DRYRUN')

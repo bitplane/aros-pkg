@@ -59,7 +59,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 |---|---|---|
 | [`PORT`](commands/port.md) | `PORT [<portname>]` | On AROS, serves the verbs on an ARexx port, `PKG` by default. |
 | [`ENV`](commands/env.md) | `ENV ADD\|LIST\|REMOVE\|DEFAULT [<name>] [ROOT <root>] [SYSTEM]` | Registers and selects installation environments. `DEFAULT` chooses the default environment. |
-| `HELP` | `HELP` | Prints a summary of the commands. |
+| `HELP` | `HELP [<verb>] [MACHINE]` | The usage, drawn from the templates the verbs read their words with; `HELP <verb>`, or `<verb> ?`, one verb and its template. `HELP MACHINE` is pkg's own account of everything it takes, for a program: `version:`, then per verb `verb:`, `what:`, `syntax:`, `template:`, one `place: <required\|optional> <one\|many> <shown>` per word taken by place, one `keyword: <NAME> <required\|optional> <shown>` and one `switch: <NAME>` per word it takes; `verb:` records for HELP, VERSION and PORT; one `global:` per word every verb takes. |
 | `VERSION` | `VERSION [MACHINE]` | Which build this is: the release, the patch, the day it was built. `--version` and `-v` say the same. Records: `result: version`, `version:`, `built:`. |
 
 Environment selection is described in [Environments](environments.md). An explicit

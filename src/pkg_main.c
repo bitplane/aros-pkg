@@ -628,22 +628,69 @@ static int usage(void)
     return PKG_RC_USAGE;
 }
 
-/* HELP MACHINE: every verb as records, for a program, and for the test that
- * holds docs/reference.md to the templates. */
+/* HELP MACHINE: everything the command line takes, as records, so that a
+ * program, the portal or a test asks pkg what it accepts instead of reading
+ * the usage or keeping a copy of the grammar. For each verb, in order:
+ *
+ *   verb:     INSTALL (or CHANNEL ADD: a verb of two words)
+ *   what:     one line of what it does
+ *   syntax:   the syntax as usage shows it
+ *   template: the template it reads its words with (pkg_args.h)
+ *   place:    <required|optional> <one|many> <shown>   a word taken by place
+ *   keyword:  <NAME> <required|optional> <shown>        a keyword and its value
+ *   switch:   <NAME>                                    a switch
+ *
+ * then the three verbs outside the table (HELP, VERSION, PORT) the same way,
+ * and one `global:` record per word every verb takes, with `rooted` for the
+ * one only verbs that take a root do. */
 static void usage_records(void)
 {
-    size_t i;
+    static const struct { const char *verb, *what, *syntax; } apart[] = {
+        { "HELP", "the usage; HELP <verb>, one verb and its template; HELP MACHINE, these records",
+          "[<verb>] [MACHINE]" },
+        { "VERSION", "which build this is: the release, the patch, the day it was built", "[MACHINE]" },
+        { "PORT", "every verb served on an ARexx port, PKG by default (AROS)", "[<portname>]" }
+    };
+    size_t i, k;
     print_record(NULL, "result", "shown");
+    print_record(NULL, "version", PKG_VERSION_STRING);
     for (i = 0; i < NVERBS; i++) {
         struct pkg_args t;
-        char syn[1600], err[200];
+        char syn[1600], err[200], line[200];
         if (pkg_args_template(verbs[i].tmpl, &t, err, sizeof err) != 0)
             continue;
         pkg_args_syntax(&t, shown, syn, sizeof syn);
         print_record(NULL, "verb", verbs[i].verb);
+        print_record(NULL, "what", verbs[i].what);
         print_record(NULL, "syntax", syn);
         print_record(NULL, "template", verbs[i].tmpl);
+        for (k = 0; k < t.n; k++) {
+            const struct pkg_arg *it = &t.item[k];
+            const char *v = it->shown[0] ? it->shown : shown(it->name);
+            const char *need = (it->flags & (PKG_ARG_NEEDED | PKG_ARG_ROOTED)) ? "required" : "optional";
+            if (it->flags & PKG_ARG_GLOBAL)
+                continue;
+            if (it->flags & PKG_ARG_SWITCH) {
+                print_record(NULL, "switch", it->name);
+            } else if (it->flags & PKG_ARG_KEY) {
+                snprintf(line, sizeof line, "%s %s %s", it->name, need, v);
+                print_record(NULL, "keyword", line);
+            } else {
+                snprintf(line, sizeof line, "%s %s %s", need,
+                         (it->flags & PKG_ARG_MULTI) ? "many" : "one", v);
+                print_record(NULL, "place", line);
+            }
+        }
     }
+    for (i = 0; i < sizeof apart / sizeof apart[0]; i++) {
+        print_record(NULL, "verb", apart[i].verb);
+        print_record(NULL, "what", apart[i].what);
+        print_record(NULL, "syntax", apart[i].syntax);
+    }
+    print_record(NULL, "global", "MACHINE switch");
+    print_record(NULL, "global", "TRACE keyword <file>");
+    print_record(NULL, "global", "LOG keyword <file>");
+    print_record(NULL, "global", "ENVIRONMENT keyword <name> rooted");
 }
 
 /* Environment files are optional. Prompts belong to the CLI; library callers
@@ -1136,7 +1183,18 @@ static int pkg_main(int argc, char **argv)
         return PKG_RC_IO;
     }
 
-    /* PORT is not a verb the port itself may run, so it is handled here. */
+    /* PORT is not a verb the port itself may run, so it is handled here.
+     * Under PKG_CHECK_WORDS its words are judged and no port is opened:
+     * PORT takes one port name at most. */
+    if (argc >= 2 && ieq(argv[1], "PORT") && getenv("PKG_CHECK_WORDS") != NULL
+        && strcmp(getenv("PKG_CHECK_WORDS"), "1") == 0) {
+        if (argc > 3) {
+            pkg_err("pkg port: \"%s\" is more than PORT takes; it takes one port name\n", argv[3]);
+            return PKG_RC_USAGE;
+        }
+        pkg_out("PORT takes these words\n");
+        return PKG_RC_OK;
+    }
     if (argc >= 2 && ieq(argv[1], "PORT")) {
         verb_name = "port";
         serving_port = 1;

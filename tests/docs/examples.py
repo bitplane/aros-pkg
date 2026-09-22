@@ -14,7 +14,7 @@ are shown, not run: AmigaDOS, and services that keep running.
 
 --write puts each command's actual output under it in docs/*.md, except
 where the old text differs only in hexadecimal (keys, digests)."""
-import http.server, os, re, shutil, subprocess, sys, tempfile, threading
+import http.server, os, re, shlex, shutil, subprocess, sys, tempfile, threading
 
 PORTAL = "https://aros-pkg.azurewebsites.net"
 here = os.path.dirname(os.path.abspath(__file__))
@@ -61,6 +61,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 local = "http://127.0.0.1:%d" % srv.server_address[1]
 
 checks = fails = shown = 0
+words_cmd = []                       # (file, line index, words) judged, not run
 for path in files:
     text = open(path).read()
     lines, bl = blocks(text)
@@ -68,8 +69,17 @@ for path in files:
     for s, e, lang in bl:
         if lang == "console":
             cmds += [(k, lines[k][2:]) for k in range(s, e) if lines[k].startswith("$ ")]
-        elif lang in ("amigados", "sh"):
+        elif lang in ("amigados", "sh", "text"):
             shown += sum(1 for k in range(s, e) if lines[k].strip() and not lines[k].lstrip().startswith(("#", ";")))
+            # Not run here, but a pkg command among them is held to the
+            # parser: its words are judged by pkg itself (PKG_CHECK_WORDS)
+            # and nothing is done. A syntax line, with [optional] parts or a
+            # choice a|b, is the grammar test's, not this one's.
+            for k in range(s, e):
+                m = re.match(r"^\s*(?:\S*[/:])?[Pp]kg\s+(.*)$", lines[k])
+                if not m or re.search(r"\[|\||\.\.\.", m.group(1)):
+                    continue
+                words_cmd.append((path, k, m.group(1).split(";")[0].split(" #")[0].strip()))
     if not cmds:
         continue
     work = os.path.join(tmp, os.path.relpath(path, repo).replace(os.sep, "_"))
@@ -116,8 +126,25 @@ for path in files:
             open(path, "w").write("\n".join(new))
             print("wrote the outputs of %s" % os.path.relpath(path, repo))
 
+words = 0
+for path, k, c in words_cmd:
+    try:
+        argv = shlex.split(c)
+    except ValueError:
+        argv = c.split()
+    if not argv:
+        continue
+    words += 1
+    r = subprocess.run([pkg] + argv, capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, PKG_CHECK_WORDS="1", HOME=tmp,
+                                XDG_CONFIG_HOME=os.path.join(tmp, ".config")))
+    if r.returncode != 0:
+        fails += 1
+        print("FAIL %s:%d: pkg does not take these words: pkg %s" % (os.path.relpath(path, repo), k + 1, c))
+        for l in (r.stdout + r.stderr).strip().split("\n")[:3]:
+            print("       " + l)
 srv.shutdown()
 shutil.rmtree(tmp, ignore_errors=True)
-print("docs-examples: %d commands run, %d failures; %d lines of AmigaDOS or service commands shown, not run here"
-      % (checks, fails, shown))
+print("docs-examples: %d commands run, %d more judged by pkg's own parser without running, %d failures"
+      % (checks, words, fails))
 sys.exit(1 if fails else 0)
