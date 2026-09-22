@@ -22,6 +22,10 @@ command -v dotnet > /dev/null && [ -f "$dll" ] || { echo "withdrawals: the porta
 newer=$(find "$repo_root/portal/src/Portal" \( -name obj -o -name bin \) -prune -o \
         \( -name '*.cs' -o -name '*.cshtml' \) -newer "$dll" -print -quit)
 [ -z "$newer" ] || { echo "withdrawals: $dll is older than $newer; rebuild it (dotnet build portal/src/Portal -c Release)" >&2; exit 69; }
+# The same trap on the other side: this test reads a channel with pkg itself,
+# and a pkg older than its sources fails the reader's checks for no reason.
+older=$(find "$repo_root/src" "$repo_root/include" -name '*.[ch]' -newer "$P" -print -quit 2>/dev/null)
+[ -z "$older" ] || { echo "withdrawals: $P is older than $older; rebuild it (make)" >&2; exit 69; }
 T=$(mktemp -d); port=5083; site="http://127.0.0.1:$port"
 trap 'kill $srv 2>/dev/null; wait $srv 2>/dev/null; rm -rf "$T"' EXIT
 checks=0; fails=0

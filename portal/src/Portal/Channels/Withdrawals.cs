@@ -64,19 +64,30 @@ public static class Withdrawals
 
 /// Writes the list for every channel once at start, so channels published
 /// before the portal kept one answer the same way as those published after.
-public sealed class WithdrawalsAtStart(IOptions<PortalOptions> options, ILogger<WithdrawalsAtStart> log) : IHostedService
+/// Beside the startup path, never on it: the channels are on a network share
+/// on a web app, and the site must not wait for a walk of it, nor fail to
+/// start because the share answered badly for a moment.
+public sealed class WithdrawalsAtStart(IOptions<PortalOptions> options, ILogger<WithdrawalsAtStart> log) : BackgroundService
 {
-    public Task StartAsync(CancellationToken ct)
+    protected override async Task ExecuteAsync(CancellationToken stop)
     {
-        var dir = options.Value.ChannelsDir;
-        if (!Directory.Exists(dir)) return Task.CompletedTask;
-        foreach (var channel in Directory.EnumerateDirectories(dir))
+        // Hand the startup back before walking anything: a hosted service runs
+        // on the startup path until its first await.
+        await Task.Yield();
+        try
         {
-            try { Withdrawals.Write(channel); }
-            catch (Exception e) { log.LogWarning(e, "withdrawals list for {Channel}", Path.GetFileName(channel)); }
+            var dir = options.Value.ChannelsDir;
+            if (!Directory.Exists(dir)) return;
+            foreach (var channel in Directory.EnumerateDirectories(dir))
+            {
+                if (stop.IsCancellationRequested) break;
+                try { Withdrawals.Write(channel); }
+                catch (Exception e) { log.LogWarning(e, "withdrawals list for {Channel}", Path.GetFileName(channel)); }
+            }
         }
-        return Task.CompletedTask;
+        catch (Exception e)
+        {
+            log.LogWarning(e, "reading the channels to write their withdrawals lists");
+        }
     }
-
-    public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
 }

@@ -24,6 +24,17 @@ public sealed class ArchiveChecker(IOptions<PortalOptions> options, PkgRunner pk
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
+        try
+        {
+            await Check(stop);
+        }
+        // The portal is stopping: the wait for the next archive ends this way,
+        // and a background service that throws would take the site down with it.
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+    }
+
+    async Task Check(CancellationToken stop)
+    {
         // Archives published before a restart and never checked.
         // Only archives never checked. Nothing is uploaded at startup: an
         // archive goes to R2 only right after this process has checked it.
