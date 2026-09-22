@@ -1,0 +1,26 @@
+@page "/developer"
+@{ ViewData["Title"] = "Developer"; }
+<h1>Developer</h1>
+<p class="lead">Build applications with libpkg, connect to the portal, and share your packages.</p>
+<div class="cards">
+    <a class="card" href="/docs/self-update">
+        <span class="eyebrow">libpkg integration</span>
+        <span class="card-title">Update checks in your application</span>
+        <span>Check compatible versions, read signed release notes and configure a channel in code or a .pkgupdate file.</span>
+    </a>
+    <a class="card" href="/docs/reference#the-library">
+        <span class="eyebrow">C API</span>
+        <span class="card-title">Package operations with libpkg</span>
+        <span>Install, browse and verify packages through the library, with progress, cancellation and structured results.</span>
+    </a>
+    <a class="card" href="/developer/samples">
+        <span class="eyebrow">Samples</span>
+        <span class="card-title">Working examples</span>
+        <span>C clients and a local HTTP demonstration with two signed builds.</span>
+    </a>
+    <a class="card" href="/developer/api">
+        <span class="eyebrow">Portal API</span>
+        <span class="card-title">API and feeds</span>
+        <span>Search packages, read metadata, subscribe to feeds and copy small or large badges.</span>
+    </a>
+</div>

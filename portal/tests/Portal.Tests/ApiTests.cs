@@ -130,6 +130,22 @@ public class ApiTests : IClassFixture<ApiTests.Factory>
     }
 
     [Fact]
+    public async Task Developer_groups_integration_samples_and_API_without_breaking_old_links()
+    {
+        var c = f.CreateClient();
+        var hub = await c.GetStringAsync("/developer");
+        foreach (var link in new[] { "/docs/self-update", "/docs/reference#the-library", "/developer/samples", "/developer/api" })
+        {
+            Assert.Contains("href=\"" + link + "\"", hub);
+            Assert.Equal(HttpStatusCode.OK, (await c.GetAsync(link)).StatusCode);
+        }
+        var old = await c.GetAsync("/api");
+        Assert.Equal("/developer/api", old.RequestMessage!.RequestUri!.AbsolutePath);
+        foreach (var file in new[] { "basic.c", "browse.c", "activity.c", "selfupdate.c", "selfupdate-demo.sh" })
+            Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/examples/" + file)).StatusCode);
+    }
+
+    [Fact]
     public async Task Online_update_guide_has_readable_examples()
     {
         var c = f.CreateClient();

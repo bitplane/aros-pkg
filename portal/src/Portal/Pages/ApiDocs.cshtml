@@ -1,10 +1,11 @@
-@page "/api"
+@page "/developer/api"
 @using Microsoft.Extensions.Options
 @inject IOptions<PortalOptions> Options
 @{
     ViewData["Title"] = "API and feeds";
     var site = Options.Value.PublicUrl.Length > 0 ? Options.Value.PublicUrl.TrimEnd('/') : $"{Request.Scheme}://{Request.Host}";
 }
+<p class="crumbs"><a href="/developer">Developer</a> / API and feeds</p>
 <h1>API and feeds</h1>
 <p class="lead">For tools, agents and feed readers. Read-only, no key, JSON or Atom. Channels themselves are plain files: pkg reads them directly.</p>
 

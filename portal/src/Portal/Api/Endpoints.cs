@@ -89,8 +89,10 @@ public static class Endpoints
                 ? Atom(http, o.Value, $"AROS Packages: new in {ch.Name}", $"/channels/{ch.Name}/feed", $"/channels/{ch.Name}", ch.Packages.Values)
                 : Results.NotFound());
 
+        app.MapGet("/api", () => Results.Redirect("/developer/api"));
+
         app.MapGet("/examples/{name}", (string name) =>
-            name is "selfupdate.c" or "selfupdate-demo.sh"
+            name is "selfupdate.c" or "selfupdate-demo.sh" or "basic.c" or "browse.c" or "activity.c"
                 ? Results.Text(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "examples", name)), "text/plain; charset=utf-8")
                 : Results.NotFound());
 

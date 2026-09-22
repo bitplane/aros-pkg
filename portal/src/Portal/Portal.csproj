@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="../../../examples/selfupdate.c;../../../examples/selfupdate-demo.sh" Link="examples/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../../examples/selfupdate.c;../../../examples/selfupdate-demo.sh;../../../examples/basic.c;../../../examples/browse.c;../../../examples/activity.c" Link="examples/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- The user guides of this repository, rendered by /docs: the site's

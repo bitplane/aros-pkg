@@ -1,0 +1,26 @@
+@page "/developer/samples"
+@{ ViewData["Title"] = "Samples"; }
+<p class="crumbs"><a href="/developer">Developer</a> / Samples</p>
+<h1>Samples</h1>
+<p class="lead">Small programs showing how to embed libpkg. Build them from a pkg source checkout.</p>
+<h2>Check for an application update</h2>
+<p><a href="/examples/selfupdate.c">selfupdate.c</a> accepts a package, root and channel, or a <code>.pkgupdate</code> configuration file. It displays the installed and offered versions and signed release notes. The check preserves the installation.</p>
+<pre><code>make build/pkg build/example-selfupdate
+sh examples/selfupdate-demo.sh</code></pre>
+<p>The <a href="/examples/selfupdate-demo.sh">commented demo script</a> installs build <code>1.7.0+20260921</code>, publishes <code>1.7.0+20260922</code>, starts a local HTTP server and checks through both API forms. <code>KEEP=1</code> retains the fixtures for inspection. The server stops on exit.</p>
+<p><a href="/docs/self-update">Integration guide: API, configuration and results</a>.</p>
+<h2>Publish, install and list</h2>
+<p><a href="/examples/basic.c">basic.c</a> creates a key, publishes a small package, installs it and lists the root. It shows structured results and refusal handling. Supply a working directory that does not exist.</p>
+<pre><code>make build/example-basic
+./build/example-basic /tmp/pkg-basic-example</code></pre>
+<h2>Build a package browser</h2>
+<p><a href="/examples/browse.c">browse.c</a> shows catalogue and installed-package browsing, installation, cancellation and trace output. Its source describes each command.</p>
+<pre><code>make build/example-browse
+./build/example-browse list &lt;channel&gt; &lt;root&gt;</code></pre>
+<p><a href="/docs/reference#the-library">Library API reference</a>.</p>
+
+<h2>Display progress and waiting</h2>
+<p><a href="/examples/activity.c">activity.c</a> demonstrates measured downloads, counts, animated waits, nested steps and a wait that becomes a download.</p>
+<pre><code>make build/example-activity
+./build/example-activity</code></pre>
+<p><a href="/docs/activity">Activity interface and display rules</a>.</p>

@@ -95,3 +95,18 @@ and asked. Since then a dry run needs no key and names the key the real
 publish needs, an image's manifest lists the files inside it, and the dry
 run compares a new version with the last one file by file; the missing key
 is class 14 (key), no longer 20.
+
+## Icon-launched installation scripts
+
+Provide an installation script and small launcher icon for LunaPaint from contrib.
+The requested target is AROS x86_64 SMP. UNVERIFIED: the repository location
+(suggested path `gfx/Multimedia/lunapaint`), package/channel identity and target ABI.
+Confirm these before choosing the signed package to install.
+
+Use a shared package/channel description with a launcher for each supported desktop.
+AROS uses an icon and ToolTypes; other platforms need their own launcher formats.
+A tooltip supplies descriptive text. ToolTypes supply configuration.
+The launcher must expose progress, errors and user confirmation, preserve signature
+checks, and handle a missing pkg executable. Acceptance includes a double-click
+installation of LunaPaint on the requested AROS target and explicit platform tests
+for every additional launcher supplied.

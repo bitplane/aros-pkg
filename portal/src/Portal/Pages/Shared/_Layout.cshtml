@@ -28,6 +28,7 @@
             <a class="@On("/statistics")" href="/statistics">Statistics</a>
             <a class="@On("/trust")" href="/trust">Trust</a>
             <a class="@On("/docs")" href="/docs">Documentation</a>
+            <a class="@On("/developer")" href="/developer">Developer</a>
         </nav>
         <form class="search" action="/search" method="get" role="search" hidden="@(here == "/")">
             <input type="search" name="q" value="@Context.Request.Query["q"]" placeholder="Search packages" aria-label="Search packages" />
@@ -75,7 +76,7 @@
 </main>
 <footer class="foot">
     <p>AROS Packages · Every package is signed, and pkg checks it before it installs. Totals only, no tracking.</p>
-    <p><a href="/trust">Trust</a> · <a href="/docs">Documentation</a> · <a href="/publishers#publish">Publish here</a> · <a href="/account">Your account</a> · <a href="/api">API and feeds</a> · <a href="/privacy">Privacy</a> · <a href="https://github.com/jonx/aros-pkg" rel="noopener">Source</a> · <a href="https://github.com/jonx/aros-pkg/issues" rel="noopener">Report an issue</a></p>
+    <p><a href="/trust">Trust</a> · <a href="/docs">Documentation</a> · <a href="/publishers#publish">Publish here</a> · <a href="/account">Your account</a> · <a href="/developer">Developer</a> · <a href="/privacy">Privacy</a> · <a href="https://github.com/jonx/aros-pkg" rel="noopener">Source</a> · <a href="https://github.com/jonx/aros-pkg/issues" rel="noopener">Report an issue</a></p>
     <p class="build">@Portal.BuildInfo.Line · Preview, unlisted</p>
 </footer>
 <script src="~/js/site.js" asp-append-version="true"></script>

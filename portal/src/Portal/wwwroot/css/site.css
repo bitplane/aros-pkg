@@ -449,3 +449,8 @@ form.inline { display: inline; margin-right: .6rem; }
 @media (max-width: 600px) {
   .verb-list tr { grid-template-columns: 7rem minmax(0, 1fr); }
 }
+
+@media (min-width: 761px) and (max-width: 1400px) {
+  .top-row { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; gap: 8px 14px; }
+  .nav { order: 3; width: 100%; margin-left: 0; flex-wrap: wrap; }
+}
