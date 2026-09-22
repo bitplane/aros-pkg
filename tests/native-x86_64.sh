@@ -192,7 +192,7 @@ exits s00 0 "Pkg installed itself from its channel, with one Execute line"
 has "$O/s00.o" '^result: intact$';                     ok $? "and verifies intact: the x86_64 build, signed, found after the aarch64 one did not run"
 exits s01 0 "Guru 2.0 installed on native AROS"
 has "$O/s01.o" "^dependency: identify.library $idver\$";  ok $? "and identify.library came with it"
-has "$O/s02.o" '^package: guru 2.0 image 1 explicit$' && has "$O/s02.o" '^package: pkg [0-9.]* application 1 explicit$'
+has "$O/s02.o" '^package: guru 2.0 image 1 explicit$' && has "$O/s02.o" '^package: pkg [0-9][0-9.+]* application 1 explicit$'
                                                       ok $? "the database lists Guru, and Pkg itself"
 has "$O/r19.o" 'Could not open version .* of library "identify.library"'
                                                       ok $? "control: before the root's Libs is visible, Guru from the image cannot open identify.library"
@@ -221,7 +221,7 @@ exits s06 16 "removing identify while Guru needs it"
 exits s07 0 "Guru removed"
 has "$O/s07.o" "^orphan: identify.library $idver\$";   ok $? "leaving identify an orphan"
 exits s08 0 "orphans removed"
-has "$O/s09.o" '^count: 1$' && has "$O/s09.o" '^package: pkg [0-9.]* ';   ok $? "at the end the root holds Pkg alone"
+has "$O/s09.o" '^count: 1$' && has "$O/s09.o" '^package: pkg [0-9][0-9.+]* ';   ok $? "at the end the root holds Pkg alone"
 
 echo
 echo "native-x86_64: $checks checks, $fails failures"

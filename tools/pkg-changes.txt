@@ -1,7 +1,4 @@
-Installing from a big archive is fast after the first time: pkg keeps a map of the archive beside it and then decompresses only the blocks a package's files lie in. On the 637 MB contrib nightly the first install takes as long as before, the next ones a fraction of a second. Every file is still checked against its signed SHA-256.
-INSTALL takes several names at once (INSTALL aircos amichess ...): one pass over the archive serves them all, each is reported, and the rest go ahead when one fails.
-UNPACKED <dir> installs from an archive you extracted yourself; the files are checked the same way. pkg now says where it reads from and where its cache is.
-A root keeps a list of channels: CHANNEL ADD <url>, CHANNEL LIST, CHANNEL REMOVE. Commands without CHANNEL ask every listed channel. Two channels offering the same package under different keys are refused, never chosen between silently.
-SEARCH <words> finds packages by name, description, tags, category or the libraries they provide; on a portal it asks the portal.
-PACKAGE is a second name for PUBLISH, and PUBLISH says how to send the package on to a portal.
-The list of libraries AROS ships now holds bsdsocket.library, miami.library and the network drivers, so publishing a network program no longer warns about them.
+Long operations announce their work before starting. Downloads display transferred and total bytes from zero; operations without a measurable total display an animated wait indicator. Nested steps restore their parent's progress line.
+Network waits keep the activity display responsive, including AROS DNS, HTTP and TLS operations.
+Applications can embed libpkg to check for a newer compatible package and read signed release notes. Configuration comes from code or a .pkgupdate file. The check preserves the installation and reports withdrawals, unreachable channels and publisher-key changes.
+Update checks refresh channel metadata between calls and reject stale results after a failed refresh. The examples include a signed two-build demonstration served over local HTTP.
