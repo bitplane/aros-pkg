@@ -299,7 +299,31 @@ if (Environment.GetEnvironmentVariable("PORTAL_TEST_FAILURE") == "1")
             ? throw new InvalidOperationException("a failure this portal was asked for")
             : Results.NotFound());
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n"));
-app.MapGet("/health", (Catalogue c) => Results.Text($"ok: {c.ChannelNames().Count()} channels\n"));
+// Health reads a channel file the way a client does, rather than counting
+// directories: a portal whose storage has gone answered "ok" while every
+// channel read was failing, which is how it was missed for two minutes.
+app.MapGet("/health", async (Catalogue c) =>
+{
+    var names = c.ChannelNames().OrderBy(n => n, StringComparer.Ordinal).ToList();
+    foreach (var n in names)
+    {
+        var index = Path.Combine(opts.ChannelsDir, n, "index");
+        if (!File.Exists(index)) continue;
+        try
+        {
+            await using var f = File.OpenRead(index);
+            var one = new byte[1];
+            if (await f.ReadAsync(one) == 0) continue;
+            return Results.Text($"ok: {names.Count} channels, read {n}/index\n");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Portal.Push.Failures.Note(opts.StateDir, "GET /health", e);
+            return Results.Text($"failing: {names.Count} channels, {n}/index cannot be read: {e.Message}\n", statusCode: 503);
+        }
+    }
+    return Results.Text($"ok: {names.Count} channels, none has an index to read\n");
+});
 app.MapRazorPages();
 
 // ---- the maintainers' API -----------------------------------------------------
