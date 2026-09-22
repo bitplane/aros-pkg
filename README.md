@@ -113,81 +113,76 @@ sh examples/selfupdate-demo.sh
 
 ## Your first five minutes
 
-The examples below run on a Mac or a PC, where a *root* is a directory that
-stands for an AROS system, and the channel is read over the network. On
-AROS, use `ROOT SYS:` instead of `ROOT aros`; the addresses are the same,
-since AROS reads channels over `https` too ([Channels](docs/channels.md)).
-A copy of the channel on a volume works too, with no network at all.
+Install or update pkg using your preferred version from
+[Downloads](https://aros-pkg.azurewebsites.net/downloads). During environment
+setup, accept the suggested name and directory and select it as the default.
+The installer creates a missing directory and asks before using one that
+contains files. See [Environment setup](docs/environments.md) to register an
+existing installation, including `SYS:` on AROS.
 
-See what a channel offers. A channel is where packages are published; this
-one holds pkg itself, built for two CPUs:
+Check the registered environments and update the running pkg:
 
-```console
-$ pkg SHOW CHANNEL https://aros-pkg.azurewebsites.net/pkg
-Package  Version  Kind         Arch     Status  Signer
-pkg      1.1      application  aarch64  ok      43c550967bc18dfe
-pkg      1.1      application  x86_64   ok      43c550967bc18dfe
+```sh
+pkg ENV LIST
+pkg u
 ```
 
-Every entry was checked on the way: its signature, its description, its
-files. Install the newest into a root:
+A channel is where packages are published. Register these two channels once:
+`pkg` supplies the package manager, and `contrib-nightly` supplies programs
+from the AROS nightly distribution. If a channel is already listed, keep its
+existing entry.
 
-```console
-$ pkg INSTALL pkg ROOT aros CHANNEL https://aros-pkg.azurewebsites.net/pkg ARCH x86_64
-installed pkg 1.1 into aros: 1 file, payload 08916a1ece2a, signed by 43c550967bc18dfe
+```sh
+pkg CHANNEL ADD https://aros-pkg.azurewebsites.net/pkg
+pkg CHANNEL ADD https://aros-pkg.azurewebsites.net/contrib-nightly
+pkg CHANNEL LIST
 ```
 
-`ARCH x86_64` says which machine the root is for, and the root remembers
-it; on AROS, pkg knows its own. See what is installed, and check it:
+Search across the registered channels, then install and check a game:
 
-```console
-$ pkg LIST ROOT aros
-Package  Version  Kind         Files
-pkg      1.1      application  1 file
-$ pkg VERIFY pkg ROOT aros
-pkg 1.1: 1 file, all intact
+```sh
+pkg SEARCH paint
+pkg INSTALL xinvaders3d
+pkg VERIFY xinvaders3d
+pkg LIST
 ```
 
-Typing the channel on every command gets old. Put it in the root's own
-list once, and leave `CHANNEL` off from then on:
+On AROS, pkg detects the CPU. From macOS, Linux or Windows, name the target
+AROS architecture on the first installation into a new root. For an x86_64
+AROS system, use `pkg INSTALL xinvaders3d ARCH x86_64` for that installation.
+The root remembers its architecture for subsequent commands.
 
-```console
-$ pkg CHANNEL ADD https://aros-pkg.azurewebsites.net/pkg ROOT aros
-added https://aros-pkg.azurewebsites.net/pkg to aros, in place 1: it offers 1 package
-  hint: INSTALL, UPGRADE, STATUS, SHOW, REPAIR, ROLLBACK and SEARCH now read this channel when CHANNEL is left out; CHANNEL <dir|url> on the line still means that channel alone
-$ pkg SEARCH pkg ROOT aros
-Package  Version  Arch            Short
-pkg      1.1      aarch64,x86_64  Installs and updates AROS software
-1 package matches pkg
+The first contrib installation can download the nightly's shared archive,
+which is much larger than the individual game. pkg displays download progress
+and caches the archive for other packages from that nightly.
+
+Check for updates and update the game using the registered channels:
+
+```sh
+pkg STATUS
+pkg UPGRADE xinvaders3d
 ```
 
-Ask whether anything can be updated, then update everything:
+To search a particular channel, name it explicitly:
 
-```console
-$ pkg STATUS ROOT aros
-Package  Installed  State
-pkg      1.1        current
-1 package in aros, all up to date with https://aros-pkg.azurewebsites.net/pkg
-$ pkg UPGRADE ALL ROOT aros
-nothing needs an update: 1 package, none with a newer version in the channel
+```sh
+pkg SEARCH paint CHANNEL https://aros-pkg.azurewebsites.net/contrib-nightly
 ```
 
-Remove it:
+Remove the game when you have finished trying it:
 
-```console
-$ pkg REMOVE pkg ROOT aros
-removed pkg 1.1 from aros: 1 file removed
+```sh
+pkg REMOVE xinvaders3d
 ```
 
-`STATUS` and `UPGRADE ALL` never ask anything, so you can run them from
-`S:User-Startup`, cron or any scheduler. At a terminal the same lines come
-with colour and marks; piped or logged they are the plain text above.
+`pkg REMOVE DRYRUN` previews removing pkg itself. `pkg REMOVE` performs that
+removal, preserving your other programs and environment configuration.
+[Removing pkg](docs/removing.md) describes the details.
 
-The portal's other channel, `contrib-nightly`, holds the hundred-odd
-programs of the AROS nightly build (`lua`, `wget`, `xadmaster`, ...). Their
-files stay in the nightly's own archive, which pkg downloads from
-SourceForge once (about 640 MB for x86_64) and keeps in its cache for every
-package from that nightly.
+These commands use the selected environment and its channels. pkg announces
+the root and where the selection came from before operating. An explicit
+`ROOT <directory>` chooses the root directly, including without environment
+configuration. See [Using pkg](docs/using.md) for the full command walkthrough.
 
 ## When pkg says no
 
