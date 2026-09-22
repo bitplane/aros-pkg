@@ -82,7 +82,7 @@ version=$("$tmp" HELP 2>&1 | awk 'NR == 1 { print $2 }')
 
 # 4. Where it goes. An earlier Pkg is upgraded where it is; another program
 #    named pkg (a system's own package tool) is left alone.
-is_ours() { [ -x "$1" ] && "$1" HELP 2>/dev/null | head -1 | grep -q '^Pkg '; }
+is_ours() { [ -x "$1" ] && "$1" HELP 2>/dev/null | head -1 | grep -q '^[Pp]kg '; }
 sys_bin=${PKG_SYSTEM_BIN:-/usr/local/bin}
 sudo_cmd=
 if [ -n "${PKG_INSTALL_DIR:-}" ]; then
@@ -176,4 +176,41 @@ if [ -z "${PKG_NO_AROS:-}" ] && [ -d "$shared" ] && command -v unzip >/dev/null 
         fi
     fi
     rm -rf "$zip" "$stage"
+fi
+
+# 7. Optional environment directory. Installers never infer an AROS root from
+#    the host install directory. Automation opts in with both variables.
+env_name=${PKG_ENV_NAME:-}
+env_root=${PKG_ENV_ROOT:-}
+env_default=${PKG_ENV_DEFAULT:-0}
+case "${XDG_CONFIG_HOME:-}" in
+    /*) env_config=$XDG_CONFIG_HOME/aros-pkg/environments.conf ;;
+    *) env_config=$HOME/.config/aros-pkg/environments.conf ;;
+esac
+if [ -n "$env_name" ] || [ -n "$env_root" ]; then
+    [ -n "$env_name" ] && [ -n "$env_root" ] || fail "set both PKG_ENV_NAME and PKG_ENV_ROOT to register an environment"
+elif [ -z "${PKG_NO_ENV:-}" ] && [ -t 1 ] && (: < /dev/tty) 2>/dev/null; then
+    say "Optional environments let pkg find a package root without ROOT on each command."
+    say "Personal configuration: $env_config"
+    printf 'Configure an environment? [y/N] ' > /dev/tty
+    IFS= read -r answer < /dev/tty || answer=
+    case "$answer" in
+        y|Y|yes|YES)
+            printf 'Environment name: ' > /dev/tty
+            IFS= read -r env_name < /dev/tty || env_name=
+            printf 'Absolute path of the package root: ' > /dev/tty
+            IFS= read -r env_root < /dev/tty || env_root=
+            [ -n "$env_name" ] && [ -n "$env_root" ] || fail "environment name and root are required"
+            printf 'Use this environment by default? [y/N] ' > /dev/tty
+            IFS= read -r answer < /dev/tty || answer=
+            case "$answer" in y|Y|yes|YES) env_default=1 ;; esac
+            ;;
+    esac
+fi
+if [ -n "$env_name" ]; then
+    say "Registering $env_name with root $env_root in $env_config"
+    "$dir/pkg" ENV ADD "$env_name" ROOT "$env_root" || fail "pkg was installed; environment registration failed"
+    if [ "$env_default" = 1 ]; then
+        "$dir/pkg" ENV DEFAULT "$env_name" || fail "environment registered; setting its default failed"
+    fi
 fi

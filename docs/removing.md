@@ -3,19 +3,26 @@
 
 # Removing pkg
 
-This guide takes pkg off a system: because you no longer want it, or because
-you are moving to a version of pkg that cannot read what this one wrote, such
-as one with a different database format or a different publisher key.
+Run this to remove the pkg executable you launched:
 
-pkg keeps everything it knows in one place, `.pkg` inside the root it manages
-(`SYS:.pkg` on AROS). Removing the program leaves that place as it is, so a
-later pkg takes over exactly where this one stopped. Removing the program
-*and* `.pkg` leaves the software itself untouched on disk: nothing you
-installed is deleted, but nothing tracks it any more.
+```text
+pkg REMOVE
+```
 
-The examples below run on a Mac or a PC, where the root is a directory,
-`aros`. On AROS, the root is `SYS:`, and the AmigaDOS lines are given in
-full.
+Use `pkg REMOVE DRYRUN` to preview the removal. pkg reports the executable
+path before acting. A managed installation also removes its own package
+record. Other installed programs, their records and environment configuration
+remain available when you reinstall pkg from [Downloads](https://aros-pkg.azurewebsites.net/downloads).
+
+On Windows, pkg moves its running executable out of the installed path. It
+schedules deletion at reboot when permitted, or prints the remaining file to
+delete after the command exits.
+
+For a normal update, use `pkg UPGRADE` or `pkg U`. Reinstallation is available
+when you need a fresh executable.
+
+The commands below describe explicit package removal and optional cleanup.
+On a host, `aros` names the AROS root directory; on AROS the examples use `SYS:`.
 
 ## On AROS
 

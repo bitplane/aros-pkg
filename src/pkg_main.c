@@ -13,7 +13,10 @@
  * ARexx port on AROS.
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include "pkg.h"
+#include "pkg_environment.h"
+#include "pkg_selfupdate.h"
 #include "pkg_activity.h"
 #include "pkg_fs.h"
 #include "pkg_out.h"
@@ -36,6 +39,17 @@ static const int on_aros = 1;
 #else
 static const int on_aros = 0;
 #endif
+#ifdef __AROS__
+#include <proto/dos.h>
+#elif defined(_WIN32)
+#include <io.h>
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
+
+static const char *chosen_environment;
+static int environment_system;
 static const char *verb_name = "pkg";
 static int machine;
 static int serving_port;   /* PORT: output is captured, never a terminal */
@@ -173,7 +187,7 @@ static const struct { const char *kw; size_t off; } kws[] = {
 static int takes_value(const char *w)
 {
     size_t k;
-    if (ieq(w, "TRACE") || ieq(w, "LOG"))
+    if (ieq(w, "TRACE") || ieq(w, "LOG") || ieq(w, "ENVIRONMENT"))
         return 1;
     for (k = 0; k < sizeof kws / sizeof kws[0]; k++)
         if (ieq(w, kws[k].kw))
@@ -235,6 +249,16 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
                 return PKG_RC_USAGE;
             also[a->nalso++] = argv[i];
             a->also = also;
+            continue;
+        }
+        if (ieq(argv[i], "ENVIRONMENT")) {
+            if (i + 1 >= argc) return usage_errorf("ENVIRONMENT needs a name");
+            if (clean_value("ENVIRONMENT", argv[i + 1]) != 0) return PKG_RC_USAGE;
+            chosen_environment = argv[++i];
+            continue;
+        }
+        if (strcmp(verb_name, "env") == 0 && ieq(argv[i], "SYSTEM")) {
+            environment_system = 1;
             continue;
         }
         if (ieq(argv[i], "DOWNGRADE")) {
@@ -306,7 +330,7 @@ static int parse_args(int argc, char **argv, struct pkg_options *a)
                 return PKG_RC_USAGE;
             a->target = argv[i];
         } else if ((strcmp(verb_name, "install") == 0 || strcmp(verb_name, "search") == 0
-                    || strcmp(verb_name, "channel") == 0)
+                    || strcmp(verb_name, "channel") == 0 || strcmp(verb_name, "env") == 0)
                    && a->nalso < sizeof also / sizeof also[0]) {
             /* INSTALL a b c: every name on the line, installed in turn.
              * SEARCH takes its words this way, and CHANNEL ADD its channel. */
@@ -335,15 +359,15 @@ static const struct { const char *group, *verb, *args, *what; } usage_lines[] = 
                          "install packages and what they depend on; several names go as far as they can" },
     { NULL, "STATUS",    "[<name>] ROOT <dir> [CHANNEL <dir|url>]",
                          "what is installed and what has a newer version; exit 0 either way" },
-    { NULL, "UPGRADE",   "<name>|ALL ROOT <dir> [CHANNEL <dir|url>] [VERSION v] [ARCH cpu] [DOWNGRADE] [UNPACKED <dir>]",
+    { NULL, "UPGRADE",   "[<name>|ALL ROOT <dir>] [CHANNEL <dir|url>] [VERSION v] [ARCH cpu] [DOWNGRADE] [UNPACKED <dir>]",
                          "ALL takes every newer version, dependencies first, and goes as far as it can" },
     { NULL, "ROLLBACK",  "<name> ROOT <dir> [CHANNEL <dir|url>]",
                          "back to the version installed before" },
     { NULL, "LIST",      "ROOT <dir>", "what a root holds" },
     { NULL, "VERIFY",    "<name>|ALL ROOT <dir>", "every installed file against its signed manifest" },
     { NULL, "REPAIR",    "<name>|ALL ROOT <dir> [CHANNEL <dir|url>] [UNPACKED <dir>]", "put damaged files back" },
-    { NULL, "REMOVE",    "<name>|ORPHANS ROOT <dir>",
-                         "take a package out; ORPHANS: what nothing needs any more" },
+    { NULL, "REMOVE",    "[<name>|ORPHANS ROOT <dir>] [DRYRUN]",
+                         "without a name: uninstall pkg; ORPHANS: what nothing needs any more" },
     { NULL, "SHOW",      "[<name>] [CHANNEL <dir|url>] [ROOT <dir>] [METADATA] [ARCHIVE <name>]",
                          "what a channel offers, each entry checked" },
     { NULL, "SEARCH",    "<word>... [CHANNEL <dir|url>] [ROOT <dir>] [ARCH cpu]",
@@ -417,8 +441,193 @@ static int usage(void)
     usage_line("%sSettings%s  PKG_SIGNKEY the key SIGN defaults to; PKG_PUSHKEY; PKG_OUTPUT=machine;\n"
                "          PKG_TRACE=<file>; PKG_COLOR=always|never; PKG_PROGRESS=1\n", b, r);
     usage_line("%sExit code%s 0 done; 10 to 18 refused, the number is the class; 20 a wrong command\n", b, r);
+    usage_line("ENV        pkg ENV ADD <name> ROOT <dir> [SYSTEM]; ENV LIST; ENV REMOVE <name>; ENV DEFAULT <name>\n");
+    usage_line("Roots      ROOT wins; ENVIRONMENT <name> selects a registered root. pkg u updates pkg itself; pkg REMOVE uninstalls it.\n");
     usage_line("%sAROS%s      pkg PORT [<portname>] serves every verb on an ARexx port, PKG by default\n", b, r);
     return PKG_RC_USAGE;
+}
+
+/* Environment files are optional. Prompts belong to the CLI; library callers
+ * use the same configuration API and present their own choices. */
+static int can_ask(void)
+{
+    if (machine || serving_port || !pkg_out_interactive(0)) return 0;
+#ifdef __AROS__
+    return Input() && IsInteractive(Input());
+#elif defined(_WIN32)
+    return _isatty(_fileno(stdin));
+#else
+    return isatty(STDIN_FILENO);
+#endif
+}
+
+static int answer(char *buf, size_t len)
+{
+#ifdef __AROS__
+    if (FGets(Input(), (STRPTR)buf, (LONG)len) == NULL) return -1;
+#else
+    if (fgets(buf, (int)len, stdin) == NULL) return -1;
+#endif
+    if (strchr(buf, '\n') == NULL && strlen(buf) + 1 == len) return -1;
+    return clean_value("the answer", buf);
+}
+
+static void tell_root(const char *root, const char *source, const char *name)
+{
+    if (machine) {
+        print_record(NULL, "selected-root", root);
+        print_record(NULL, "root-source", source);
+        if (name) print_record(NULL, "environment", name);
+    } else {
+        char line[8192];
+        if (name) { snprintf(line, sizeof line, "Environment: %s\n", name); print_text(NULL, 1, line); }
+        snprintf(line, sizeof line, "Root: %s\nSelected from: %s\n", root, source);
+        print_text(NULL, 1, line);
+    }
+}
+
+static int absolute_root(const char *path, char *buf, size_t len)
+{
+    if (!path || !*path) return usage_errorf("ROOT needs a non-empty directory");
+#ifdef __AROS__
+    if (!pkg_fs_fullpath(path, buf, len)) return usage_errorf("cannot resolve root %s", path);
+#else
+    int n;
+    char cwd[4096];
+#ifdef _WIN32
+    if (path[0] == '/' || path[0] == '\\' || (path[0] && path[1] == ':'))
+#else
+    if (path[0] == '/')
+#endif
+        n = snprintf(buf, len, "%s", path);
+    else {
+#ifdef _WIN32
+        if (!_getcwd(cwd, sizeof cwd)) return usage_errorf("cannot read the current directory");
+#else
+        if (!getcwd(cwd, sizeof cwd)) return usage_errorf("cannot read the current directory");
+#endif
+        n = snprintf(buf, len, "%s/%s", cwd, path);
+    }
+    if (n < 0 || (size_t)n >= len) return usage_errorf("root path is too long");
+#endif
+    return 0;
+}
+
+static int environment_command(const struct pkg_options *a)
+{
+    struct pkg_environments e;
+    char err[1024], root[4096];
+    const char *action = a->target ? a->target : "LIST";
+    const char *name = a->nalso == 1 ? a->also[0] : NULL;
+    const char *path;
+    size_t i;
+    int rc = PKG_RC_USAGE;
+    pkg_environments_init(&e);
+    if (pkg_environments_load(&e, err, sizeof err) != 0) { usage_errorf("%s", err); goto end; }
+    if (ieq(action, "LIST")) {
+        if (a->nalso || a->root) { usage_errorf("ENV LIST takes no name or ROOT"); goto end; }
+        if (machine) {
+            if (e.system_path) print_record(NULL, "system-config", e.system_path);
+            if (e.user_path) print_record(NULL, "user-config", e.user_path);
+        } else {
+            pkg_out("System configuration: %s\nPersonal configuration: %s\n",
+                    e.system_path ? e.system_path : "unavailable", e.user_path ? e.user_path : "unavailable");
+        }
+        for (i = 0; i < e.count; i++) {
+            if (environment_system && !e.items[i].system) continue;
+            tell_root(e.items[i].root, e.items[i].source, e.items[i].name);
+        }
+        if (e.default_name) {
+            if (machine) print_record(NULL, "default-environment", e.default_name);
+            else pkg_out("Default environment: %s\n", e.default_name);
+        }
+        if (!e.count && !machine) pkg_out("No environments registered. ROOT <directory> works without this configuration.\n");
+        rc = 0; goto end;
+    }
+    if (!name) { usage_errorf("ENV %s needs one environment name", action); goto end; }
+    if (!ieq(action, "ADD") && !ieq(action, "REMOVE") && !ieq(action, "DEFAULT")) {
+        usage_errorf("ENV takes ADD, LIST, REMOVE or DEFAULT"); goto end;
+    }
+    if (ieq(action, "ADD")) {
+        if (absolute_root(a->root, root, sizeof root) != 0) goto end;
+    } else if (a->root) { usage_errorf("ROOT belongs to ENV ADD"); goto end; }
+    path = environment_system || on_aros ? e.system_path : e.user_path;
+    if (!path) { usage_errorf("the configuration path for this scope is unavailable"); goto end; }
+    if (machine) print_record(NULL, "configuration", path);
+    else pkg_out("Environment configuration: %s\nThis file references roots; package records stay in each root's .pkg directory.\n", path);
+    if (ieq(action, "ADD")) rc = pkg_environments_add(&e, name, root, environment_system || on_aros, err, sizeof err);
+    else if (ieq(action, "REMOVE")) rc = pkg_environments_remove(&e, name, environment_system || on_aros, err, sizeof err);
+    else rc = pkg_environments_default(&e, name, environment_system || on_aros, err, sizeof err);
+    if (rc != 0) { usage_errorf("%s", err); rc = PKG_RC_USAGE; }
+    else if (machine) print_record(NULL, "result", "configured");
+    else pkg_out("Environment configuration saved.\n");
+end:
+    pkg_environments_free(&e);
+    return rc;
+}
+
+static int root_verb(const char *verb)
+{
+    return ieq(verb,"install") || ieq(verb,"upgrade") || ieq(verb,"rollback")
+        || ieq(verb,"list") || ieq(verb,"verify") || ieq(verb,"repair")
+        || ieq(verb,"remove") || ieq(verb,"mountlist") || ieq(verb,"status")
+        || ieq(verb,"channel");
+}
+
+static int prepare_root(struct pkg_options *a, struct pkg_environments *e, char *buf, size_t len)
+{
+    const struct pkg_environment *selected = NULL;
+    char err[1024];
+    int rc, required = root_verb(verb_name);
+    size_t i;
+    if (a->root) { tell_root(a->root, "command line (ROOT)", NULL); return 0; }
+    if (!required && !chosen_environment
+        && !(ieq(verb_name,"show") || ieq(verb_name,"search"))) return 0;
+    /* An explicit channel alone keeps the established catalogue-only use. */
+    if (!required && a->channel && !chosen_environment) return 0;
+    if (pkg_environments_load(e, err, sizeof err) != 0) return usage_errorf("%s; specify ROOT explicitly to choose a root", err);
+    rc = pkg_environments_select(e, chosen_environment, &selected, err, sizeof err);
+    if (rc == 0) {
+        if (!pkg_fs_is_dir(selected->root)) return usage_errorf("root %s from %s is unavailable; mount it or specify ROOT", selected->root, selected->source);
+        a->root = selected->root;
+        tell_root(a->root, selected->source, selected->name);
+        return 0;
+    }
+    if (rc < 0) return usage_errorf("%s", err);
+    if (rc == 1 && !required && !chosen_environment) return 0;
+    if (!can_ask()) {
+        if (rc == 1 && !chosen_environment) return 0; /* existing missing-ROOT diagnostic */
+        return usage_errorf("%s; specify ROOT <directory> or ENVIRONMENT <name>", err);
+    }
+    if (!e->count) {
+        pkg_out("No environment is registered. Root directory for this operation: ");
+        if (answer(buf, len) != 0 || !*buf) return usage_errorf("no root chosen; specify ROOT <directory>");
+        if (!pkg_fs_is_dir(buf)) return usage_errorf("root %s is unavailable", buf);
+        a->root = buf; tell_root(buf, "interactive choice (not saved)", NULL); return 0;
+    }
+    pkg_out("Choose a root for this operation:\n");
+    for (i = 0; i < e->count; i++) pkg_out("  %lu. %s: %s (%s)\n", (unsigned long)i+1, e->items[i].name, e->items[i].root, e->items[i].source);
+    pkg_out("Number: ");
+    if (answer(buf, len) != 0) return usage_errorf("no environment chosen");
+    { char *end; unsigned long number = strtoul(buf, &end, 10);
+      if (!*buf || *end || number == 0 || number > e->count) return usage_errorf("choose a listed number or specify ROOT explicitly");
+      selected = &e->items[number - 1]; }
+    if (!pkg_fs_is_dir(selected->root)) return usage_errorf("root %s is unavailable", selected->root);
+    a->root = selected->root; tell_root(a->root, selected->source, selected->name);
+    return 0;
+}
+
+/* Standalone maintenance accepts only its documented switches. */
+static int self_options(int argc, char **argv, int allow_pkg)
+{
+    int i;
+    for (i = 2; i < argc; i++) {
+        if (ieq(argv[i], "DRYRUN") || ieq(argv[i], "MACHINE")) continue;
+        if (ieq(argv[i], "TRACE") || ieq(argv[i], "LOG")) { i++; continue; }
+        if (allow_pkg && ieq(argv[i], "pkg")) { allow_pkg = 0; continue; }
+        return usage_errorf("keyword %s is not supported for this executable operation", argv[i]);
+    }
+    return 0;
 }
 
 /* One entry for every caller: the command line below, and the ARexx port,
@@ -457,11 +666,15 @@ static int run_verb(int argc, char **argv)
         { "PACKAGE",   "package",   pkg_publish }
     };
     struct pkg_options a;
+    struct pkg_environments environments;
+    char root_choice[4096];
     size_t i;
     int saved_machine = machine;
     int rc = PKG_RC_USAGE;
     const char *env = getenv("PKG_OUTPUT");
 
+    chosen_environment = NULL;
+    environment_system = 0;
     machine = env != NULL && ieq(env, "machine");
     if (wants_machine(argc, argv))
         machine = 1;
@@ -499,11 +712,35 @@ static int run_verb(int argc, char **argv)
         machine = saved_machine;
         return PKG_RC_OK;
     }
+    if (ieq(argv[1], "ENV")) {
+        verb_name = "env";
+        rc = parse_args(argc, argv, &a) != 0 ? PKG_RC_USAGE : environment_command(&a);
+        machine = saved_machine;
+        return rc;
+    }
+    if (ieq(argv[1], "U")) argv[1] = "UPGRADE";
     for (i = 0; i < sizeof verbs / sizeof verbs[0]; i++) {
         if (ieq(argv[1], verbs[i].verb)) {
             verb_name = verbs[i].name;
             pkg_style_verb(verb_name);
-            rc = parse_args(argc, argv, &a) != 0 ? PKG_RC_USAGE : verbs[i].fn(&out_sink, &a);
+            pkg_environments_init(&environments);
+            rc = parse_args(argc, argv, &a);
+            if (rc == 0 && ieq(verb_name, "upgrade") && !a.root && !a.all
+                && (!a.target || ieq(a.target, "pkg")) && !chosen_environment) {
+                if (serving_port || a.channel || a.version || a.arch || a.acceptkey || a.downgrade)
+                    rc = usage_errorf("self-update uses its trusted channel; use ROOT for a managed package upgrade");
+                else if ((rc = self_options(argc, argv, 1)) == 0) rc = pkg_selfupdate(&out_sink, a.dryrun);
+            } else if (rc == 0 && ieq(verb_name, "remove") && !a.target && !a.root
+                       && !chosen_environment) {
+                if (serving_port || a.channel || a.version || a.arch || a.acceptkey || a.all)
+                    rc = usage_errorf("self-removal takes REMOVE [DRYRUN]; name a package and ROOT for other removals");
+                else if ((rc = self_options(argc, argv, 0)) == 0) rc = pkg_selfremove(&out_sink, a.dryrun);
+            } else if (rc == 0) {
+                rc = prepare_root(&a, &environments, root_choice, sizeof root_choice);
+                if (rc == 0) rc = verbs[i].fn(&out_sink, &a);
+            }
+            if (rc < 0) rc = PKG_RC_USAGE;
+            pkg_environments_free(&environments);
             pkg_style_flush(write_styled);
             machine = saved_machine;
             return rc;

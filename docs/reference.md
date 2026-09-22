@@ -58,12 +58,19 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | Verb | Form | Does |
 |---|---|---|
 | [`PORT`](commands/port.md) | `PORT [<portname>]` | On AROS, serves the verbs on an ARexx port, `PKG` by default. |
+| [`ENV`](environments.md) | `ENV ADD\|LIST\|REMOVE\|DEFAULT [<name>] [ROOT <root>] [SYSTEM]` | Registers and selects installation environments. `DEFAULT` chooses the default environment. |
 | `HELP` | `HELP` | Prints a summary of the commands. |
+
+Environment selection is described in [Environments](environments.md). An explicit
+`ROOT` takes precedence; `ENVIRONMENT <name>` selects a registered environment.
+`UPGRADE` without a package name, or `U`, updates the running pkg executable.
 
 ## Keywords
 
 | Keyword | Value | Used by |
 |---|---|---|
+| `ENVIRONMENT` | a registered environment name | commands using an installation root |
+| `SYSTEM` | switch selecting machine configuration | `ENV` |
 | `ROOT` | the system installed into: `SYS:`, or a directory | installing verbs, `LIST`, `VERIFY`, `REMOVE`, `SHOW` |
 | `CHANNEL` | a directory, or an `http://` or `https://` address (on AROS `http://` only, with the network started). The installing verbs, `SHOW` and `SEARCH` read the root's list ([`CHANNEL ADD`](commands/channel.md)) when it is left out; given, it means that channel alone | installing and publishing verbs, `SEARCH` |
 | `VERSION` | a version: dotted numbers, and an optional `+build` | `INSTALL`, `UPGRADE`, `PUBLISH`, `MANIFEST`, `WITHDRAW` |

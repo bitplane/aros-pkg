@@ -5,9 +5,14 @@
 
 Take a package out, or the packages nothing needs any more.
 ```
+pkg REMOVE [DRYRUN]
 pkg REMOVE <name>  ROOT <root> [DRYRUN]
 pkg REMOVE ORPHANS ROOT <root> [DRYRUN]
 ```
+
+Without a package name or root, `pkg REMOVE` removes the running pkg executable.
+It reports the path and preserves other installed packages and environment
+configuration. `DRYRUN` previews the operation. See [Removing pkg](../removing.md).
 
 ## What it does
 

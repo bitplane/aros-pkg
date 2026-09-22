@@ -8,17 +8,18 @@ CPPFLAGS  = -Iinclude -Ithird_party/bzip2 $(VERFLAGS)
 # The version this binary says it is: the release in include/pkg.h, a patch
 # number raised by hand when a release changes, and the day it was built.
 # PATCH=n BUILD=20260920 on the command line pins them for a reproducible build.
-PATCH    ?= 0
+PATCH    ?= 5
 BUILD    ?= $(shell date -u +%Y%m%d)
 BUILDDAY ?= $(shell date -u +%d.%m.%Y)
 VERFLAGS  = -DPKG_VERSION_PATCH='"$(PATCH)"' -DPKG_BUILD='"$(BUILD)"' -DPKG_BUILD_DAY='"$(BUILDDAY)"' 
 
 # Portable C99: everything except the host filesystem layer.
-LIB  = src/pkg_lib.c src/pkg_activity.c src/pkg_update.c
+LIB  = src/pkg_lib.c src/pkg_activity.c src/pkg_update.c src/pkg_environment.c
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
        src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c \
        src/pkg_pkginfo.c
 # The host layer. POSIX covers macOS and Linux; AROS gets its own.
+CLI = src/pkg_selfupdate.c
 HOST = src/pkg_fs_posix.c src/pkg_out.c src/pkg_port.c src/pkg_style.c
 HDR  = $(wildcard include/*.h)
 
@@ -31,9 +32,9 @@ all: build/pkg
 # Every check this tree knows how to run.
 check: check-portability test test-ubsan check-m68k check-image
 
-build/pkg: src/pkg_main.c $(LIB) $(CORE) $(HOST) $(HDR)
+build/pkg: src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(LIB) $(CORE) $(HOST)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST)
 
 # libpkg for other programs: a static library and pkg.h. The host layer is
 # part of it, since every operation touches files.
@@ -51,7 +52,7 @@ PREFIX ?= $(HOME)/.local
 install: build/pkg build/libpkg.a
 	@mkdir -p $(PREFIX)/bin $(PREFIX)/include $(PREFIX)/lib $(PREFIX)/share/pkg/skills/pkg
 	cp build/pkg $(PREFIX)/bin/pkg
-	cp include/pkg.h $(PREFIX)/include/pkg.h
+	cp include/pkg.h include/pkg_environment.h $(PREFIX)/include/
 	cp build/libpkg.a $(PREFIX)/lib/libpkg.a
 	cp skills/pkg/SKILL.md $(PREFIX)/share/pkg/skills/pkg/SKILL.md
 	@echo "installed pkg into $(PREFIX)/bin; if that is not on PATH, add it"
@@ -70,21 +71,21 @@ build/example-%: examples/%.c build/libpkg.a include/pkg.h include/pkg_activity.
 WINCC ?= x86_64-w64-mingw32-gcc
 WINHOST = src/pkg_fs_win32.c src/pkg_out.c src/pkg_port.c src/pkg_style.c
 
-build/pkg.exe: src/pkg_main.c $(LIB) $(CORE) $(WINHOST) $(HDR)
+build/pkg.exe: src/pkg_main.c $(CLI) $(LIB) $(CORE) $(WINHOST) $(HDR)
 	@mkdir -p build
-	$(WINCC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(LIB) $(CORE) $(WINHOST) \
+	$(WINCC) $(CFLAGS) $(CPPFLAGS) -o $@ src/pkg_main.c $(CLI) $(LIB) $(CORE) $(WINHOST) \
 		-lbcrypt -ladvapi32 -lshell32
 
 # macOS, one universal binary for Apple silicon and Intel.
-build/pkg-macos: src/pkg_main.c $(LIB) $(CORE) $(HOST) $(HDR)
+build/pkg-macos: src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
-	cc $(CFLAGS) $(CPPFLAGS) -arch arm64 -arch x86_64 -o $@ src/pkg_main.c $(LIB) $(CORE) $(HOST)
+	cc $(CFLAGS) $(CPPFLAGS) -arch arm64 -arch x86_64 -o $@ src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST)
 
 # Linux, static against musl, cross-built with zig so no Linux toolchain is
 # needed here.
-build/pkg-linux-%: src/pkg_main.c $(LIB) $(CORE) $(HOST) $(HDR)
+build/pkg-linux-%: src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST) $(HDR)
 	@mkdir -p build
-	zig cc -target $*-linux-musl $(CFLAGS) $(CPPFLAGS) -static -o $@ src/pkg_main.c $(LIB) $(CORE) $(HOST)
+	zig cc -target $*-linux-musl $(CFLAGS) $(CPPFLAGS) -static -o $@ src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST)
 
 # The library through pkg.h alone, as another program would use it.
 build/test_api: tests/test_api.c $(LIB) $(CORE) $(HOST) $(HDR)
@@ -97,6 +98,9 @@ build/test_update: tests/test_update.c build/libpkg.a $(HDR)
 build/test_update_config: tests/test_update_config.c src/pkg_update.c $(HDR)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ tests/test_update_config.c src/pkg_update.c
+
+build/test_environment: tests/test_environment.c build/libpkg.a $(HDR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $< build/libpkg.a
 
 build/test_activity: tests/test_activity.c src/pkg_activity.c $(HDR)
 	@mkdir -p build
@@ -154,10 +158,15 @@ test:
 	@sh tests/archive.sh
 	@echo "== fastarchive"
 	@PKG=./build/pkg sh tests/fastarchive.sh
+	@echo "== environments"
+	@$(MAKE) --no-print-directory build/test_environment
+	@./build/test_environment
+	@PKG=./build/pkg python3 tests/environments_cli.py
 	@echo "== selfupdate"
 	@$(MAKE) --no-print-directory build/test_update build/test_update_config build/example-selfupdate
 	@./build/test_update_config
 	@PKG=./build/pkg python3 tests/selfupdate.py
+	@PKG=./build/pkg python3 tests/selfupdate-bootstrap.py
 	@echo "== examples"
 	@rm -f build/libpkg.a build/example-basic build/example-browse
 	@$(MAKE) --no-print-directory build/example-basic build/example-browse
@@ -199,7 +208,7 @@ test-ubsan:
 		-o build/san/test_api tests/test_api.c $(LIB) $(CORE) $(HOST)
 	@./build/san/test_api > /dev/null || { echo "test-ubsan: test_api FAILED"; exit 1; }
 	@$(CC) -std=c99 -Wall -Wextra -Werror $(SAN) $(CPPFLAGS) \
-		-o build/san/pkg src/pkg_main.c $(LIB) $(CORE) $(HOST)
+		-o build/san/pkg src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST)
 	@PKG=./build/san/pkg sh tests/e2e.sh > build/san/e2e.log 2>&1 \
 		|| { tail -20 build/san/e2e.log; echo "test-ubsan: e2e FAILED"; exit 1; }
 	@PKG=./build/san/pkg sh tests/deps.sh > build/san/deps.log 2>&1 \

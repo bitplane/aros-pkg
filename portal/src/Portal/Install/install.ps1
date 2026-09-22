@@ -64,3 +64,33 @@ if ($entries -notcontains $dir) {
     Write-Output "Added $dir to your Path; open a new terminal to use it everywhere."
 }
 Write-Output "pkg $version installed in $dir; run: pkg HELP"
+
+# Optional personal environment registration. No root is inferred from Windows.
+$envName = $env:PKG_ENV_NAME
+$envRoot = $env:PKG_ENV_ROOT
+$envDefault = $env:PKG_ENV_DEFAULT -eq '1'
+$envConfig = Join-Path $env:APPDATA 'aros-pkg\environments.conf'
+if ($envName -or $envRoot) {
+    if (-not $envName -or -not $envRoot) { throw 'set both PKG_ENV_NAME and PKG_ENV_ROOT to register an environment' }
+}
+elseif (-not $env:PKG_NO_ENV -and [Environment]::UserInteractive -and
+        -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected -and
+        -not ([Environment]::GetCommandLineArgs() -match '^-(NonInteractive|NonI)$')) {
+    Write-Output 'Optional environments let pkg find a package root without ROOT on each command.'
+    Write-Output "Personal configuration: $envConfig"
+    if ((Read-Host 'Configure an environment? [y/N]') -match '^(y|yes)$') {
+        $envName = Read-Host 'Environment name'
+        $envRoot = Read-Host 'Absolute path of the package root'
+        if (-not $envName -or -not $envRoot) { throw 'environment name and root are required' }
+        $envDefault = (Read-Host 'Use this environment by default? [y/N]') -match '^(y|yes)$'
+    }
+}
+if ($envName) {
+    Write-Output "Registering $envName with root $envRoot in $envConfig"
+    & (Join-Path $dir 'pkg.exe') ENV ADD $envName ROOT $envRoot
+    if ($LASTEXITCODE -ne 0) { throw 'pkg was installed; environment registration failed' }
+    if ($envDefault) {
+        & (Join-Path $dir 'pkg.exe') ENV DEFAULT $envName
+        if ($LASTEXITCODE -ne 0) { throw 'environment registered; setting its default failed' }
+    }
+}

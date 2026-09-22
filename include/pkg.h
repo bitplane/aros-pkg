@@ -70,7 +70,7 @@
  * later day after an earlier one, and a raised PKG_VERSION_PATCH after both. */
 #define PKG_VERSION_RELEASE "1.7"
 #ifndef PKG_VERSION_PATCH
-#define PKG_VERSION_PATCH "0"
+#define PKG_VERSION_PATCH "5"
 #endif
 #ifndef PKG_BUILD
 #define PKG_BUILD "00000000"      /* a build that did not say: never published */

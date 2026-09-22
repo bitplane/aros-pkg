@@ -204,6 +204,8 @@ AROS every refusal is at least 10, so `If ERROR` catches all of them.
 
 Using pkg
 
+- [Environments](docs/environments.md): optional root registration, personal and
+  machine configuration, and updating pkg itself.
 - [Using pkg](docs/using.md): installing, updating, checking, repairing,
   rolling back and removing software; images; what each refusal means.
 - [Libraries](docs/libraries.md): how AROS finds a library, what that means

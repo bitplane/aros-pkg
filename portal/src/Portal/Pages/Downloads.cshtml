@@ -32,7 +32,7 @@
         "linux-x86_64" => "Linux x86_64", "linux-arm64" => "Linux aarch64", _ => "Windows",
     };
 }
-<p class="lead">pkg @pkg.Latest.Version, the one program that installs the rest. Let it install itself with one line; it lands as a signed package, and <code>Pkg UPGRADE pkg</code> keeps it current from then on.</p>
+<p class="lead">pkg @pkg.Latest.Version, the one program that installs the rest. Install it with one line. Use <code>pkg upgrade</code> or <code>pkg u</code> to update pkg itself.</p>
 
 
 <div class="grid downloads-grid">
@@ -45,12 +45,14 @@
     <h2 class="label">On macOS and Linux</h2>
     <p>In a terminal, to manage a hosted AROS, a disk image or a drawer from your computer:</p>
     <div class="cmd wrapcode"><code>@sh</code><button class="copy" data-copy="@sh">Copy</button></div>
-    <p class="muted small">It picks the build for your computer, checks it against the portal's signed checksums, and puts <code>pkg</code> where you can run it by name. On a Mac it also drops the AROS drawer into the folder a hosted AROS shares. Run it again to upgrade. Read it first: <a href="/install.sh">install.sh</a>.</p>
+    <p class="muted small">It picks the build for your computer, checks it against the portal's signed checksums, and puts <code>pkg</code> where you can run it by name. On a Mac it also drops the AROS drawer into the folder a hosted AROS shares. Use <code>pkg u</code> to upgrade. Read it first: <a href="/install.sh">install.sh</a>.</p>
 
     <h2 class="label">On Windows</h2>
     <p>In PowerShell:</p>
     <div class="cmd wrapcode"><code>@ps</code><button class="copy" data-copy="@ps">Copy</button></div>
     <p class="muted small">The same checks, into <code>%LOCALAPPDATA%\Programs\pkg</code>. Read it first: <a href="/install.ps1">install.ps1</a>.</p>
+
+    <p class="muted small">Installers offer optional environment registration and show where the configuration is saved. You can also keep specifying <code>ROOT</code> with each package command. <a href="/docs/environments">Environments and updating pkg</a>.</p>
 
     <h2 class="label">Then</h2>
     <div class="cmd"><code>@upgrade</code><button class="copy" data-copy="@upgrade">Copy</button></div>

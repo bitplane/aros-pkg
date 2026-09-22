@@ -3,14 +3,25 @@
 This guide is for keeping software on an AROS system: finding it, installing
 it, keeping it current, checking it, repairing it and removing it.
 
-Every command names a **root**, the system it works on, and most name a
-**channel**, where packages come from. On AROS the root is usually `SYS:`;
-the examples below run on a Mac or a PC, where the root is a directory,
-`aros`, and the channel a directory, `channel`, with a few example packages.
-A channel can also be a web address, such as
-`https://aros-pkg.azurewebsites.net/contrib-nightly`; nothing else changes,
-on AROS as anywhere else. Plain `http://` is read too, for a server you run
-yourself.
+Once your environment is configured, install a program with:
+
+```text
+pkg INSTALL xinvaders3d
+```
+
+Pkg remembers which system to manage and where to fetch its packages. Follow
+[the one-time setup](environments.md#quick-start-on-aros) on AROS, or
+[the host setup](environments.md#quick-start-from-macos-linux-or-windows) when
+managing an AROS directory from macOS, Linux or Windows. Commands announce the
+selected root before operating.
+
+A **root** is the system pkg works on, usually `SYS:` on AROS. A **channel** is
+where its packages come from. You can also specify `ROOT` and `CHANNEL` directly
+on a command. The detailed examples below use this explicit form with a root
+directory named `aros` and a local channel named `channel`, containing example
+packages. A channel can also be a web address, such as
+`https://aros-pkg.azurewebsites.net/contrib-nightly`. Plain `http://` is supported
+for a server you run yourself.
 
 Words in capitals are keywords; you can type them in any case, as in any
 AmigaDOS command.

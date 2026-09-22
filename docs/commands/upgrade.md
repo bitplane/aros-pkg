@@ -3,13 +3,25 @@
 
 # UPGRADE
 
-Move a package, or every package, to a newer version.
+Move a package, or every package, to a newer version. With no package name,
+update the running pkg executable. `pkg u` is the short form.
 ```
+pkg UPGRADE
+pkg U
 pkg UPGRADE <name> ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
 pkg UPGRADE ALL    ROOT <root> [CHANNEL <channel>] [ARCH cpu] [DRYRUN]
 ```
 
 ## What it does
+
+`pkg UPGRADE` and `pkg U` announce the executable being updated, fetch its
+platform build and verify the publisher's signature before replacement. The
+installation directory determines which users receive that update. A protected
+directory requires permission to replace its executable.
+
+For a named package, `ROOT` explicitly chooses the package database. It can be
+omitted when [environment configuration](../environments.md) identifies the
+root. The command announces the selected root and its source before work begins.
 
 `UPGRADE <name>` replaces the installed version with the newest the channel
 offers for the root's CPU, or with `VERSION v`. Files the person edited

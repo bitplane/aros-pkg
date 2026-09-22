@@ -44,7 +44,7 @@ has() { grep -q -- "$2" "$1" 2>/dev/null; }
 host_names='macos-arm64|macos-x86_64|linux-x86_64|linux-arm64|windows-x86_64'
 
 echo "aros-install-pkg: the channel, the drawer, and the script"
-mkdir -p "$share/out" "$share/r1" "$share/r2" "$share/r3"
+mkdir -p "$share/out" "$share/r1" "$share/r2" "$share/r3" "$share/r4" "$share/env"
 "$host_pkg" KEYGEN FILE "$work/dev.key" > /dev/null
 PKG_SIGNKEY="$work/dev.key" sh "$repo_root/tools/make-aros-channel.sh" "$share/full" > "$work/mk" 2>&1
 ok $? "make-aros-channel.sh makes the full channel"
@@ -100,6 +100,15 @@ C:Echo \"\$RC\" >MacRW:out/v1.rc
 MacRW:r2/C/Pkg VERIFY pkg ROOT MacRW:r2 MACHINE >MacRW:out/v2.o
 C:Echo \"\$RC\" >MacRW:out/v2.rc
 MacRW:r1/C/Pkg LIST ROOT MacRW:r1 >MacRW:out/l1.o
+C:Assign ENVARC: MacRW:env
+C:Execute MacRW:full/Install-Pkg MacRW:full MacRW:r4 REGISTER
+C:Echo \"\$RC\" >MacRW:out/register.rc
+MacRW:r4/C/Pkg VERIFY pkg MACHINE >MacRW:out/env.o
+C:Echo \"\$RC\" >MacRW:out/env.rc
+MacRW:r4/C/Pkg REMOVE DRYRUN MACHINE >MacRW:out/dry.o
+C:Echo \"\$RC\" >MacRW:out/dry.rc
+MacRW:r4/C/Pkg REMOVE MACHINE >MacRW:out/remove.o
+C:Echo \"\$RC\" >MacRW:out/remove.rc
 C:Echo done >MacRW:done"
 
 echo "aros-install-pkg: hosted AROS"
@@ -125,5 +134,18 @@ done
 has "$O/l1.o" '^pkg ';                                        ok $? "r1: LIST names pkg"
 
 echo
+[ "$(code register)" = 0 ] && [ -f "$share/env/pkg/environments.conf" ]
+ok $? "REGISTER writes the announced environment configuration"
+[ "$(code env)" = 0 ] && has "$O/env.o" '^result: intact$'
+ok $? "configured root supports VERIFY without ROOT"
+has "$O/env.o" '^root-source: ENVARC:'
+ok $? "selected root reports configuration provenance"
+[ "$(code dry)" = 0 ]
+ok $? "self-removal DRYRUN leaves the executable available"
+[ "$(code remove)" = 0 ] && [ ! -e "$share/r4/C/Pkg" ] && [ ! -e "$share/r4/.pkg/db/pkg" ]
+ok $? "REMOVE uninstalls the running managed pkg"
+[ -f "$share/env/pkg/environments.conf" ] && [ -f "$share/r1/C/Pkg" ]
+ok $? "self-removal preserves configuration and other roots"
+
 echo "aros-install-pkg: $checks checks, $fails failures"
 [ "$fails" -eq 0 ]

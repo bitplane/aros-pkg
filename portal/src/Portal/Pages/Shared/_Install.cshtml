@@ -6,6 +6,7 @@
     var verb = p.Name == "pkg" && isLatest ? "UPGRADE" : "INSTALL";
     var ver = isLatest ? "" : $" VERSION {v.Version}";
     var arch = v.Arch == "generic" ? "" : $" ARCH {v.Arch}";
+    var simple = p.Name == "pkg" && isLatest ? "pkg UPGRADE" : $"pkg {verb} {p.Name}{ver}";
     var aros = $"Pkg {verb} {p.Name}{ver} ROOT SYS: CHANNEL {url}";
     var host = $"pkg {verb} {p.Name}{ver} ROOT aros CHANNEL {url}{arch}";
     var arexx = $"ADDRESS PKG\nOPTIONS RESULTS\n'{verb} {p.Name}{ver} ROOT SYS: CHANNEL {url}'\nIF RC ~= 0 THEN SAY 'refused, class' RC";
@@ -14,6 +15,17 @@
         : $"Install {p.Name}{(ver.Length > 0 ? $" version {v.Version}" : "")} from {url} into ~/aros-root{(arch.Length > 0 ? $" for {v.Arch}" : "")}, then verify it.";
     var id = "t" + Math.Abs((p.Channel + p.Name).GetHashCode());
 }
+<div class="cmd"><code>@simple</code><button class="copy" data-copy="@simple">Copy</button></div>
+@if (p.Name == "pkg" && isLatest)
+{
+    <p class="muted small">Updates the running pkg executable. <a href="/downloads">Get pkg</a> for a first installation.</p>
+}
+else
+{
+    <p class="muted small">With your environment selected and this channel registered. <a href="/docs/environments">First installation: configure pkg</a>. pkg shows the selected root before starting.</p>
+}
+<details class="files">
+<summary><h2>Advanced: choose a root, channel or architecture</h2></summary>
 <div class="tabs">
     <input type="radio" name="@id" id="@(id)a" checked /><label for="@(id)a">AROS</label>
     <input type="radio" name="@id" id="@(id)h" /><label for="@(id)h">macOS, Linux, Windows</label>
@@ -36,3 +48,5 @@
         <p class="muted small">For an assistant that has loaded pkg's skill (<a href="/docs/agents">how</a>). It runs the commands and checks, and leaves decisions such as accepting a new key to you.</p>
     </div>
 </div>
+
+</details>

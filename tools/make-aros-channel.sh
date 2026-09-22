@@ -97,7 +97,7 @@ host linux-arm64 pkg "$repo_root/build/pkg-linux-aarch64"
 host windows-x86_64 pkg.exe "$repo_root/build/pkg.exe"
 
 {
-    echo '.KEY CHANNEL/A,ROOT'
+    echo '.KEY CHANNEL/A,ROOT,REGISTER/S'
     echo '.DEF ROOT "SYS:"'
     echo '; Puts Pkg on this machine from <CHANNEL>, verified: the bootstrap binary'
     echo '; that runs here installs the signed pkg package, which is then the one in use.'
@@ -156,8 +156,26 @@ If ERROR
     Assign PKGCH: REMOVE
     Quit 20
 EndIf
-Assign PKGCH: REMOVE
 Echo "pkg is in <ROOT>C. Try: Pkg HELP."
+Echo "Optional environments remember package roots. Configuration: ENVARC:pkg/environments.conf"
+If "<REGISTER>" EQ "REGISTER"
+    "\$pkgboot" ENV ADD native ROOT "<ROOT>" SYSTEM
+    If ERROR
+        Echo "pkg is installed; environment registration failed."
+        Assign PKGCH: REMOVE
+        Quit 20
+    EndIf
+    "\$pkgboot" ENV DEFAULT native SYSTEM
+    If ERROR
+        Echo "Environment registered; setting its default failed."
+        Assign PKGCH: REMOVE
+        Quit 20
+    EndIf
+Else
+    Echo "To register this root: Pkg ENV ADD native ROOT <ROOT> SYSTEM"
+    Echo "To choose it by default: Pkg ENV DEFAULT native SYSTEM"
+EndIf
+Assign PKGCH: REMOVE
 Echo "To upgrade later, with the network started:"
 Echo "  Pkg UPGRADE pkg ROOT <ROOT> CHANNEL $channel_url"
 Echo "Without a network, bring the newer drawer from $homepage"

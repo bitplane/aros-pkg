@@ -2,3 +2,7 @@ Long operations announce their work before starting. Downloads display transferr
 Network waits keep the activity display responsive, including AROS DNS, HTTP and TLS operations.
 Applications can embed libpkg to check for a newer compatible package and read signed release notes. Configuration comes from code or a .pkgupdate file. The check preserves the installation and reports withdrawals, unreachable channels and publisher-key changes.
 Update checks refresh channel metadata between calls and reject stale results after a failed refresh. The examples include a signed two-build demonstration served over local HTTP.
+
+Optional named environments remember installation roots in personal or machine configuration. Commands announce the selected root and its source; explicit ROOT works independently of configuration.
+UPGRADE or U updates the running pkg executable with signed downloads. REMOVE without a package name uninstalls pkg while preserving other packages.
+Installers offer explicit environment registration. The portal leads with short installation commands and provides first-time configuration guidance.
