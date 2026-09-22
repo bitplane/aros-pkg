@@ -5,7 +5,7 @@
 
 What a channel offers, each entry checked.
 ```
-pkg SHOW [<name>] [CHANNEL <channel>] [ROOT <root>] [METADATA] [ARCHIVE <name>] [ARCH cpu]
+pkg SHOW [<name>] [CHANNEL <channel>] [ROOT <root>] [METADATA] [ARCHIVE <name>]
 ```
 
 ## What it does

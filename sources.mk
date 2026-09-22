@@ -13,7 +13,7 @@ LIB  = $(LIBMODS) src/pkg_activity.c src/pkg_update.c src/pkg_environment.c
 # Portable C99: everything except the host filesystem layer.
 CORE = src/pkg_container.c src/pkg_sha256.c src/pkg_sha512.c src/pkg_ed25519.c \
        src/pkg_manifest.c src/pkg_image.c src/pkg_ameta.c src/pkg_archive.c src/pkg_bzip2.c \
-       src/pkg_pkginfo.c
+       src/pkg_pkginfo.c src/pkg_args.c
 # The command line's own.
 CLI  = src/pkg_selfupdate.c
 # The host layer. POSIX covers macOS, Linux and AROS; Windows has its own.

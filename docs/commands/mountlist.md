@@ -5,7 +5,7 @@
 
 The Mount entry for an installed image.
 ```
-pkg MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]
+pkg MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>] [DRYRUN]
 ```
 
 ## What it does

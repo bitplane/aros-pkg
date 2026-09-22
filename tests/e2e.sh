@@ -446,8 +446,8 @@ cmp -s "$T/v1.o" "$T/v2.o";                           ok $? "and --version says 
 mrun v3 VERSION MACHINE
 only_kv "$T/v3.o" && has "$T/v3.o" '^result: version$' && has "$T/v3.o" '^version: [0-9]'
                                                       ok $? "MACHINE gets it as records, not as a sentence"
-$PKG SHOW hello VERSION 1.2 ROOT "$M" CHANNEL "$CH" MACHINE > "$T/v4.o" 2>&1
-has "$T/v4.o" '^result: shown$';                      ok $? "control: VERSION is still the keyword after a verb"
+$PKG RESOLVE hello VERSION 1.2 CHANNEL "$CH" MACHINE > "$T/v4.o" 2>&1
+! has "$T/v4.o" 'not a word';                         ok $? "control: VERSION is still the keyword after a verb that takes it"
 
 mrun xb UNINSTALL MACHINE
 has "$T/xb.o" 'pkg says REMOVE';                      ok $? "a word another tool uses is answered with the verb pkg has for it"
@@ -456,8 +456,26 @@ $PKG FROB > "$T/xa.o" 2>&1
 has "$T/xa.o" 'is not a verb' && ! has "$T/xa.o" '^Installing and keeping software$'
                                                       ok $? "a person is told the same, instead of a page of usage"
 has "$T/xa.o" '^pkg: ';                               ok $? "and the tool names itself once, not twice"
-$PKG LIST ROOT "$M" NAME machine > "$T/nm.o" 2>&1
-has "$T/nm.o" 'hello';                                ok $? "NAME machine is a value, and leaves the human output alone"
+# NAME machine names a package: the word after a keyword is its value,
+# never the MACHINE switch. MANIFEST takes NAME, and prints for a person.
+mkdir -p "$T/nmd/C"; printf 'x\n' > "$T/nmd/C/X"
+$PKG MANIFEST "$T/nmd" NAME machine VERSION 1.0 KIND data > "$T/nm.o" 2>&1
+has "$T/nm.o" '^Name: machine' && ! has "$T/nm.o" '^result:'
+                                                      ok $? "NAME machine is a value, and leaves the human output alone"
+# A keyword a verb does not take is refused, where it used to be accepted and
+# ignored: PUSH did not honour DRYRUN, and a dry run of it pushed for real.
+$PKG LIST ROOT "$M" NAME x MACHINE > "$T/nt.o" 2>&1
+[ $? -eq 20 ] && has "$T/nt.o" '^reason: NAME is not a word LIST takes; it takes ROOT$'
+                                                      ok $? "a keyword the verb does not take is refused, naming what it takes"
+$PKG PUSH CHANNEL "$CH" TO http://127.0.0.1:9 DRYRUN MACHINE > "$T/pd.o" 2>&1
+[ $? -eq 20 ] && has "$T/pd.o" 'DRYRUN is not a word PUSH takes'
+                                                      ok $? "PUSH DRYRUN is refused before anything is sent: PUSH has no dry run"
+$PKG INSTALL hello ROT "$M" MACHINE > "$T/rot.o" 2>&1
+[ $? -eq 20 ] && has "$T/rot.o" 'did you mean ROOT?'
+                                                      ok $? "a keyword misspelt in capitals is caught, not installed as a package"
+$PKG INSTALL ? > "$T/q.o" 2>&1
+[ $? -eq 0 ] && has "$T/q.o" 'template: PACKAGE/M/A,ROOT/K'
+                                                      ok $? "INSTALL ? answers with the template, as an AmigaDOS command does"
 printf 'edited\n' > "$M/C/Hello"
 mrun x5 VERIFY hello ROOT "$M" MACHINE
 [ $? -eq 12 ] && has "$T/x5.o" '^result: damaged$' && has "$T/x5.o" '^changed: C/Hello$'

@@ -5,7 +5,7 @@
 
 The manifest PUBLISH would sign, to read before publishing.
 ```
-pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [README <file>] [INFO <file>] [SHORT ..] [DESCRIPTION <file>] [CATEGORY ..] [TAGS ..] [AUTHOR ..] [HOMEPAGE ..] [REPOSITORY ..] [LICENSE ..] [DISTRIBUTION ..] [CHANGES <file>] [ICON ..] [SCREENSHOT ..]
+pkg MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [UPSTREAM <url>] [README <file>] [INFO <file>] [SHORT ..] [DESCRIPTION <file>] [CATEGORY ..] [TAGS ..] [AUTHOR ..] [HOMEPAGE ..] [REPOSITORY ..] [LICENSE ..] [DISTRIBUTION ..] [CHANGES <file>] [ICON ..] [SCREENSHOT ..]
 ```
 
 ## What it does

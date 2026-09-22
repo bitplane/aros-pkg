@@ -5,7 +5,7 @@
 
 Publish a drawer as a version of a package.
 ```
-pkg PUBLISH <drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [ACCEPTKEY <key>] [UPSTREAM <url>] [README <file>] [INFO <file>] [<catalogue keywords>] [DRYRUN]
+pkg PUBLISH <drawer> CHANNEL <dir> KIND k [SIGN <keyfile>] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "a >= 1, b"] [CONFIG "f, g"] [FILES "a, b"] [BUILD <date>] [ACCEPTKEY <key>] [UPSTREAM <url>] [README <file>] [INFO <file>] [SHORT ..] [DESCRIPTION <file>] [CATEGORY ..] [TAGS ..] [AUTHOR ..] [HOMEPAGE ..] [REPOSITORY ..] [LICENSE ..] [DISTRIBUTION ..] [CHANGES <file>] [ICON ..] [SCREENSHOT ..] [DRYRUN]
 ```
 
 `PACKAGE` is the same verb under another name, everywhere the verb is

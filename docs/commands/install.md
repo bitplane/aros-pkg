@@ -5,7 +5,7 @@
 
 Install a package and what it depends on.
 ```
-pkg INSTALL <name>... ROOT <root> [AT <dir>] [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]
+pkg INSTALL <name>... ROOT <root> [AT <dir>] [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DOWNGRADE] [DRYRUN]
 ```
 
 ## What it does

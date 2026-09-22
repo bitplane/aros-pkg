@@ -276,7 +276,16 @@ channels, the root, the verbs, RESOLVE, STATUS, SEARCH, the interface, PUSH),
 and what those files share with each other, and with nothing else, is declared
 in `src/pkg_internal.h`; `src/pkg_main.c`, the `pkg` command, only turns words
 into `pkg_options` and prints what comes back. The sources are listed once, in
-`sources.mk`, for every build. A graphical front end, an installer or an agent's tool
+`sources.mk`, for every build.
+
+What each verb takes is written once, as a template in the manner of
+AmigaDOS's ReadArgs, in the verb table of `src/pkg_main.c`; `src/pkg_args.c`
+reads a command's words against it. A word a verb does not take is refused by
+name. `pkg HELP` draws the usage from the templates, `pkg HELP MACHINE` prints
+every verb's `verb:`, `syntax:` and `template:` as records, `pkg <verb> ?` shows
+one, and `PKG_CHECK_WORDS=1` judges a command's words without running it.
+`tests/grammar.py` holds `docs/reference.md` and each `docs/commands/` page to
+the templates, and `tests/test_args.c` holds the reader to its rules. A graphical front end, an installer or an agent's tool
 adapter links the library (`make build/libpkg.a`) and calls `pkg_install`,
 `pkg_show` and the rest with a sink: structured, it receives the same fields
 the command line prints with `MACHINE`; otherwise sentences for a person; and,

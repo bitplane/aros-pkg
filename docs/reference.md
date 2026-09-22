@@ -23,19 +23,19 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 
 | Verb | Form | Does |
 |---|---|---|
-| [`INSTALL`](commands/install.md) | `INSTALL <name>... ROOT <root> [AT <dir>] [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. Several names are installed in turn, as far as the command can get. |
-| [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> [CHANNEL <channel>] [VERSION v] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
+| [`INSTALL`](commands/install.md) | `INSTALL <name>... ROOT <root> [AT <dir>] [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [UNPACKED <dir>] [DOWNGRADE] [DRYRUN]` | Installs a package and what it depends on. Takes over files already present that are identical to the package's. Several names are installed in turn, as far as the command can get. |
+| [`UPGRADE`](commands/upgrade.md) | `UPGRADE <name> ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [DOWNGRADE] [ACCEPTKEY <key>] [UNPACKED <dir>] [DRYRUN]` | Moves an installed package to the newest version, or to `VERSION`; an older one only with `DOWNGRADE`. |
 | [`UPGRADE ALL`](commands/upgrade.md) | `UPGRADE ALL ROOT <root> [CHANNEL <channel>] [ARCH cpu]` | Upgrades every package that has a newer version, as far as it can; never downgrades, never accepts a new key. |
-| [`ROLLBACK`](commands/rollback.md) | `ROLLBACK <name> ROOT <root> [CHANNEL <channel>]` | Returns a package to the version installed before its last change. |
-| [`STATUS`](commands/status.md) | `STATUS [<name>] ROOT <root> [CHANNEL <channel>]` | Compares what is installed with the channel: `current`, `upgradable`, `withdrawn`, `not-offered` or `edited`. Exits 0 whether or not updates exist. |
+| [`ROLLBACK`](commands/rollback.md) | `ROLLBACK <name> ROOT <root> [CHANNEL <channel>] [VERSION v] [ARCH cpu] [ACCEPTKEY <key>] [DRYRUN]` | Returns a package to the version installed before its last change. |
+| [`STATUS`](commands/status.md) | `STATUS [<name>] ROOT <root> [CHANNEL <channel>] [ARCH cpu]` | Compares what is installed with the channel: `current`, `upgradable`, `withdrawn`, `not-offered` or `edited`. Exits 0 whether or not updates exist. |
 | [`LIST`](commands/list.md) | `LIST ROOT <root>` | Lists what is installed. |
 | [`VERIFY`](commands/verify.md) | `VERIFY <name>\|ALL ROOT <root>` | Checks each installed file against its package; names what is missing, changed, moved or edited. |
-| [`REPAIR`](commands/repair.md) | `REPAIR <name>\|ALL ROOT <root> [CHANNEL <channel>] [UNPACKED <dir>]` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
-| [`REMOVE`](commands/remove.md) | `REMOVE <name> ROOT <root>` | Removes a package, keeping any file that was changed; refuses while another package needs it. |
-| [`REMOVE ORPHANS`](commands/remove.md) | `REMOVE ORPHANS ROOT <root>` | Removes the packages installed only as dependencies that nothing needs any more. |
-| [`MOUNTLIST`](commands/mountlist.md) | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
+| [`REPAIR`](commands/repair.md) | `REPAIR <name>\|ALL ROOT <root> [CHANNEL <channel>] [ARCH cpu] [UNPACKED <dir>] [DRYRUN]` | Puts missing and changed files back from the channel, keeping a changed one as `<file>.pkgold`. |
+| [`REMOVE`](commands/remove.md) | `REMOVE <name> ROOT <root> [DRYRUN]` | Removes a package, keeping any file that was changed; refuses while another package needs it. |
+| [`REMOVE ORPHANS`](commands/remove.md) | `REMOVE ORPHANS ROOT <root> [DRYRUN]` | Removes the packages installed only as dependencies that nothing needs any more. |
+| [`MOUNTLIST`](commands/mountlist.md) | `MOUNTLIST <name> ROOT <root> [OUT <file>] [UNIT n] [HANDLER <path>] [DRYRUN]` | Writes the AmigaDOS mount entry for an installed image, and lists the steps to mount it. |
 | [`SEARCH`](commands/search.md) | `SEARCH <word>... [CHANNEL <channel>] [ROOT <root>] [ARCH cpu]` | The packages whose name, `Short`, `Tags`, `Category`, `Description` or `Provides` hold every word. Exits 0 whether or not any match. |
-| [`CHANNEL`](commands/channel.md) | `CHANNEL ADD\|LIST\|REMOVE [<channel>] [NAME <name>] ROOT <root>` | The channels this root reads when `CHANNEL` is left out, in the order they were added. `ADD` checks the channel can be read and refuses a duplicate, and the channel takes a short name, its own or `NAME`'s, which `CHANNEL <name>` then stands for. |
+| [`CHANNEL`](commands/channel.md) | `CHANNEL ADD\|LIST\|REMOVE [<channel>] [NAME <name>] ROOT <root> [DRYRUN]` | The channels this root reads when `CHANNEL` is left out, in the order they were added. `ADD` checks the channel can be read and refuses a duplicate, and the channel takes a short name, its own or `NAME`'s, which `CHANNEL <name>` then stands for. |
 | [`SHOW`](commands/show.md) | `SHOW [<name>] [CHANNEL <channel>] [ROOT <root>] [METADATA] [ARCHIVE <archive>]` | Lists and checks what a channel offers; with `ROOT`, marks what is installed. |
 | [`RESOLVE`](commands/resolve.md) | `RESOLVE <library>\|<program> [VERSION v] [ROOT <root>] [FROM <dir>] [CHANNEL <channel>] [ARCH cpu]` | Shows which copy of a library AROS would give a program, walking the places the loader looks, with a verdict and a next step for each; a program instead of a library checks every library it names. Exits 0, 11 when found nowhere, 18 when the copy taken is too old or unusable. See [Libraries](libraries.md). |
 
@@ -45,9 +45,9 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 |---|---|---|
 | [`KEYGEN`](commands/keygen.md) | `KEYGEN FILE <keyfile>` | Makes a signing key, readable by its owner alone. |
 | [`KEYINFO`](commands/keyinfo.md) | `KEYINFO FILE <keyfile> [SSH]` | Prints the public key a key file holds; `SSH` prints it as an `ssh-ed25519` line. |
-| [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."] [INFO <file>]` | Prints the description a publish would sign; writes nothing. |
-| [`PUBLISH`](commands/publish.md), [`PACKAGE`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [INFO <file>] [SIGN <keyfile>] [ACCEPTKEY <key>]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. `PACKAGE` is the same verb under another name: nothing reaches a portal until `PUSH`. |
-| [`WITHDRAW`](commands/withdraw.md) | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>]` | Marks a published version as withdrawn. |
+| [`MANIFEST`](commands/manifest.md) | `MANIFEST <drawer> [NAME n] [VERSION v] [ARCH cpu] [KIND k] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [INFO <file>] [SHORT "..."] [DESCRIPTION <file>] [CATEGORY c] [TAGS "..."] [AUTHOR "..."] [LICENSE l] [DISTRIBUTION d] [HOMEPAGE <url>] [REPOSITORY <url>] [ICON <file>] [SCREENSHOT <file>] [README <file>] [CHANGES <file>]` | Prints the description a publish would sign; writes nothing. |
+| [`PUBLISH`](commands/publish.md), [`PACKAGE`](commands/publish.md) | `PUBLISH <drawer> CHANNEL <channel> [KIND k] [NAME n] [VERSION v] [ARCH cpu] [DEPENDS "..."] [CONFIG "..."] [FILES "..."] [BUILD <n>] [UPSTREAM <url>] [INFO <file>] [SHORT "..."] [DESCRIPTION <file>] [CATEGORY c] [TAGS "..."] [AUTHOR "..."] [LICENSE l] [DISTRIBUTION d] [HOMEPAGE <url>] [REPOSITORY <url>] [ICON <file>] [SCREENSHOT <file>] [README <file>] [CHANGES <file>] [SIGN <keyfile>] [ACCEPTKEY <key>] [DRYRUN]` | Signs and publishes a drawer, or the paths `FILES` names in it, into a channel; the drawer can be `"<archive>!/<path>"`. `PACKAGE` is the same verb under another name: nothing reaches a portal until `PUSH`. |
+| [`WITHDRAW`](commands/withdraw.md) | `WITHDRAW <name> VERSION v CHANNEL <channel> [ARCH cpu] [SIGN <keyfile>] [DRYRUN]` | Marks a published version as withdrawn. |
 | [`PUSH`](commands/push.md) | `PUSH CHANNEL <channel> TO <url> [SIGN <keyfile>]` | Uploads a local channel to a portal: over `https` with the key in `PKG_PUSHKEY`, or, over `http` too, with requests signed by the publisher's key. |
 | [`IMAGE`](commands/image.md) | `IMAGE <drawer> OUT <file> [NAME <volume>]` | Writes a drawer as an FFS disk image. |
 | [`SIGN`](commands/sign.md) | `SIGN <file> KEY <keyfile> OUT <sigfile> [SSH NAMESPACE <ns>]` | Signs any file with a key; `SSH` writes a signature `ssh-keygen -Y verify` checks. |
@@ -58,7 +58,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | Verb | Form | Does |
 |---|---|---|
 | [`PORT`](commands/port.md) | `PORT [<portname>]` | On AROS, serves the verbs on an ARexx port, `PKG` by default. |
-| [`ENV`](environments.md) | `ENV ADD\|LIST\|REMOVE\|DEFAULT [<name>] [ROOT <root>] [SYSTEM]` | Registers and selects installation environments. `DEFAULT` chooses the default environment. |
+| [`ENV`](commands/env.md) | `ENV ADD\|LIST\|REMOVE\|DEFAULT [<name>] [ROOT <root>] [SYSTEM]` | Registers and selects installation environments. `DEFAULT` chooses the default environment. |
 | `HELP` | `HELP` | Prints a summary of the commands. |
 | `VERSION` | `VERSION [MACHINE]` | Which build this is: the release, the patch, the day it was built. `--version` and `-v` say the same. Records: `result: version`, `version:`, `built:`. |
 
@@ -147,6 +147,7 @@ activity line; AROS has no `tee`.
 | `PKG_TRACE` | the same as `TRACE <file>` on every command |
 | `PKG_PROGRESS` | `1`: draw the activity line wherever the output goes; anything else switches it off. Unset, it appears at a terminal or an AROS Shell window and nowhere else |
 | `PKG_PROGRESS_AFTER` | how long a step must last, in milliseconds, before the activity line appears; 500 when unset, `0` to draw it at once |
+| `PKG_CHECK_WORDS` | `1`: the words of the command are read against the verb's template and nothing is run: exit 0 and `result: words-taken`, or the usage refusal a real run would give (20). For a test that holds every command a page shows to the parser itself |
 | `PKG_COLOR` | `always` or `never`: colour and marks whatever the output is. Without it, a terminal gets them and a pipe, a file or the ARexx port gets plain text. `NO_COLOR` and `TERM=dumb` turn them off too |
 | `COLUMNS` | the width long lines are wrapped at on a terminal, 80 when unset |
 | `PKG_LIBS_PATH` | `RESOLVE` on a host: the directories of `LIBS:`, separated by `:`; else `ROOT/Libs` and `ROOT/Classes` |

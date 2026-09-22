@@ -20,6 +20,7 @@ in the [reference](../reference.md#verbs); `pkg HELP` prints it.
 - [`SHOW`](show.md): what a channel offers, each entry checked
 - [`SEARCH`](search.md): the packages every word matches
 - [`CHANNEL`](channel.md): the channels a root reads when `CHANNEL` is left out
+- [`ENV`](env.md): roots registered under a name, so a command can leave `ROOT` out
 - [`MOUNTLIST`](mountlist.md): the Mount entry for an installed image
 - [`RESOLVE`](resolve.md): which library a program would get from here, and why
 

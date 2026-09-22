@@ -17,7 +17,7 @@ VERFLAGS  = -DPKG_VERSION_PATCH='"$(PATCH)"' -DPKG_BUILD='"$(BUILD)"' -DPKG_BUIL
 include sources.mk
 HDR  = $(wildcard include/*.h) $(wildcard src/*.h)
 
-UNITS = test_activity test_container test_sha256 test_manifest test_ed25519 test_image test_ameta
+UNITS = test_args test_activity test_container test_sha256 test_manifest test_ed25519 test_image test_ameta
 
 .PHONY: all print-sources check-symbols check-cross test test-run test-ubsan check-portability check-m68k check-image check check-aros clean install aros-channel
 
@@ -183,6 +183,8 @@ test-run:
 	@sh tests/ssh-sign.sh
 	@echo "== docs-links"
 	@sh tests/docs-links.sh
+	@echo "== grammar"
+	@PKG=./build/pkg python3 tests/grammar.py
 	@echo "== docs-examples"
 	@PKG=./build/pkg sh tests/docs-examples.sh
 	@echo "== archive"

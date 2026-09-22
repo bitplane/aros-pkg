@@ -80,7 +80,10 @@ for path in files:
     for n, (_, c) in enumerate(cmds):
         script.append("{ %s\n} > .out%d 2>&1 < /dev/null; echo $? > .rc%d" % (c.replace(PORTAL, local), n, n))
     env = dict(os.environ, PATH=os.path.dirname(pkg) + os.pathsep + os.environ["PATH"],
-               HOME=work, PKG_CACHE=os.path.join(work, ".cache"))
+               HOME=work, PKG_CACHE=os.path.join(work, ".cache"),
+               # the examples register environments: never in the person's own
+               # configuration, whatever XDG_CONFIG_HOME their shell sets
+               XDG_CONFIG_HOME=os.path.join(work, ".config"))
     for k in ("PKG_SIGNKEY", "PKG_OUTPUT", "PKG_TRACE", "PKG_PUSHKEY", "PKG_PROGRESS"):
         env.pop(k, None)
     subprocess.run(["bash", "-c", "\n".join(script)], cwd=work, env=env, timeout=600)

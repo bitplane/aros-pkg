@@ -5,8 +5,8 @@
 
 Put missing and changed files back from the channel.
 ```
-pkg REPAIR <name> ROOT <root> [CHANNEL <channel>] [DRYRUN]
-pkg REPAIR ALL    ROOT <root> [CHANNEL <channel>] [DRYRUN]
+pkg REPAIR <name> ROOT <root> [CHANNEL <channel>] [ARCH cpu] [UNPACKED <dir>] [DRYRUN]
+pkg REPAIR ALL    ROOT <root> [CHANNEL <channel>] [ARCH cpu] [UNPACKED <dir>] [DRYRUN]
 ```
 
 ## What it does

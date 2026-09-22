@@ -70,13 +70,13 @@ Delete SYS:.pkg ALL FORCE
 ```
 
 There is no `REMOVE ALL`: removing software is one decision per package.
-`ALL` is read as a package name, and the command is refused as one that is not
-installed:
+`ALL` is refused as a word `REMOVE` does not take, before anything is looked
+at:
 
 ```console
-$ pkg REMOVE ALL ROOT aros    # exits 11
-pkg remove: ALL is not installed in aros
-  next: check the name; pkg SHOW CHANNEL <dir> lists what a channel offers, pkg LIST ROOT <dir> what a root holds
+$ pkg REMOVE ALL ROOT aros    # exits 20
+pkg remove: ALL is not a word REMOVE takes; it takes ORPHANS, ROOT, DRYRUN
+  next: fix the command; pkg HELP lists the verbs and keywords
 ```
 
 `Pkg LIST ROOT SYS:` after the orphans have gone says what is still there;

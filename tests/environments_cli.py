@@ -43,7 +43,9 @@ with tempfile.TemporaryDirectory(prefix='pkg-environments-cli-') as tmp:
     run('LIST', ok=False)
     assert 'interactive choice' in interactive(str(first))
     assert not config.exists()
-    run('ENV', 'ADD', 'native', 'ROOT', first)
+    # the result names the file it saved: the path was once read after the
+    # save had freed it, and the line ended empty
+    assert 'configuration saved: ' + str(config) in run('ENV', 'ADD', 'native', 'ROOT', first)
     assert str(config) in run('ENV', 'LIST')
     assert str(first) in run('LIST')
     run('ENV', 'ADD', 'other', 'ROOT', second)
