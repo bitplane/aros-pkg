@@ -435,6 +435,20 @@ mrun x8 instal MACHINE
 has "$T/x8.o" 'did you mean INSTALL?';                ok $? "whatever case it was typed in"
 mrun x9 ENVS MACHINE
 has "$T/x9.o" 'did you mean ENV?';                    ok $? "including the verbs that are answered apart from the table"
+# The first question asked of a tool that surprised someone. It used to be
+# answered by accident: an unknown word printed the whole usage, whose first
+# line is the version. Now the usage is not printed, so it is answered on
+# purpose, and MACHINE gets it as records.
+$PKG VERSION > "$T/v1.o" 2>&1
+[ $? = 0 ] && grep -q "^pkg [0-9]" "$T/v1.o";                ok $? "VERSION says which build this is, and exits 0"
+$PKG --version > "$T/v2.o" 2>&1
+cmp -s "$T/v1.o" "$T/v2.o";                           ok $? "and --version says the same"
+mrun v3 VERSION MACHINE
+only_kv "$T/v3.o" && has "$T/v3.o" '^result: version$' && has "$T/v3.o" '^version: [0-9]'
+                                                      ok $? "MACHINE gets it as records, not as a sentence"
+$PKG SHOW hello VERSION 1.2 ROOT "$M" CHANNEL "$CH" MACHINE > "$T/v4.o" 2>&1
+has "$T/v4.o" '^result: shown$';                      ok $? "control: VERSION is still the keyword after a verb"
+
 mrun xb UNINSTALL MACHINE
 has "$T/xb.o" 'pkg says REMOVE';                      ok $? "a word another tool uses is answered with the verb pkg has for it"
 ! has "$T/xb.o" 'INSTALL?';                           ok $? "and never with the verb it merely resembles: UNINSTALL is two edits from INSTALL"

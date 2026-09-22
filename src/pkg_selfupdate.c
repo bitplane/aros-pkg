@@ -97,13 +97,16 @@ static void report(const struct pkg_sink *s, const char *key, const char *value,
 }
 /* A question waiting for an answer on the terminal: the one line a person
  * must read before typing. In MACHINE mode it is a record, and nothing is
- * asked: the caller never reaches here without a terminal. */
+ * asked: the caller never reaches here without a terminal. Only the systems
+ * with a sudo to offer ask anything: not Windows, not AROS. */
+#if !defined(_WIN32) && !defined(__AROS__)
 static void ask(const struct pkg_sink *s, const char *text)
 {
     if(s->structured) { if(s->record) s->record(s->user,"question",text); return; }
     if(s->line) s->line(s->user,PKG_LINE_QUESTION,0,text);
     else if(s->text) { char line[PATHCAP+256]; snprintf(line,sizeof line,"%s ",text); s->text(s->user,0,line); }
 }
+#endif
 static int failure(const struct pkg_sink *s, int code, const char *text)
 { report(s,"self-update",text,1); return code; }
 static int executable(char out[PATHCAP])

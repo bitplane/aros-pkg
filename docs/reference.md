@@ -60,6 +60,7 @@ that run, what it records, its refusals ([all of them](commands/README.md)).
 | [`PORT`](commands/port.md) | `PORT [<portname>]` | On AROS, serves the verbs on an ARexx port, `PKG` by default. |
 | [`ENV`](environments.md) | `ENV ADD\|LIST\|REMOVE\|DEFAULT [<name>] [ROOT <root>] [SYSTEM]` | Registers and selects installation environments. `DEFAULT` chooses the default environment. |
 | `HELP` | `HELP` | Prints a summary of the commands. |
+| `VERSION` | `VERSION [MACHINE]` | Which build this is: the release, the patch, the day it was built. `--version` and `-v` say the same. Records: `result: version`, `version:`, `built:`. |
 
 Environment selection is described in [Environments](environments.md). An explicit
 `ROOT` takes precedence; `ENVIRONMENT <name>` selects a registered environment.

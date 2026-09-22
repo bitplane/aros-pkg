@@ -240,7 +240,10 @@ static int wants_machine(int argc, char **argv)
 {
     int i;
     for (i = 1; i < argc; i++) {
-        if (takes_value(argv[i]))
+        /* The first word is the verb, never a keyword: "pkg VERSION MACHINE"
+         * asks the version of a machine, and does not give VERSION the value
+         * MACHINE the way "INSTALL x VERSION MACHINE" would. */
+        if (i > 1 && takes_value(argv[i]))
             i++;
         else if (ieq(argv[i], "MACHINE"))
             return 1;
@@ -486,6 +489,7 @@ static int usage(void)
     usage_line("%sExit code%s 0 done; 10 to 18 refused, the number is the class; 20 a wrong command\n", b, r);
     usage_line("ENV        pkg ENV ADD <name> ROOT <dir> [SYSTEM]; ENV LIST; ENV REMOVE <name>; ENV DEFAULT <name>\n");
     usage_line("Roots      ROOT wins; ENVIRONMENT <name> selects a registered root. pkg u updates pkg itself; pkg REMOVE uninstalls it.\n");
+    usage_line("Asking     pkg HELP shows this; pkg VERSION says which build this is\n");
     usage_line("%sAROS%s      pkg PORT [<portname>] serves every verb on an ARexx port, PKG by default\n", b, r);
     return PKG_RC_USAGE;
 }
@@ -795,6 +799,23 @@ static int run_verb(int argc, char **argv)
         usage_is_error = 0;
         usage();
         usage_is_error = 1;
+        machine = saved_machine;
+        return PKG_RC_OK;
+    }
+    /* Which build is this? The first question asked of a tool that did not
+     * do what someone expected, and the answer to most of them. It used to
+     * work by accident, the whole usage being printed for an unknown word
+     * and the version being its first line; now the usage is not printed,
+     * so the question is answered on purpose. */
+    if (ieq(argv[1], "VERSION") || strcmp(argv[1], "--version") == 0
+        || strcmp(argv[1], "-v") == 0) {
+        if (machine) {
+            print_record(NULL, "result", "version");
+            print_record(NULL, "version", PKG_VERSION_STRING);
+            print_record(NULL, "built", PKG_BUILD_DAY);
+        } else {
+            pkg_out("%s\n", pkg_version_cookie + 6);
+        }
         machine = saved_machine;
         return PKG_RC_OK;
     }
