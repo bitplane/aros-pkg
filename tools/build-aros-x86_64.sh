@@ -20,7 +20,7 @@
 set -eu
 # The version this binary says it is, as the Makefile makes it: PATCH and BUILD
 # may be set to pin a reproducible build.
-verflags="-DPKG_VERSION_PATCH=\"${PATCH:-6}\" -DPKG_BUILD=\"${BUILD:-$(date -u +%Y%m%d)}\" -DPKG_BUILD_DAY=\"${BUILDDAY:-$(date -u +%d.%m.%Y)}\""
+verflags="-DPKG_VERSION_PATCH=\"${PATCH:-0}\" -DPKG_BUILD=\"${BUILD:-$(date -u +%Y%m%d)}\" -DPKG_BUILD_DAY=\"${BUILDDAY:-$(date -u +%d.%m.%Y)}\""
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # AROS's sources sit beside the repository; from a git worktree, beside the

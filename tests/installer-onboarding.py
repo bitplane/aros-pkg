@@ -88,7 +88,7 @@ if os.geteuid() != 0:
   # check does not depend on which version the live channel holds today.
   binary=directory/'pkg'
   srcs=subprocess.run(['make','-s','print-sources'],cwd=repo,capture_output=True,text=True,check=True).stdout.split()
-  subprocess.run(['cc','-std=c99','-O1','-Iinclude','-Ithird_party/bzip2','-DPKG_VERSION_PATCH="0"','-DPKG_BUILD="20260101"','-DPKG_BUILD_DAY="01.01.2026"','-o',str(binary)]+srcs,cwd=repo,check=True)
+  subprocess.run(['cc','-std=c99','-O1','-Iinclude','-Ithird_party/bzip2','-DPKG_VERSION_RELEASE="0.1"','-DPKG_VERSION_PATCH="0"','-DPKG_BUILD="20260101"','-DPKG_BUILD_DAY="01.01.2026"','-o',str(binary)]+srcs,cwd=repo,check=True)
   before=binary.read_bytes()
   directory.chmod(0o500)
   pid,fd=pty.fork()

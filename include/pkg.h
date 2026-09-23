@@ -66,11 +66,13 @@
  * something in that release changes, and the day this binary was built. The
  * build carries them in, so what runs always says which day it came from; the
  * defaults here are for anything that compiles pkg.h on its own. A package
- * orders them as Pkg orders any version: 1.7.0+20260920 comes after 1.7, a
+ * orders them as Pkg orders any version: 1.8.0+20260923 comes after 1.8, a
  * later day after an earlier one, and a raised PKG_VERSION_PATCH after both. */
-#define PKG_VERSION_RELEASE "1.7"
+#ifndef PKG_VERSION_RELEASE
+#define PKG_VERSION_RELEASE "1.8"
+#endif
 #ifndef PKG_VERSION_PATCH
-#define PKG_VERSION_PATCH "6"
+#define PKG_VERSION_PATCH "0"
 #endif
 #ifndef PKG_BUILD
 #define PKG_BUILD "00000000"      /* a build that did not say: never published */

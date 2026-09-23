@@ -337,13 +337,13 @@ Goals and milestones: [GOAL.md](../GOAL.md). What remains: [OPEN.md](../OPEN.md)
 
 `PKG_VERSION_RELEASE` in `include/pkg.h` is the release, and stays put until
 one is declared. What a binary reports is that release, a patch number and the
-day it was built: `1.7.0+20260920`. The build passes the last two in, so a
+day it was built: `1.8.0+20260923`. The build passes the last two in, so a
 binary always says which day it came from, and pkg orders them as it orders any
-version: `1.7.0+20260920` comes after `1.7`, a later day after an earlier one,
+version: `1.8.0+20260923` comes after `1.8`, a later day after an earlier one,
 and a raised patch after both.
 
 ```sh
-make build/pkg && ./build/pkg HELP | head -1     # pkg 1.7.0+20260920 (20.09.2026)
+make build/pkg && ./build/pkg VERSION     # pkg 1.8.0+20260923 (23.09.2026)
 ```
 
 Raise `PATCH` when a release changes in a way people should be able to ask for
@@ -351,8 +351,8 @@ by version; the day moves on its own. Both can be pinned, for a build that must
 come out byte for byte the same as an earlier one:
 
 ```sh
-make PATCH=1 BUILD=20260920 BUILDDAY=20.09.2026 build/pkg
-PATCH=1 BUILD=20260920 BUILDDAY=20.09.2026 sh tools/build-aros.sh
+make PATCH=1 BUILD=20260923 BUILDDAY=23.09.2026 build/pkg
+PATCH=1 BUILD=20260923 BUILDDAY=23.09.2026 sh tools/build-aros.sh
 ```
 
 A build that says nothing carries `+00000000`, and nothing published ever
