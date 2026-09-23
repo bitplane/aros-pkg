@@ -38,9 +38,15 @@ check: check-portability check-symbols check-cross test test-ubsan check-m68k ch
 # which bzip2 asks the program to define. Verified to be able to fail: a
 # function made global without its prefix is named here and exits 1.
 check-symbols: build/libpkg.a
-	@bad=$$(nm -g build/lib-obj/*.o | awk 'NF==3 && $$2 != "U" {print $$3}' | sed 's/^_//' \
+	@want=$$(for o in $(LIBOBJ); do basename $$o; done | sort); \
+	have=$$(ar t build/libpkg.a | grep '\.o$$' | sort); \
+	if [ "$$want" != "$$have" ]; then \
+		echo "check-symbols: FAIL, libpkg.a holds other objects than sources.mk lists"; \
+		printf '%s\n' "$$have" | grep -vxF "$$want" | sed 's/^/  not listed: /'; \
+		printf '%s\n' "$$want" | grep -vxF "$$have" | sed 's/^/  missing:    /'; exit 1; fi
+	@bad=$$(nm -g $(LIBOBJ) | awk 'NF==3 && $$2 != "U" {print $$3}' | sed 's/^_//' \
 		| grep -vE '^(pkg_|pkgi_|PKG_|BZ2_|bz_internal_error$$)' | sort -u); \
-	n=$$(nm -g build/lib-obj/*.o | awk 'NF==3 && $$2 != "U"' | wc -l); \
+	n=$$(nm -g $(LIBOBJ) | awk 'NF==3 && $$2 != "U"' | wc -l); \
 	if [ "$$n" -eq 0 ]; then echo "check-symbols: FAIL, nm listed no symbol at all"; exit 1; fi; \
 	if [ -n "$$bad" ]; then echo "check-symbols: FAIL, globals without the library's prefix:"; echo "$$bad"; exit 1; fi; \
 	echo "check-symbols: PASS, $$n globals, every one prefixed"
@@ -65,12 +71,18 @@ build/pkg: src/pkg_main.c $(CLI) $(LIB) $(CORE) $(HOST) $(HDR)
 
 # libpkg for other programs: a static library and pkg.h. The host layer is
 # part of it, since every operation touches files.
+# Exactly the listed objects, never whatever lies in build/lib-obj: after a
+# source was split or renamed, its old object stayed there, went into the
+# archive ahead of the new ones, and a program linked the old code.
+LIBOBJ = $(patsubst %.c,build/lib-obj/%.o,$(notdir $(LIB) $(CORE) $(HOST)))
+
 build/libpkg.a: $(LIB) $(CORE) $(HOST) $(HDR)
-	@mkdir -p build/lib-obj
+	@rm -rf build/lib-obj && mkdir -p build/lib-obj
 	@for f in $(LIB) $(CORE) $(HOST); do \
 		$(CC) $(CFLAGS) $(CPPFLAGS) -c $$f -o build/lib-obj/$$(basename $$f .c).o || exit 1; \
 	done
-	ar rcs $@ build/lib-obj/*.o
+	@rm -f $@
+	ar rcs $@ $(LIBOBJ)
 
 # Install the tool, the library and the agents' skill: `make install`, or
 # `make install PREFIX=/usr/local`. Nothing else is needed at run time.
