@@ -1,122 +1,120 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 John Knipper
-"""Every pkg command the portal and the repository's documentation show, held
-to the grammar pkg itself prints.
+"""Every pkg command the portal and the repository's documentation show, judged
+by pkg itself.
 
 The portal's pages and installers carry pkg commands of their own, and the
-guides carry many more. When the parser changes they must change with it, and
-nobody can keep that list in their head. This script builds the list from the
-sources, reads the grammar from the pkg binary (`pkg HELP MACHINE` as records
-when the binary speaks them, its usage text otherwise), and reports every line
-whose verb does not exist or which gives a verb a keyword it does not take.
+guides carry hundreds more. When the parser changes they must change with it.
+This script builds the list from the sources, and asks pkg to judge each
+command with PKG_CHECK_WORDS=1, which reads the words exactly as a real run
+would and runs nothing: exit 0, or the usage refusal (20) a real run would
+give. pkg is the only reference for its own grammar; nothing here keeps a copy.
 
     python3 portal/tools/check-commands.py [--pkg build/pkg] [--list]
 
 --list prints the whole review list, every command with its file and line.
-Without it, only the lines that do not fit the grammar are printed, and the
-exit status is 1 when there is one.
+Without it, only the commands pkg refuses are printed, and the exit status is
+1 when there is one.
+
+Only what a person copies is read: code spans and code blocks in Markdown,
+<code> and data-copy in the pages, whole lines in the installers. A value the
+page fills in (@url, {site}, <drawer>, $name, @@CHANNEL@@) is replaced by a
+plain word before pkg judges it.
 """
 
 import argparse
 import html
 import os
 import re
+import shlex
 import subprocess
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-# Where commands are written for people to copy. The portal's pages and
-# installers, and the repository's own documentation.
-SOURCES = [
-    ("portal/src/Portal/Pages", (".cshtml",)),
-    ("portal/src/Portal/Install", ("",)),
-    ("docs", (".md",)),
-    ("README.md", (".md",)),
-]
+# A command is a snippet that starts with pkg, after the prompt a transcript
+# shows ("$ ", "1.SYS:> "): the program by its name, or by its path (C:Pkg,
+# RAM:Pkg-bootstrap), then a verb in capitals that is not an AmigaDOS volume
+# (DEPOT:). pkg named in the middle of a line is prose or pkg's own output.
+COMMAND = re.compile(r"^(?:\$\s+|\d+\.[\w:]+>\s*)?(?:\w+:(?:[\w/]+/)?)?(?:Pkg|pkg)(?:-bootstrap)?\s+([A-Z][A-Z0-9]+(?![:\w]).*)$")
 
-# pkg as the program: the word pkg or Pkg anywhere, never inside another name
-# (Install-Pkg, SYS:.pkg), followed by a verb in capitals that is not an
-# AmigaDOS volume (DEPOT:). A program given by its path (C:Pkg,
-# RAM:Pkg-bootstrap) counts only as the first word of a line: elsewhere it is
-# the argument of another command, as in "Delete RAM:Pkg-bootstrap QUIET".
-COMMAND = re.compile(r"(?<![-.:/\w])(?:Pkg|pkg)\s+([A-Z][A-Z0-9]+)(?![:\w])([^\n<>\"`|]*)")
-AT_START = re.compile(r"^\s*[\w]+:(?:[\w/]+/)?(?:Pkg|pkg)(?:-bootstrap)?\s+([A-Z][A-Z0-9]+)(?![:\w])([^\n<>\"`|]*)")
-WORD = re.compile(r"^[A-Z][A-Z0-9]+$")
+# A synopsis names the words a verb takes, "[CHANNEL <dir>]", "<name>...", and
+# is read by people, not run: pkg HELP MACHINE is where the syntax is checked.
+SYNOPSIS = re.compile(r"\[[^\]]*\]|\.\.\.")
+
+# Values a page or a template fills in, which pkg should see as one plain word.
+PLACEHOLDER = re.compile(r"@@\w+@@|@\([^)]*\)|@[\w.]+(?:\([^)]*\))?|\{[^}]*\}|<[^>]*>|\$\w+|\$\{[^}]*\}")
 
 
-def files():
-    for rel, exts in SOURCES:
-        path = os.path.join(ROOT, rel)
-        if os.path.isfile(path):
-            yield path
+def sources():
+    """(path, kind) for every file whose commands a person copies."""
+    for d, _, names in os.walk(os.path.join(ROOT, "portal", "src", "Portal", "Pages")):
+        for n in sorted(names):
+            if n.endswith(".cshtml"):
+                yield os.path.join(d, n), "page"
+    install = os.path.join(ROOT, "portal", "src", "Portal", "Install")
+    for n in sorted(os.listdir(install)) if os.path.isdir(install) else []:
+        yield os.path.join(install, n), "lines"
+    yield os.path.join(ROOT, "README.md"), "markdown"
+    for d, _, names in os.walk(os.path.join(ROOT, "docs")):
+        for n in sorted(names):
+            if n.endswith(".md"):
+                yield os.path.join(d, n), "markdown"
+
+
+def snippets(path, kind):
+    """(line number, text) of what a person would copy from this file."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.read().split("\n")
+    if kind == "lines":
+        for no, line in enumerate(lines, 1):
+            yield no, line
+        return
+    if kind == "page":
+        for no, line in enumerate(lines, 1):
+            for m in re.finditer(r"<code[^>]*>(.*?)</code>|data-copy=\"([^\"]*)\"", line):
+                yield no, html.unescape(m.group(1) or m.group(2) or "")
+        return
+    fenced = False
+    for no, line in enumerate(lines, 1):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
             continue
-        for d, _, names in os.walk(path):
-            if os.sep + "bin" in d or os.sep + "obj" in d:
-                continue
-            for n in sorted(names):
-                if any(n.endswith(e) for e in exts):
-                    yield os.path.join(d, n)
+        if fenced:
+            yield no, line
+        else:
+            for m in re.finditer(r"`([^`]+)`", line):
+                yield no, m.group(1)
 
 
 def commands():
-    """(file, line, verb, rest) for every command a source shows."""
-    for path in files():
-        with open(path, encoding="utf-8", errors="replace") as f:
-            for no, line in enumerate(f, 1):
-                text = html.unescape(line)
-                first = AT_START.match(text)
-                if first:
-                    yield os.path.relpath(path, ROOT), no, first.group(1), first.group(2).strip()
-                    text = text[first.end():]
-                for m in COMMAND.finditer(text):
-                    yield os.path.relpath(path, ROOT), no, m.group(1), m.group(2).strip()
-
-
-def grammar(pkg):
-    """verb -> set of keywords it takes, from the binary."""
-    out = subprocess.run([pkg, "HELP", "MACHINE"], capture_output=True, text=True).stdout
-    verbs = {}
-    # Records, when this pkg prints them: `verb: NAME` then `keyword: WORD` lines.
-    current = None
-    for line in out.splitlines():
-        k, _, v = line.partition(": ")
-        if k == "verb":
-            current = v.strip().upper()
-            verbs.setdefault(current, set())
-        elif k in ("keyword", "switch") and current:
-            verbs[current].add(v.strip().split()[0].upper())
-    if verbs:
-        return verbs, "records"
-    # Otherwise the usage text, which is written for people and so only
-    # mostly regular: a verb line starts two spaces in; its template and the
-    # continuation lines name its keywords in capitals; "On any verb" lists
-    # keywords every verb takes; and a few verbs are only named in the notes
-    # at the end ("pkg PORT [<portname>]", "pkg ENV ADD ...").
-    current, section = None, ""
-    anyverb = set()
-    for line in out.splitlines():
-        if not line.startswith(" ") and line.strip():
-            section = line.strip()
-            current = None
-            # A note names the verb once and its forms after it, "pkg ENV ADD
-            # ...; ENV LIST; ENV REMOVE ...": the whole line belongs to it.
-            for v in re.findall(r"\bpkg ([A-Z][A-Z0-9]+)\b", line):
-                tail = line.split("pkg " + v, 1)[1]
-                verbs.setdefault(v, set()).update(re.findall(r"\b[A-Z][A-Z0-9]+\b", tail))
+    for path, kind in sources():
+        if not os.path.exists(path):
             continue
-        m = re.match(r"^  ([A-Z][A-Z0-9]+)\s+(.*)$", line)
-        if m and section.startswith("On any verb"):
-            anyverb.add(m.group(1))
-        elif m:
-            current = m.group(1)
-            verbs.setdefault(current, set()).update(re.findall(r"\b[A-Z][A-Z0-9]+\b", m.group(2)))
-        elif current and re.match(r"^\s{4,}\[", line):
-            verbs[current].update(re.findall(r"\b[A-Z][A-Z0-9]+\b", line))
-    for v in verbs.values():
-        v.update(anyverb)
-    return verbs, "usage text"
+        for no, text in snippets(path, kind):
+            m = COMMAND.match(text.strip())
+            # A verb named on its own, "pkg PUBLISH writes it", is a mention.
+            if m and len(m.group(1).split(" #")[0].split()) > 1 and not SYNOPSIS.search(m.group(1).split(" #")[0]):
+                yield os.path.relpath(path, ROOT), no, m.group(1)
+
+
+def words(command):
+    """The words pkg would receive, placeholders made plain, comments cut."""
+    command = re.split(r"\s+[#;]\s", command, maxsplit=1)[0]   # "# exits 11", "; a comment"
+    command = command.split(" >")[0].split(" |")[0]            # redirections and pipes
+    command = PLACEHOLDER.sub("x", command)
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return command.split()
+
+
+def judge(pkg, argv):
+    env = dict(os.environ, PKG_CHECK_WORDS="1", PKG_COLOR="never")
+    r = subprocess.run([pkg] + argv, capture_output=True, text=True, env=env)
+    first = (r.stdout + r.stderr).strip().split("\n")[0]
+    return r.returncode, first
 
 
 def main():
@@ -125,32 +123,30 @@ def main():
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
 
-    verbs, how = grammar(a.pkg)
-    if not verbs:
-        print(f"check-commands: {a.pkg} printed no grammar", file=sys.stderr)
+    code, first = judge(a.pkg, ["VERSION"])
+    if code != 0:
+        print(f"check-commands: {a.pkg} does not answer: {first}", file=sys.stderr)
         return 2
-    keywords = set().union(*verbs.values())
 
-    problems = 0
-    seen = 0
-    for path, no, verb, rest in commands():
+    seen = refused = 0
+    for path, no, command in commands():
+        argv = words(command)
+        if not argv:
+            continue
         seen += 1
-        why = None
-        if verb not in verbs:
-            why = f"no verb {verb}"
-        else:
-            for w in rest.split():
-                w = w.strip("[](),.;:")
-                if WORD.match(w) and w in keywords and w not in verbs[verb]:
-                    why = f"{verb} does not take {w}"
-                    break
-        if why:
-            problems += 1
-        if why or a.list:
-            print(f"{'FAIL' if why else 'ok  '} {path}:{no}: pkg {verb} {rest}".rstrip() + (f"   <- {why}" if why else ""))
-    print(f"check-commands: {seen} commands in the portal and the docs, {problems} that do not fit "
-          f"the grammar of {os.path.relpath(a.pkg, ROOT)} ({how})")
-    return 1 if problems else 0
+        code, first = judge(a.pkg, argv)
+        # A transcript may show a wrong command on purpose, "# exits 20". pkg
+        # decides some of those from the words and some only once it looks
+        # (MOUNTLIST of a package that is no image), so either answer holds.
+        # Any other documented exit comes after the words were taken.
+        said = re.search(r"#\s*exits\s+(\d+)", command)
+        bad = code not in ((0, 20) if said and said.group(1) == "20" else (0,))
+        refused += bad
+        if bad or a.list:
+            print(f"{'FAIL' if bad else 'ok  '} {path}:{no}: pkg {' '.join(argv)}" + (f"\n       {first} (exit {code})" if bad else ""))
+    print(f"check-commands: {seen} commands in the portal and the docs, {refused} that pkg refuses "
+          f"(judged by {os.path.relpath(a.pkg, ROOT)} with PKG_CHECK_WORDS)")
+    return 1 if refused else 0
 
 
 if __name__ == "__main__":
