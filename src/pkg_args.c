@@ -209,6 +209,16 @@ int pkg_args_read(struct pkg_args *a, const char *verb, int first, int argc, cha
                 return fail(err, errlen, "%s needs a value after it%s%s", it->name, NULL, NULL);
             if (it->set)
                 return fail(err, errlen, "%s is given twice; %s takes it once%s", it->name, verb, NULL);
+            /* ROOT CHANNEL: a keyword of this verb, in capitals, where a
+             * value belongs is a value forgotten, not a directory called
+             * CHANNEL. In lower case it is a value: a directory may well be
+             * called channel. */
+            if (capitals(argv[w + 1])) {
+                struct pkg_arg *next_kw = pkg_args_item(a, argv[w + 1]);
+                if (next_kw != NULL && !by_place(next_kw))
+                    return fail(err, errlen, "%s needs its value, and %s after it is a word %s takes: "
+                                "the value was left out", it->name, next_kw->name, verb);
+            }
             it->value = argv[++w];
             it->set = 1;
             continue;

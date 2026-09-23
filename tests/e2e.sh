@@ -473,6 +473,27 @@ $PKG PUSH CHANNEL "$CH" TO http://127.0.0.1:9 DRYRUN MACHINE > "$T/pd.o" 2>&1
 $PKG INSTALL hello ROT "$M" MACHINE > "$T/rot.o" 2>&1
 [ $? -eq 20 ] && has "$T/rot.o" 'did you mean ROOT?'
                                                       ok $? "a keyword misspelt in capitals is caught, not installed as a package"
+# A slip must never reach the default environment's root, the person's own
+# system: before, "INSTALL foo ROTO /tmp/r" took ROTO and /tmp/r as two more
+# names and went on in the default root. Checked with a default environment
+# registered, and the root it names untouched.
+mkdir -p "$T/envcfg/aros-pkg" "$T/sysroot"
+printf 'default=sys\n\n[sys]\nroot=%s\n' "$T/sysroot" > "$T/envcfg/aros-pkg/environments.conf"
+XDG_CONFIG_HOME="$T/envcfg" $PKG INSTALL hello ROTO "$T/r9" CHANNEL "$CH" > "$T/slip.o" 2>&1
+[ $? -eq 20 ] && has "$T/slip.o" 'did you mean ROOT?' && ! has "$T/slip.o" 'Environment:' && [ ! -d "$T/sysroot/.pkg" ]
+                                                      ok $? "a misspelt ROOT is refused before any root is chosen, and the default root is untouched"
+XDG_CONFIG_HOME="$T/envcfg" $PKG INSTALL hello "$T/r9" CHANNEL "$CH" > "$T/slip2.o" 2>&1
+[ $? -eq 20 ] && has "$T/slip2.o" 'is not a package name' && [ ! -d "$T/sysroot/.pkg" ]
+                                                      ok $? "a path where a package name belongs is refused, not installed as a name"
+$PKG INSTALL Hello ROOT "$M" MACHINE > "$T/case.o" 2>&1
+[ $? -eq 20 ] && has "$T/case.o" 'did you mean hello?'
+                                                      ok $? "a name in capitals is answered with its lower case"
+$PKG LIST ROOT "" MACHINE > "$T/empty.o" 2>&1
+[ $? -eq 20 ] && has "$T/empty.o" 'ROOT is given an empty value'
+                                                      ok $? "an empty value is refused, instead of an empty root"
+$PKG '?' > "$T/qq.o" 2>&1
+[ $? -eq 0 ] && has "$T/qq.o" '^INSTALL  *PACKAGE/M/A,ROOT/K'
+                                                      ok $? "pkg ? lists every verb's template, as a C: command answers ?"
 $PKG INSTALL ? > "$T/q.o" 2>&1
 [ $? -eq 0 ] && has "$T/q.o" 'template: PACKAGE/M/A,ROOT/K'
                                                       ok $? "INSTALL ? answers with the template, as an AmigaDOS command does"

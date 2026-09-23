@@ -168,8 +168,8 @@ const char *pkg_check_kind(const char *kind);
  * 1.2.0. Both arguments must have passed pkg_check_version. */
 int pkg_version_cmp(const char *a, const char *b);
 
-/* How far apart two short names are, in insertions, deletions and
- * substitutions: the measure behind "did you mean", whether the name was
+/* How far apart two short names are, in insertions, deletions,
+ * substitutions and swaps of two neighbours: the measure behind "did you mean", whether the name was
  * meant to be a package in a channel or a verb on the command line. */
 size_t pkg_name_edits(const char *a, const char *b);
 

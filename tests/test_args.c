@@ -108,6 +108,12 @@ int main(void)
     ok(strstr(err, "MACHINE") == NULL && strstr(err, "TRACE") == NULL, "the global words are not listed");
     ok(run(&a, INSTALL, "INSTALL", "zip ROT r", err, sizeof err) == -1 && strstr(err, "did you mean ROOT?"),
        "a slip of one of its own keywords");
+    ok(run(&a, INSTALL, "INSTALL", "foo ROTO /tmp/r1", err, sizeof err) == -1 && strstr(err, "did you mean ROOT?"),
+       "two letters swapped are one slip: ROTO is caught, not taken as a name");
+    ok(run(&a, INSTALL, "INSTALL", "foo ROOT CHANNEL", err, sizeof err) == -1 && strstr(err, "the value was left out"),
+       "a keyword of the verb in capitals where a value belongs is a value left out");
+    ok(run(&a, INSTALL, "INSTALL", "foo ROOT channel", err, sizeof err) == 0
+       && strcmp(pkg_args_item(&a, "ROOT")->value, "channel") == 0, "in lower case it is a directory called channel");
     ok(run(&a, INSTALL, "INSTALL", "zip DRYRUN DRYRUN", err, sizeof err) == -1 && strstr(err, "DRYRUN is given twice"),
        "a switch given twice");
     ok(run(&a, "PACKAGE,CHANNEL/K", "SHOW", "a b", err, sizeof err) == -1

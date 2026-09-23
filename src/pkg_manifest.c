@@ -529,31 +529,34 @@ int pkg_version_cmp(const char *a, const char *b)
     return cmp_dotted(&a, &b);
 }
 
-/* Insertions, deletions and substitutions between two short names: what is
- * behind every "did you mean", for a package name in a channel and for a
- * verb on the command line. Names longer than 64 characters are not
- * compared: a slip of the fingers is short, and the answer would be worth
- * nothing anyway. */
+/* Insertions, deletions, substitutions and swaps of two neighbours between
+ * two short names: what is behind every "did you mean", for a package name in
+ * a channel and for a verb or a keyword on the command line. A swap counts
+ * once, since it is one slip of the fingers: ROTO is one from ROOT, where
+ * counting it as two substitutions let "INSTALL foo ROTO /tmp/r" through as
+ * two package names. Names longer than 64 characters are not compared: a
+ * slip is short, and the answer would be worth nothing anyway. */
 size_t pkg_name_edits(const char *a, const char *b)
 {
-    size_t la = strlen(a), lb = strlen(b), i, j, row[66], diag, up;
+    size_t la = strlen(a), lb = strlen(b), i, j, r0[66], r1[66], r2[66];
+    size_t *back = r0, *prev = r1, *row = r2, *t;
     if (la > 64 || lb > 64)
         return 99;
-    for (j = 0; j <= lb; j++) row[j] = j;
+    for (j = 0; j <= lb; j++) prev[j] = j;
     for (i = 1; i <= la; i++) {
-        diag = row[0];
         row[0] = i;
         for (j = 1; j <= lb; j++) {
-            size_t best;
-            up = row[j];
-            best = diag + (a[i - 1] != b[j - 1]);
-            if (up + 1 < best) best = up + 1;
+            size_t best = prev[j - 1] + (a[i - 1] != b[j - 1]);
+            if (prev[j] + 1 < best) best = prev[j] + 1;
             if (row[j - 1] + 1 < best) best = row[j - 1] + 1;
-            diag = up;
+            if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]
+                && back[j - 2] + 1 < best)
+                best = back[j - 2] + 1;
             row[j] = best;
         }
+        t = back; back = prev; prev = row; row = t;
     }
-    return row[lb];
+    return prev[lb];
 }
 
 /* ---- emit ------------------------------------------------------------- */

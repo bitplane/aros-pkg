@@ -501,8 +501,29 @@ static int read_words(const struct verb *v, int words, int argc, char **argv, st
             size_t n = (it->flags & PKG_ARG_MULTI) ? it->nvalues : 1, j;
             for (j = 0; j < n; j++) {
                 char *w = (char *)((it->flags & PKG_ARG_MULTI) ? it->values[j] : it->value);
-                if (clean_value(words == 2 && j == 0 ? "the name" : "the name", w) != 0)
+                if (clean_value("the name", w) != 0)
                     return -1;
+                /* A word in the place of a package is held to what a package
+                 * name is, here, before a root is chosen: "INSTALL foo ROTO
+                 * /tmp/r" once took ROTO and /tmp/r as two more names and went
+                 * on in the default environment's root, the person's own
+                 * system. A path, a volume or a word in capitals is never a
+                 * package name. */
+                if (strcmp(it->name, "PACKAGE") == 0) {
+                    const char *why = pkg_check_name(w);
+                    if (why != NULL) {
+                        char lower[72];
+                        size_t q;
+                        for (q = 0; w[q] && q + 1 < sizeof lower; q++)
+                            lower[q] = (char)tolower((unsigned char)w[q]);
+                        lower[q] = '\0';
+                        if (strcmp(lower, w) != 0 && pkg_check_name(lower) == NULL)
+                            return usage_errorf("\"%s\" is not a package name: names are in lower case; "
+                                                "did you mean %s?", w, lower);
+                        return usage_errorf("\"%s\" is not a package name, which %s takes there: %s",
+                                            w, v->verb, why);
+                    }
+                }
                 if (a->target == NULL) {
                     a->target = w;
                 } else {
@@ -524,6 +545,8 @@ static int read_words(const struct verb *v, int words, int argc, char **argv, st
         }
         if (clean_value(it->name, (char *)it->value) != 0)
             return -1;
+        if (it->value[0] == '\0')
+            return usage_errorf("%s is given an empty value", it->name);
         if (strcmp(it->name, "TRACE") == 0) { trace_path = it->value; out_sink.trace = print_trace; continue; }
         if (strcmp(it->name, "LOG") == 0) { log_path = it->value; continue; }
         if (strcmp(it->name, "ENVIRONMENT") == 0) { chosen_environment = it->value; continue; }
@@ -1076,6 +1099,17 @@ static int run_verb(int argc, char **argv)
             usage();
         }
         usage_is_error = 1;
+        machine = saved_machine;
+        return PKG_RC_OK;
+    }
+    /* pkg ?: every verb and its template, as any command in C: answers a
+     * question mark with its own. */
+    if (argc == 2 && strcmp(argv[1], "?") == 0) {
+        size_t i;
+        for (i = 0; i < NVERBS; i++)
+            pkg_out("%-14s %s\n", verbs[i].verb, verbs[i].tmpl);
+        pkg_out("%-14s %s\n%-14s %s\n%-14s %s\n", "HELP", "VERB,MACHINE/S", "VERSION", "MACHINE/S",
+                "PORT", "PORTNAME");
         machine = saved_machine;
         return PKG_RC_OK;
     }
