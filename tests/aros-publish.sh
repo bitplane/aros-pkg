@@ -74,7 +74,7 @@ has "$O/stack.o" '40960';                                      ok $? "the Shell'
 ok $? "KEYGEN makes a key from the system's randomness, with the output redirected"
 [ "$(code manifest)" = 0 ] && has "$O/manifest.o" '^Architecture: aarch64$'
 ok $? "MANIFEST runs within the default stack"
-[ "$(code publish)" = 0 ] && has "$O/publish.o" '^published tool '
+[ "$(code publish)" = 0 ] && has "$O/publish.o" '^packaged tool '
 ok $? "PUBLISH runs within the default stack, signed by that key"
 [ "$(code install)" = 0 ] && has "$O/install.o" '^installed tool '
 ok $? "AROS installs what AROS published"
